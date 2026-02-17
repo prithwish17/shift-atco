@@ -49,6 +49,12 @@ All colors MUST be HSL.
     --text-xl: clamp(1.15rem, 1.05rem + 0.5vw, 1.4rem);
     --text-2xl: clamp(1.4rem, 1.25rem + 0.7vw, 1.75rem);
 
+    /* Semantic Typography Tokens */
+    --text-title: var(--text-base);
+    --text-label: var(--text-xs);
+    --text-body: var(--text-sm);
+    --text-meta: var(--text-xs);
+
     /* Fluid Spacing Scale */
     --space-1: clamp(2px, 0.25vw, 4px);
     --space-2: clamp(4px, 0.4vw, 8px);

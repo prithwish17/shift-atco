@@ -91,7 +91,7 @@ export function useMyRoster(employeeName?: string) {
         .select("*")
         .ilike("employee_name", employeeName!)
         .order("date", { ascending: false })
-        .limit(10));
+        .limit(50));
       if (error) throw error;
       return (data || []) as unknown as RosterEntry[];
     },

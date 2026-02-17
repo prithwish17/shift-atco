@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-import { Calendar, FileText, Clock, Info, Shield, Users, ClipboardList, MapPin } from "lucide-react";
+import { Calendar, FileText, Clock, Info, Shield, Users, ClipboardList, Briefcase } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
@@ -12,7 +12,16 @@ import { useLeaves, useLeaveBalances } from "@/hooks/useLeaves";
 import { useShifts } from "@/hooks/useShifts";
 import { useMyRoster } from "@/hooks/useRosters";
 import { useMySchedule, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
-import { format, addDays } from "date-fns";
+import { format, addDays, isSameDay, parse } from "date-fns";
+
+/** Parse roster date strings like "17-Feb-2026" into Date objects */
+function parseRosterDate(dateStr: string): Date | null {
+  try {
+    return parse(dateStr, "dd-MMM-yyyy", new Date());
+  } catch {
+    return null;
+  }
+}
 
 export default function EmployeeDashboard() {
   const { user, userRole } = useAuth();
@@ -20,7 +29,6 @@ export default function EmployeeDashboard() {
 
   const today = format(new Date(), "yyyy-MM-dd");
   const weekEnd = format(addDays(new Date(), 7), "yyyy-MM-dd");
-  const todayDisplay = format(new Date(), "dd-MM-yyyy");
 
   const { data: leaves, isLoading: leavesLoading } = useLeaves(user?.id);
   const { data: balances, isLoading: balancesLoading } = useLeaveBalances(user?.id);
@@ -41,9 +49,21 @@ export default function EmployeeDashboard() {
 
   const recentLeaves = leaves?.slice(0, 5) || [];
 
-  // Roster: today's duty and history
-  const todayDuty = myRoster?.find(r => r.date === todayDisplay);
-  const pastDuties = myRoster?.filter(r => r.date !== todayDisplay).slice(0, 3) || [];
+  // 2-day roster + schedule lookup
+  const now = new Date();
+  const tomorrow = addDays(now, 1);
+  const tomorrowStr = format(tomorrow, "yyyy-MM-dd");
+
+  const todayRoster = myRoster?.find(r => {
+    const d = parseRosterDate(r.date);
+    return d && isSameDay(d, now);
+  });
+  const tomorrowRoster = myRoster?.find(r => {
+    const d = parseRosterDate(r.date);
+    return d && isSameDay(d, tomorrow);
+  });
+  const todaySchedule = mySchedule.find(s => s.duty_date === today);
+  const tomorrowSchedule = mySchedule.find(s => s.duty_date === tomorrowStr);
 
   const isLoading = profileLoading || leavesLoading || balancesLoading || shiftsLoading;
 
@@ -98,76 +118,96 @@ export default function EmployeeDashboard() {
           </Card>
         )}
 
-        {/* My Duty Today Widget */}
-        <Card className="border-primary/30 bg-primary/5">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5 text-primary" />
-              My Duty Today
+        {/* Duty Overview — Today + Tomorrow */}
+        <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
+          <CardHeader className="flex flex-row items-center justify-between p-[var(--space-4)]">
+            <CardTitle className="flex items-center gap-[var(--space-2)] font-semibold text-[length:var(--text-title)] text-slate-900 dark:text-slate-100">
+              <Briefcase className="h-5 w-5 text-slate-500 dark:text-slate-400" />
+              Duty Overview
             </CardTitle>
-            <CardDescription>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</CardDescription>
+            <span className="font-medium text-[length:var(--text-body)] text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-[var(--space-2)] py-[var(--space-1)] rounded-md">
+              {currentShift}
+            </span>
           </CardHeader>
-          <CardContent>
-            {rosterLoading ? (
-              <p className="text-sm text-muted-foreground">Loading roster…</p>
-            ) : todayDuty ? (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <p className="text-xs text-muted-foreground">Unit</p>
-                  <p className="font-semibold text-lg">{todayDuty.unit}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Position</p>
-                  <Badge className="text-base">{todayDuty.position}</Badge>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Team</p>
-                  <p className="font-semibold">Team {todayDuty.team}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Shift</p>
-                  <p className="font-semibold">{todayDuty.shift}</p>
-                </div>
-              </div>
+          <CardContent className="p-[var(--space-4)] pt-0">
+            {(rosterLoading || scheduleLoading) ? (
+              <p className="text-[length:var(--text-body)] text-slate-400">Loading…</p>
             ) : (
-              <p className="text-sm text-muted-foreground text-center py-2">No roster assignment for today</p>
-            )}
-
-            {pastDuties.length > 0 && (
-              <div className="mt-4 border-t pt-3">
-                <p className="text-xs text-muted-foreground mb-2">Recent Duties</p>
-                <div className="space-y-2">
-                  {pastDuties.map((d, i) => (
-                    <div key={i} className="flex items-center justify-between text-sm">
-                      <span className="font-mono">{d.date}</span>
-                      <span>{d.unit} — {d.position}</span>
-                      <Badge variant="outline">{d.shift}</Badge>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--space-3)]">
+                {/* TODAY */}
+                <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-[var(--space-3)] space-y-[var(--space-2)]">
+                  <div>
+                    <p className="uppercase tracking-wide text-slate-500 dark:text-slate-400 text-[length:var(--text-meta)] font-semibold">Today</p>
+                    <p className="text-[length:var(--text-body)] text-slate-500 dark:text-slate-400">{format(now, "EEE, dd MMM")}</p>
+                  </div>
+                  {todayRoster ? (
+                    <div className="grid grid-cols-2 auto-rows-min gap-[var(--space-2)]">
+                      <div>
+                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Unit</p>
+                        <p className="font-medium text-[length:var(--text-body)] text-slate-800 dark:text-slate-200">{todayRoster.unit}</p>
+                      </div>
+                      <div>
+                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Position</p>
+                        <span className="inline-block bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium text-[length:var(--text-body)] rounded-md px-[var(--space-2)] py-[var(--space-1)]">{todayRoster.position}</span>
+                      </div>
+                      <div>
+                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Team</p>
+                        <p className="font-medium text-[length:var(--text-body)] text-slate-800 dark:text-slate-200">Team {todayRoster.team}</p>
+                      </div>
+                      <div>
+                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Shift</p>
+                        <span className="inline-block bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-600 font-medium text-[length:var(--text-body)] rounded-md px-[var(--space-2)] py-[var(--space-1)]">{todayRoster.shift}</span>
+                      </div>
                     </div>
-                  ))}
+                  ) : todaySchedule ? (
+                    <div className="space-y-[var(--space-1)]">
+                      <span className="inline-block bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-600 font-medium text-[length:var(--text-body)] font-mono rounded-md px-[var(--space-2)] py-[var(--space-1)]">{todaySchedule.duty_code}</span>
+                      <p className="text-[length:var(--text-body)] text-slate-500 dark:text-slate-400">{todaySchedule.duty_description || DUTY_DESCRIPTIONS[todaySchedule.duty_code] || ''}</p>
+                    </div>
+                  ) : (
+                    <p className="text-[length:var(--text-body)] text-slate-400 dark:text-slate-500">No assignment</p>
+                  )}
+                </div>
+
+                {/* TOMORROW */}
+                <div className="rounded-md border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/40 p-[var(--space-3)] space-y-[var(--space-2)]">
+                  <div>
+                    <p className="uppercase tracking-wide text-slate-400 dark:text-slate-500 text-[length:var(--text-meta)] font-semibold">Tomorrow</p>
+                    <p className="text-[length:var(--text-body)] text-slate-400 dark:text-slate-500">{format(tomorrow, "EEE, dd MMM")}</p>
+                  </div>
+                  {tomorrowRoster ? (
+                    <div className="grid grid-cols-2 auto-rows-min gap-[var(--space-2)]">
+                      <div>
+                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Unit</p>
+                        <p className="font-medium text-[length:var(--text-body)] text-slate-800 dark:text-slate-200">{tomorrowRoster.unit}</p>
+                      </div>
+                      <div>
+                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Position</p>
+                        <span className="inline-block bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium text-[length:var(--text-body)] rounded-md px-[var(--space-2)] py-[var(--space-1)]">{tomorrowRoster.position}</span>
+                      </div>
+                      <div>
+                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Team</p>
+                        <p className="font-medium text-[length:var(--text-body)] text-slate-800 dark:text-slate-200">Team {tomorrowRoster.team}</p>
+                      </div>
+                      <div>
+                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Shift</p>
+                        <span className="inline-block bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-600 font-medium text-[length:var(--text-body)] rounded-md px-[var(--space-2)] py-[var(--space-1)]">{tomorrowRoster.shift}</span>
+                      </div>
+                    </div>
+                  ) : tomorrowSchedule ? (
+                    <div className="space-y-[var(--space-1)]">
+                      <span className="inline-block bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-600 font-medium text-[length:var(--text-body)] font-mono rounded-md px-[var(--space-2)] py-[var(--space-1)]">{tomorrowSchedule.duty_code}</span>
+                      <p className="text-[length:var(--text-body)] text-slate-400 dark:text-slate-500">{tomorrowSchedule.duty_description || DUTY_DESCRIPTIONS[tomorrowSchedule.duty_code] || ''}</p>
+                    </div>
+                  ) : (
+                    <p className="text-[length:var(--text-body)] text-slate-400 dark:text-slate-500">No assignment</p>
+                  )}
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-        <Card className="bg-primary text-primary-foreground">
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-90">Current Shift Assignment</p>
-                <p className="text-3xl font-bold mt-1">{currentShift}</p>
-                <p className="text-sm opacity-90 mt-1">
-                  {new Date().toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    month: 'long',
-                    day: 'numeric'
-                  })}
-                </p>
-              </div>
-              <Calendar className="h-16 w-16 opacity-50" />
-            </div>
-          </CardContent>
-        </Card>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatCard title="CL Balance" value={clBalance ? clBalance.balance : "—"} icon={FileText} description="Casual Leave" />

@@ -5,7 +5,7 @@ export const DEPARTMENTS = ['RSR', 'ACC-PLR', 'ACC-A'] as const;
 
 export const ATC_DESIGNATIONS = ['SM', 'DGM', 'MGR', 'JE', 'AM', 'AGM'] as const;
 
-export const ATC_SHIFTS = ['Morning', 'Evening', 'Night'] as const;
+export const ATC_SHIFTS = ['Morning', 'AFTERNOON', 'Night'] as const;
 
 export const ATC_RATING_OPTIONS = [
     'RSR+UBN', 'RSR+UKN', 'RSR+UKW', 'RSR+URP', 'RSR+UBS', 'RSR+UKE', 'RSR+UGT',
