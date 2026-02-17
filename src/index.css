@@ -1,0 +1,129 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 215 25% 27%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 27%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 27%;
+
+    --primary: 220 77% 39%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 215 16% 47%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 160 84% 39%;
+    --accent-foreground: 0 0% 100%;
+
+    --warning: 32 95% 44%;
+    --warning-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 220 77% 39%;
+
+    --radius: 0.5rem;
+
+    /* Fluid Typography Scale */
+    --text-xs: clamp(0.65rem, 0.6rem + 0.2vw, 0.75rem);
+    --text-sm: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+    --text-base: clamp(0.875rem, 0.825rem + 0.3vw, 1rem);
+    --text-lg: clamp(1rem, 0.95rem + 0.4vw, 1.2rem);
+    --text-xl: clamp(1.15rem, 1.05rem + 0.5vw, 1.4rem);
+    --text-2xl: clamp(1.4rem, 1.25rem + 0.7vw, 1.75rem);
+
+    /* Fluid Spacing Scale */
+    --space-1: clamp(2px, 0.25vw, 4px);
+    --space-2: clamp(4px, 0.4vw, 8px);
+    --space-3: clamp(8px, 0.75vw, 14px);
+    --space-4: clamp(12px, 1vw, 20px);
+    --space-5: clamp(16px, 1.4vw, 28px);
+    --space-6: clamp(20px, 1.8vw, 36px);
+
+    /* Schedule Calendar Tokens */
+    --cal-cell-gap: clamp(2px, 0.3vw, 6px);
+    --cal-cell-radius: clamp(6px, 0.5vw, 12px);
+    --cal-cell-pad: clamp(4px, 0.5vw, 10px);
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 215 25% 27%;
+    --sidebar-primary: 220 77% 39%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 40% 96%;
+    --sidebar-accent-foreground: 215 25% 27%;
+    --sidebar-border: 214 32% 91%;
+    --sidebar-ring: 220 77% 39%;
+  }
+
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 217 33% 17%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 217 33% 17%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 220 77% 39%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 215 16% 47%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 160 84% 39%;
+    --accent-foreground: 0 0% 100%;
+
+    --warning: 32 95% 44%;
+    --warning-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 220 77% 39%;
+
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 220 77% 39%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 220 77% 39%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');

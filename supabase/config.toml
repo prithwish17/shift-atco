@@ -1,0 +1,13 @@
+project_id = "ilkrqlxrqaelflslbdnx"
+
+[functions.setup-admin]
+verify_jwt = false
+
+[functions.import-employees]
+verify_jwt = false
+
+[functions.atc-assignments]
+verify_jwt = false
+
+[functions.fetch-roster]
+verify_jwt = false

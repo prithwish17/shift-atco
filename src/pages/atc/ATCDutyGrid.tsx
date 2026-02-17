@@ -1,0 +1,445 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { format } from 'date-fns';
+import { DashboardLayout } from '@/components/DashboardLayout';
+import { useAuth } from '@/contexts/AuthContext';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { CalendarIcon, FileDown, Plus, Trash2, RefreshCw, DatabaseZap } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { DEPARTMENTS, POSITION_ROWS, ATC_SHIFTS, EXTRA_DUTY_TYPES } from '@/lib/atcConstants';
+import {
+  useDutyRoster,
+  useCreateOrGetRoster,
+  useRosterAssignments,
+  useUpsertAssignment,
+  useGridLeaveRecords,
+  useGridExtraDuties,
+  useCreateExtraDuty,
+  useDeleteExtraDuty,
+  useGridEmployees,
+  useSyncRosterToGrid,
+} from '@/hooks/useDutyGrid';
+import { useATCAssignments } from '@/hooks/useATCAssignments';
+import { toast } from 'sonner';
+import type { GridEmployee } from '@/hooks/useDutyGrid';
+
+export default function ATCDutyGrid() {
+  const { userRole } = useAuth();
+  const role = (userRole || 'employee') as 'admin' | 'supervisor' | 'wso' | 'employee';
+  const canEdit = role === 'admin' || role === 'supervisor' || role === 'wso';
+  const canManageExtraDuties = role === 'admin' || role === 'supervisor';
+
+  const [date, setDate] = useState<Date>(new Date());
+  const [shift, setShift] = useState('Morning');
+  const [team, setTeam] = useState('');
+  const [positionLabels, setPositionLabels] = useState<Record<string, string>>({});
+
+  // Hybrid: fetch from edge function for display
+  const dateStr = format(date, 'yyyy-MM-dd');
+  const { gridData: edgeFuncData, isLoading: edgeLoading, refetch: refetchEdge } = useATCAssignments(dateStr, shift || undefined);
+
+  // Supabase CRUD hooks
+  const { data: employees = [] } = useGridEmployees();
+  const { data: roster } = useDutyRoster(date, shift);
+  const createOrGetRoster = useCreateOrGetRoster();
+  const { data: assignments = [] } = useRosterAssignments(roster?.id);
+  const upsertAssignment = useUpsertAssignment();
+  const { data: leaveRecords = [] } = useGridLeaveRecords(date);
+  const { data: extraDuties = [] } = useGridExtraDuties(roster?.id);
+  const createExtraDuty = useCreateExtraDuty();
+  const deleteExtraDuty = useDeleteExtraDuty();
+  const syncFromRoster = useSyncRosterToGrid();
+
+  // Ensure roster exists when date/shift changes
+  useEffect(() => {
+    if (!roster && canEdit) {
+      createOrGetRoster.mutate({ date: format(date, 'yyyy-MM-dd'), shift, team: team || undefined });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateStr, shift]);
+
+  // Track assigned employees to prevent double-booking
+  const assignedEmployeeIds = useMemo(() => {
+    const ids = new Set<string>();
+    assignments.forEach((a) => { if (a.employee_id) ids.add(a.employee_id); });
+    extraDuties.forEach((d) => { if (d.employee_id) ids.add(d.employee_id); });
+    return ids;
+  }, [assignments, extraDuties]);
+
+  // Employees on leave for this date
+  const unavailableIds = useMemo(() => {
+    const ids = new Set<string>();
+    leaveRecords.forEach((l) => ids.add(l.employee_id));
+    return ids;
+  }, [leaveRecords]);
+
+  const getAvailableEmployees = (currentEmployeeId?: string | null): GridEmployee[] => {
+    return employees.filter((e) => {
+      if (unavailableIds.has(e.id)) return false;
+      if (e.id === currentEmployeeId) return true;
+      if (assignedEmployeeIds.has(e.id)) return false;
+      return true;
+    });
+  };
+
+  const getAssignment = (positionKey: string, department: string) => {
+    return assignments.find(
+      (a) => a.position_name === positionKey && a.department === department
+    );
+  };
+
+  const handleAssign = (positionKey: string, department: string, employeeId: string | null, remark?: string) => {
+    if (!roster) return;
+    const existing = getAssignment(positionKey, department);
+    upsertAssignment.mutate({
+      id: existing?.id,
+      roster_id: roster.id,
+      position_name: positionKey,
+      position_label: positionLabels[positionKey] || undefined,
+      department,
+      employee_id: employeeId,
+      remark: remark ?? existing?.remark,
+      section_type: POSITION_ROWS.find((p) => p.key === positionKey)?.sectionType || 'sector',
+    });
+  };
+
+  const handleRemarkChange = (positionKey: string, department: string, remark: string) => {
+    if (!roster) return;
+    const existing = getAssignment(positionKey, department);
+    if (existing) {
+      upsertAssignment.mutate({
+        id: existing.id,
+        roster_id: roster.id,
+        position_name: positionKey,
+        department,
+        employee_id: existing.employee_id,
+        remark,
+        section_type: existing.section_type,
+      });
+    }
+  };
+
+  // Group positions by section
+  const sections = useMemo(() => {
+    const grouped: { label: string; color: string; rows: typeof POSITION_ROWS }[] = [];
+    let currentSection = '';
+    POSITION_ROWS.forEach((row) => {
+      if (row.sectionLabel !== currentSection) {
+        currentSection = row.sectionLabel;
+        grouped.push({ label: row.sectionLabel, color: row.sectionColor, rows: [] });
+      }
+      grouped[grouped.length - 1].rows.push(row);
+    });
+    return grouped;
+  }, []);
+
+  const markedCount = assignments.filter((a) => a.employee_id).length;
+  const totalPositions = POSITION_ROWS.length * DEPARTMENTS.length;
+
+  return (
+    <DashboardLayout role={role}>
+      <div className="space-y-4">
+        {/* Header */}
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">ATC Duty Grid</h1>
+          <p className="text-muted-foreground">
+            Manage position assignments for each shift
+          </p>
+        </div>
+
+        {/* Controls */}
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex flex-wrap items-center gap-4">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className={cn('w-[200px] justify-start text-left', !date && 'text-muted-foreground')}>
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {format(date, 'PPP')}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar mode="single" selected={date} onSelect={(d) => d && setDate(d)} className="p-3 pointer-events-auto" />
+                </PopoverContent>
+              </Popover>
+
+              <Select value={shift} onValueChange={setShift}>
+                <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ATC_SHIFTS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+
+              {canEdit && (
+                <Select value={team} onValueChange={setTeam}>
+                  <SelectTrigger className="w-[140px]"><SelectValue placeholder="Team" /></SelectTrigger>
+                  <SelectContent>
+                    {['A', 'B', 'C', 'D', 'E'].map((t) => (
+                      <SelectItem key={t} value={t}>Team {t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+
+              <Button variant="outline" size="sm" onClick={() => refetchEdge()} disabled={edgeLoading}>
+                <RefreshCw className={`h-4 w-4 mr-1 ${edgeLoading ? 'animate-spin' : ''}`} />
+                Sync
+              </Button>
+
+              {canEdit && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  disabled={!team || syncFromRoster.isPending}
+                  onClick={async () => {
+                    if (!team) { toast.error('Select a team first'); return; }
+                    try {
+                      const result = await syncFromRoster.mutateAsync({ date: dateStr, shift, team });
+                      const msg = `Synced ${result.synced} assignments`;
+                      if (result.unmatched.length > 0) {
+                        toast.warning(`${msg}. ${result.unmatched.length} names unmatched: ${result.unmatched.join(', ')}`);
+                      } else {
+                        toast.success(msg);
+                      }
+                    } catch (err: any) {
+                      toast.error(err.message || 'Sync failed');
+                    }
+                  }}
+                >
+                  <DatabaseZap className={`h-4 w-4 mr-1 ${syncFromRoster.isPending ? 'animate-pulse' : ''}`} />
+                  Sync from Roster
+                </Button>
+              )}
+
+              <div className="ml-auto flex items-center gap-3">
+                <Badge variant="secondary" className="text-sm">
+                  Marked: {markedCount} / {totalPositions}
+                </Badge>
+                <Button variant="outline" size="sm" onClick={() => toast.info('PDF export coming soon')}>
+                  <FileDown className="h-4 w-4 mr-1" /> Generate PDF
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Main Grid */}
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted">
+                    <th className="px-3 py-2 text-left font-semibold w-[180px] border-r">Position</th>
+                    {DEPARTMENTS.map((dept) => (
+                      <th key={dept} colSpan={2} className="px-3 py-2 text-center font-semibold border-r last:border-r-0">
+                        {dept}
+                      </th>
+                    ))}
+                  </tr>
+                  <tr className="border-b bg-muted/50">
+                    <th className="border-r" />
+                    {DEPARTMENTS.map((dept) => (
+                      <React.Fragment key={dept}>
+                        <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground">Name</th>
+                        <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground border-r last:border-r-0">Remark</th>
+                      </React.Fragment>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sections.map((section) => (
+                    <React.Fragment key={section.label}>
+                      {/* Section header */}
+                      <tr>
+                        <td
+                          colSpan={1 + DEPARTMENTS.length * 2}
+                          className="px-3 py-1.5 font-semibold text-xs uppercase tracking-wide text-white"
+                          style={{ backgroundColor: section.color }}
+                        >
+                          {section.label}
+                        </td>
+                      </tr>
+                      {section.rows.map((row) => (
+                        <tr key={row.key} className="border-b hover:bg-accent/30">
+                          <td className="px-3 py-1.5 border-r font-medium">
+                            {row.editable && canEdit ? (
+                              <Input
+                                value={positionLabels[row.key] ?? row.label}
+                                onChange={(e) => setPositionLabels((prev) => ({ ...prev, [row.key]: e.target.value }))}
+                                className="h-7 text-xs border-dashed"
+                              />
+                            ) : (
+                              <span className="text-foreground">{row.label}</span>
+                            )}
+                          </td>
+                          {DEPARTMENTS.slice(0, row.deptCount || 3).map((dept) => {
+                            const assignment = getAssignment(row.key, dept);
+                            const available = getAvailableEmployees(assignment?.employee_id);
+                            return (
+                              <React.Fragment key={dept}>
+                                <td className="px-1 py-1 min-w-[140px]">
+                                  {canEdit ? (
+                                    <Select
+                                      value={assignment?.employee_id || '_none'}
+                                      onValueChange={(val) => handleAssign(row.key, dept, val === '_none' ? null : val)}
+                                    >
+                                      <SelectTrigger className={cn('h-7 text-xs', assignment?.employee_id && 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800')}>
+                                        <SelectValue placeholder="Select..." />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="_none">— None —</SelectItem>
+                                        {available.map((emp) => (
+                                          <SelectItem key={emp.id} value={emp.id}>
+                                            {emp.full_name} {emp.designation ? `(${emp.designation})` : ''}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  ) : (
+                                    <span className="text-xs px-2">
+                                      {assignment?.profiles?.full_name || '—'}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-1 py-1 min-w-[140px] border-r last:border-r-0">
+                                  {row.hasReliever ? (
+                                    canEdit ? (
+                                      <Select
+                                        value={assignment?.remark || '_none'}
+                                        onValueChange={(val) => handleRemarkChange(row.key, dept, val === '_none' ? '' : val)}
+                                      >
+                                        <SelectTrigger className={cn('h-7 text-xs', assignment?.remark && assignment.remark !== '' && 'bg-sky-50 border-sky-200 dark:bg-sky-950/30 dark:border-sky-800')}>
+                                          <SelectValue placeholder="Reliever..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="_none">— None —</SelectItem>
+                                          {(employees || []).map((emp: any) => (
+                                            <SelectItem key={emp.id} value={emp.full_name || emp.id}>
+                                              {emp.full_name} {emp.designation ? `(${emp.designation})` : ''}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground px-2">
+                                        {assignment?.remark || '—'}
+                                      </span>
+                                    )
+                                  ) : (
+                                    canEdit ? (
+                                      <Input
+                                        className="h-7 text-xs"
+                                        placeholder="Remark"
+                                        defaultValue={assignment?.remark || ''}
+                                        onBlur={(e) => handleRemarkChange(row.key, dept, e.target.value)}
+                                      />
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground px-2">
+                                        {assignment?.remark || ''}
+                                      </span>
+                                    )
+                                  )}
+                                </td>
+                              </React.Fragment>
+                            );
+                          })}
+                          {(row.deptCount && row.deptCount < 3) && (
+                            <td colSpan={(3 - row.deptCount) * 2} className="bg-muted/20 border-r last:border-r-0" />
+                          )}
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Extra Duty Section — Supervisor/Admin only */}
+        {canManageExtraDuties && (
+          <Card>
+            <CardHeader className="py-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm">Extra Duties (OPE / Other)</CardTitle>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    if (!roster) { toast.error('Roster not ready'); return; }
+                    createExtraDuty.mutate({ roster_id: roster.id, duty_type: 'OPE' });
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-1" /> Add
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="divide-y">
+                {extraDuties.map((duty) => (
+                  <div key={duty.id} className="flex items-center gap-2 py-2">
+                    <Select value={duty.duty_type} onValueChange={() => { }}>
+                      <SelectTrigger className="h-7 text-xs w-[120px]"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {EXTRA_DUTY_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Select value={duty.employee_id || '_none'} onValueChange={() => { }}>
+                      <SelectTrigger className="h-7 text-xs w-[200px]"><SelectValue placeholder="Select employee" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">— None —</SelectItem>
+                        {getAvailableEmployees(duty.employee_id).map((emp) => (
+                          <SelectItem key={emp.id} value={emp.id}>{emp.full_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Input className="h-7 text-xs flex-1" placeholder="Remarks" defaultValue={duty.remarks || ''} />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => deleteExtraDuty.mutate(duty.id)}
+                    >
+                      <Trash2 className="h-3 w-3 text-destructive" />
+                    </Button>
+                  </div>
+                ))}
+                {extraDuties.length === 0 && (
+                  <div className="py-4 text-center text-muted-foreground text-sm">No extra duties assigned</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Leave Panel */}
+        <Card>
+          <CardHeader className="py-3">
+            <CardTitle className="text-sm text-destructive">
+              On Leave — {format(date, 'dd MMM yyyy')}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="divide-y">
+              {leaveRecords.map((l) => (
+                <div key={l.id} className="py-2 text-sm flex justify-between">
+                  <span>{l.profiles?.full_name} {l.profiles?.designation ? `(${l.profiles.designation})` : ''}</span>
+                  <Badge variant="secondary">{l.leave_type}</Badge>
+                </div>
+              ))}
+              {leaveRecords.length === 0 && (
+                <div className="py-4 text-center text-muted-foreground text-sm">No one on leave</div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </DashboardLayout>
+  );
+}
