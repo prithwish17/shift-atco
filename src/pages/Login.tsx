@@ -77,7 +77,7 @@ export default function Login() {
         <div className="flex flex-col items-center space-y-2">
           <div className="flex items-center justify-between w-full">
             <div className="flex-1" />
-            <h1 className="text-3xl font-bold text-primary">ShiftPlan</h1>
+            <h1 className="text-3xl font-bold text-primary">ShiftAtco</h1>
             <div className="flex-1 flex justify-end">
               <Button
                 variant="ghost"
@@ -195,7 +195,7 @@ export default function Login() {
         </Card>
 
         <div className="text-center text-xs text-muted-foreground">
-          ShiftPlan v1.0.0 - Secure Authentication
+          ShiftAtco v1.0.0 - Secure Authentication
         </div>
       </div>
     </div>

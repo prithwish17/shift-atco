@@ -52,7 +52,7 @@ export default function SetupAdmin() {
         <CardHeader>
           <CardTitle>Admin Account Setup</CardTitle>
           <CardDescription>
-            Set up the permanent admin account for ShiftPlan
+            Set up the permanent admin account for ShiftAtco
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -64,8 +64,8 @@ export default function SetupAdmin() {
             </div>
           </div>
 
-          <Button 
-            onClick={handleSetupAdmin} 
+          <Button
+            onClick={handleSetupAdmin}
             disabled={loading}
             className="w-full"
           >
@@ -74,11 +74,10 @@ export default function SetupAdmin() {
           </Button>
 
           {result && (
-            <div className={`p-4 rounded-lg border ${
-              result.success 
-                ? 'bg-accent/10 border-accent text-accent-foreground' 
+            <div className={`p-4 rounded-lg border ${result.success
+                ? 'bg-accent/10 border-accent text-accent-foreground'
                 : 'bg-destructive/10 border-destructive text-destructive-foreground'
-            }`}>
+              }`}>
               <div className="flex items-start gap-2">
                 {result.success ? (
                   <CheckCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />

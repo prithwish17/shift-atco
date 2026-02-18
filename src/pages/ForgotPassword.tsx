@@ -16,7 +16,7 @@ export default function ForgotPassword() {
   const { theme, toggleTheme } = useTheme();
   const { resetPassword } = useAuth();
   const { toast } = useToast();
-  
+
   const [formData, setFormData] = useState<PasswordResetInput>({ email: "" });
   const [errors, setErrors] = useState<Partial<Record<keyof PasswordResetInput, string>>>({});
   const [authError, setAuthError] = useState<string>("");
@@ -69,7 +69,7 @@ export default function ForgotPassword() {
                 <ArrowLeft className="h-5 w-5" />
               </Button>
             </Link>
-            <h1 className="text-3xl font-bold text-primary">ShiftPlan</h1>
+            <h1 className="text-3xl font-bold text-primary">ShiftAtco</h1>
             <Button
               variant="ghost"
               size="icon"

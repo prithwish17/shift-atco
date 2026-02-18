@@ -379,7 +379,7 @@ export default function UserManagement() {
                 Import Employees from CSV
               </DialogTitle>
               <DialogDescription>
-                Review the parsed data below. Default password: ShiftPlan@{"<EmployeeID>"}
+                Review the parsed data below. Default password: ShiftAtco@{"<EmployeeID>"}
               </DialogDescription>
             </DialogHeader>
 

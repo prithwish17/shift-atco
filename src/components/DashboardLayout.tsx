@@ -1,11 +1,9 @@
-import { ReactNode } from "react";
-import { Link } from "react-router-dom";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "./AppSidebar";
+import { ReactNode, useState } from "react";
 import { useTheme } from "@/contexts/ThemeContext";
-import { Moon, Sun, Bell, ArrowLeftRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/hooks/useUsers";
+import { Moon, Sun, Bell, Menu } from "lucide-react";
+import { AppSidebar } from "./AppSidebar";
 
 type Role = "admin" | "supervisor" | "wso" | "employee";
 
@@ -16,52 +14,68 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ role, children }: DashboardLayoutProps) {
   const { theme, toggleTheme } = useTheme();
+  const { user } = useAuth();
+  const { profile } = useUserProfile(user?.id);
+
+  const displayName = profile?.full_name || "User";
+  const initials = displayName.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 
   return (
-    <SidebarProvider>
-      <div className="flex min-h-screen w-full">
-        <AppSidebar role={role} />
-        
-        <div className="flex-1 flex flex-col">
-          <header className="h-14 border-b bg-card flex items-center px-4 justify-between sticky top-0 z-10">
-            <SidebarTrigger className="mr-2" />
-            
-            <div className="flex items-center gap-2">
-              {(role === "wso" || role === "supervisor") && (
-                <Button variant="outline" size="sm" asChild>
-                  <Link to="/employee">
-                    <ArrowLeftRight className="mr-2 h-4 w-4" />
-                    Employee Dashboard
-                  </Link>
-                </Button>
+    <div className="flex min-h-screen w-full bg-gray-50 dark:bg-gray-950">
+      <AppSidebar role={role} />
+
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 md:px-6 py-3 flex items-center justify-between sticky top-0 z-10">
+          {/* Mobile menu button — opens sidebar on small screens */}
+          <button
+            className="lg:hidden p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+            onClick={() => {
+              // Dispatch a custom event that AppSidebar listens for
+              window.dispatchEvent(new CustomEvent('toggle-sidebar'));
+            }}
+          >
+            <Menu className="size-5 text-gray-600 dark:text-gray-300" />
+          </button>
+
+          <div className="flex-1 lg:flex-none" />
+
+          <div className="flex items-center gap-2 md:gap-4">
+            {/* Notification bell */}
+            <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
+              <Bell className="size-5 text-gray-600 dark:text-gray-300" />
+            </button>
+
+            {/* Theme toggle */}
+            <button
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+              onClick={toggleTheme}
+            >
+              {theme === "light" ? (
+                <Moon className="size-5 text-gray-600" />
+              ) : (
+                <Sun className="size-5 text-gray-300" />
               )}
+            </button>
 
-              <Button variant="ghost" size="icon" className="relative">
-                <Bell className="h-5 w-5" />
-                <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
-                  3
-                </Badge>
-              </Button>
-              
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleTheme}
-              >
-                {theme === "light" ? (
-                  <Moon className="h-5 w-5" />
-                ) : (
-                  <Sun className="h-5 w-5" />
-                )}
-              </Button>
+            {/* User avatar */}
+            <div className="flex items-center gap-2 md:gap-3">
+              <div className="size-8 md:size-9 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-xs md:text-sm">
+                {initials}
+              </div>
+              <div className="text-sm hidden sm:block">
+                <div className="font-semibold text-gray-900 dark:text-gray-100">{displayName}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 capitalize">{role}</div>
+              </div>
             </div>
-          </header>
+          </div>
+        </header>
 
-          <main className="flex-1 p-6 bg-background">
-            {children}
-          </main>
-        </div>
+        {/* Main Content */}
+        <main className="flex-1 overflow-auto p-4 md:p-6">
+          {children}
+        </main>
       </div>
-    </SidebarProvider>
+    </div>
   );
 }

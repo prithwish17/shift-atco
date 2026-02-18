@@ -1,11 +1,8 @@
 import { useState, useMemo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Download, Calendar as CalendarIcon, Clock, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Calendar as CalendarIcon, Clock, RefreshCw, ChevronLeft, ChevronRight, TrendingUp } from "lucide-react";
 import { format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, isToday, isBefore, addMonths, subMonths, parseISO } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
@@ -20,35 +17,51 @@ import type { EmployeeSchedule as ScheduleType } from "@/hooks/useEmployeeSchedu
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-/* ── Duty-code → color token map ── */
+/* ── Figma-matched duty color map ── */
 const dutyColor = (code: string): string => {
-  if (!code) return "bg-muted/50 text-muted-foreground";
+  if (!code) return "bg-gray-100 text-gray-600";
   const c = code.toUpperCase();
-  if (c === "M" || c.endsWith("+M") || c.startsWith("M+"))
-    return "bg-amber-200 text-amber-950 dark:bg-amber-700/60 dark:text-amber-100 ring-1 ring-amber-400 dark:ring-amber-500";
-  if (c === "A" || c.endsWith("+A") || c.startsWith("A+"))
-    return "bg-orange-200 text-orange-950 dark:bg-orange-700/60 dark:text-orange-100 ring-1 ring-orange-400 dark:ring-orange-500";
-  if (c === "N" || c.endsWith("+N") || c.startsWith("N+"))
-    return "bg-indigo-200 text-indigo-950 dark:bg-indigo-700/60 dark:text-indigo-100 ring-1 ring-indigo-400 dark:ring-indigo-500";
-  if (c === "NO" || c.endsWith("+NO") || c.startsWith("NO+"))
-    return "bg-sky-200 text-sky-950 dark:bg-sky-700/60 dark:text-sky-100 ring-1 ring-sky-400 dark:ring-sky-500";
-  if (c === "CO" || c.endsWith("+CO") || c.startsWith("CO+"))
-    return "bg-teal-200 text-teal-950 dark:bg-teal-700/60 dark:text-teal-100 ring-1 ring-teal-400 dark:ring-teal-500";
-  if (c === "LEAVE" || c === "SL")
-    return "bg-red-200 text-red-950 dark:bg-red-700/60 dark:text-red-100 ring-1 ring-red-400 dark:ring-red-500";
-  if (c.startsWith("SAT"))
-    return "bg-violet-200 text-violet-950 dark:bg-violet-700/60 dark:text-violet-100 ring-1 ring-violet-400 dark:ring-violet-500";
-  if (c.startsWith("SUN"))
-    return "bg-pink-200 text-pink-950 dark:bg-pink-700/60 dark:text-pink-100 ring-1 ring-pink-400 dark:ring-pink-500";
-  if (c === "G" || c === "GO")
-    return "bg-emerald-200 text-emerald-950 dark:bg-emerald-700/60 dark:text-emerald-100 ring-1 ring-emerald-400 dark:ring-emerald-500";
-  if (c === "T" || c === "Tr")
-    return "bg-cyan-200 text-cyan-950 dark:bg-cyan-700/60 dark:text-cyan-100 ring-1 ring-cyan-400 dark:ring-cyan-500";
-  if (c === "CH" || c === "NH")
-    return "bg-lime-200 text-lime-950 dark:bg-lime-700/60 dark:text-lime-100 ring-1 ring-lime-400 dark:ring-lime-500";
-  if (c === "NA")
-    return "bg-gray-200 text-gray-700 dark:bg-gray-600/50 dark:text-gray-200 ring-1 ring-gray-400 dark:ring-gray-500";
-  return "bg-slate-200 text-slate-900 dark:bg-slate-600/50 dark:text-slate-100 ring-1 ring-slate-400 dark:ring-slate-500";
+  if (c === "M" || c === "M+A" || c === "CO+M" || c === "SUN+M") return "bg-yellow-100 text-yellow-700";
+  if (c === "A" || c === "A+M" || c === "CO+A" || c === "SUN+A") return "bg-orange-100 text-orange-700";
+  if (c === "N" || c === "CO+N" || c === "SUN+N" || c === "SAT+N") return "bg-blue-100 text-blue-700";
+  if (c === "NO" || c === "SAT+NO" || c === "SUN+NO") return "bg-indigo-100 text-indigo-700";
+  if (c === "CO") return "bg-teal-100 text-teal-700";
+  if (c === "LEAVE" || c === "SL") return "bg-red-100 text-red-700";
+  if (c === "CH") return "bg-lime-100 text-lime-700";
+  if (c === "NH") return "bg-green-100 text-green-700";
+  if (c === "GO") return "bg-lime-100 text-lime-700";
+  if (c === "G") return "bg-neutral-100 text-neutral-700";
+  if (c === "NA") return "bg-gray-100 text-gray-700";
+  if (c.startsWith("SAT")) return "bg-cyan-100 text-cyan-700";
+  if (c.startsWith("SUN")) return "bg-purple-100 text-purple-700";
+  if (c === "T" || c === "Tr") return "bg-rose-100 text-rose-700";
+  return "bg-slate-100 text-slate-700";
+};
+
+/* ── Bar chart color (slightly more saturated) ── */
+const barColor = (code: string): string => {
+  if (!code) return "bg-gray-300/60";
+  const c = code.toUpperCase();
+  if (c === "CO") return "bg-teal-300/60";
+  if (c === "LEAVE" || c === "SL") return "bg-rose-300/60";
+  if (c === "M") return "bg-amber-300/60";
+  if (c === "A") return "bg-orange-300/60";
+  if (c === "N") return "bg-blue-300/60";
+  if (c === "NO") return "bg-indigo-300/60";
+  if (c === "G" || c === "GO") return "bg-emerald-300/60";
+  return "bg-slate-300/60";
+};
+
+const barTextColor = (code: string): string => {
+  if (!code) return "text-gray-700";
+  const c = code.toUpperCase();
+  if (c === "CO") return "text-teal-700";
+  if (c === "LEAVE" || c === "SL") return "text-rose-700";
+  if (c === "M") return "text-amber-700";
+  if (c === "A") return "text-orange-700";
+  if (c === "N") return "text-blue-700";
+  if (c === "NO") return "text-indigo-700";
+  return "text-slate-700";
 };
 
 /* ── Shift time display ── */
@@ -120,35 +133,35 @@ export default function EmployeeSchedule() {
     );
   };
 
-  /* ── Duty stats for current month ── */
+  /* ── Duty stats for monthly summary bar chart ── */
   const dutyStats = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const s of schedules) {
       counts[s.duty_code] = (counts[s.duty_code] || 0) + 1;
     }
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8);
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [schedules]);
+
+  const maxStatValue = dutyStats.length > 0 ? Math.max(...dutyStats.map(([, v]) => v)) : 1;
 
   return (
     <DashboardLayout role="employee">
-      <div className="space-y-[var(--space-5)]">
-        {/* ── Header ── */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-[var(--space-3)]">
+      <div className="space-y-6">
+
+        {/* ── Page Header ── */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div>
-            <h1 className="font-bold tracking-tight" style={{ fontSize: "var(--text-2xl)" }}>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100">
               My Schedule
             </h1>
-            <p className="text-muted-foreground" style={{ fontSize: "var(--text-sm)" }}>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
               {profile?.full_name || "—"} · {profile?.employee_id || ""}
             </p>
           </div>
-          <div className="flex gap-[var(--space-2)]">
+          <div className="flex gap-2">
             {canEdit && (
-              <Button
-                variant="outline"
-                size="sm"
+              <button
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 onClick={() =>
                   fetchSchedule.mutate(undefined, {
                     onSuccess: (data: any) =>
@@ -158,329 +171,271 @@ export default function EmployeeSchedule() {
                 }
                 disabled={fetchSchedule.isPending}
               >
-                <RefreshCw className={cn("h-4 w-4 mr-1.5", fetchSchedule.isPending && "animate-spin")} />
+                <RefreshCw className={cn("size-4", fetchSchedule.isPending && "animate-spin")} />
                 Fetch Latest
-              </Button>
+              </button>
             )}
-            <Button variant="outline" size="sm" onClick={() => toast.info("Export coming soon")}>
-              <Download className="h-4 w-4 mr-1.5" />
-              Export
-            </Button>
+
           </div>
         </div>
 
-        {/* ── Top row: Next Duty + Monthly Stats ── */}
-        <div className="grid gap-[var(--space-4)] md:grid-cols-2">
-          {/* Next Duty */}
-          <Card className="overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-primary/80 via-primary/40 to-transparent" />
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2" style={{ fontSize: "var(--text-lg)" }}>
-                <Clock className="h-4 w-4 text-primary" />
-                Next Duty
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <div className="space-y-2">
-                  {[...Array(3)].map((_, i) => (
-                    <Skeleton key={i} className="h-5 w-full" />
-                  ))}
-                </div>
-              ) : nextDuty ? (
-                <div className="space-y-[var(--space-3)]">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground" style={{ fontSize: "var(--text-sm)" }}>
-                      Date
-                    </span>
-                    <span className="font-medium" style={{ fontSize: "var(--text-base)" }}>
-                      {format(parseISO(nextDuty.duty_date), "EEEE, MMM d")}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground" style={{ fontSize: "var(--text-sm)" }}>
-                      Duty
-                    </span>
-                    <Badge className={cn("font-mono", dutyColor(nextDuty.duty_code))}>
-                      {nextDuty.duty_code}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground" style={{ fontSize: "var(--text-sm)" }}>
-                      {shiftTime(nextDuty.duty_code) || nextDuty.duty_description || "—"}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-center py-4" style={{ fontSize: "var(--text-sm)" }}>
-                  No upcoming duties
-                </p>
-              )}
-            </CardContent>
-          </Card>
+        {/* ── Top Row: Next Duty + Monthly Summary ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-          {/* Monthly Stats */}
-          <Card className="overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-accent/60 via-accent/30 to-transparent" />
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2" style={{ fontSize: "var(--text-lg)" }}>
-                <CalendarIcon className="h-4 w-4 text-accent" />
-                {format(currentMonth, "MMMM")} Summary
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <Skeleton className="h-16 w-full" />
-              ) : dutyStats.length > 0 ? (
-                <div className="flex flex-wrap gap-[var(--space-2)]">
-                  {dutyStats.map(([code, count]) => (
-                    <div
-                      key={code}
-                      className={cn(
-                        "flex items-center gap-1.5 rounded-full px-2.5 py-1",
-                        dutyColor(code)
-                      )}
-                    >
-                      <span className="font-semibold" style={{ fontSize: "var(--text-xs)" }}>
-                        {code}
-                      </span>
-                      <span
-                        className="font-mono opacity-70"
-                        style={{ fontSize: "var(--text-xs)" }}
-                      >
-                        ×{count}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-center py-4" style={{ fontSize: "var(--text-sm)" }}>
-                  No data for this month
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* ── Calendar Grid ── */}
-        <Card className="overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-primary/50 via-primary/20 to-transparent" />
-          <CardHeader className="pb-0">
-            <div className="flex items-center justify-between">
-              <CardTitle style={{ fontSize: "var(--text-xl)" }}>
-                {format(currentMonth, "MMMM yyyy")}
-              </CardTitle>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-3"
-                  style={{ fontSize: "var(--text-sm)" }}
-                  onClick={() => setCurrentMonth(new Date())}
-                >
-                  Today
-                </Button>
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
+          {/* Next Duty Card — Figma gradient */}
+          <div className="bg-gradient-to-br from-blue-50/40 via-slate-50 to-indigo-50/30 dark:from-blue-950/30 dark:via-gray-900 dark:to-indigo-950/20 rounded-lg p-5 shadow-sm border border-slate-200/60 dark:border-slate-700/60">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="text-slate-700 dark:text-slate-300" size={20} />
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100 text-base">Next Duty</h2>
             </div>
-          </CardHeader>
-          <CardContent style={{ padding: "var(--space-4)" }}>
-            {isLoading ? (
-              <Skeleton className="w-full" style={{ aspectRatio: "7/5" }} />
-            ) : (
-              <div
-                className="grid grid-cols-7"
-                style={{ gap: "var(--cal-cell-gap)" }}
-              >
-                {/* Weekday headers */}
-                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                  <div
-                    key={d}
-                    className="text-center font-medium text-muted-foreground select-none"
-                    style={{
-                      fontSize: "var(--text-xs)",
-                      padding: "var(--space-2) 0",
-                    }}
-                  >
-                    {d}
-                  </div>
-                ))}
 
-                {/* Leading empty cells */}
-                {Array.from({ length: calendarDays[0]?.getDay() || 0 }).map((_, i) => (
-                  <div key={`pad-${i}`} />
-                ))}
-
-                {/* Calendar cells */}
-                {calendarDays.map((day) => {
-                  const dateKey = format(day, "yyyy-MM-dd");
-                  const schedule = scheduleMap.get(dateKey);
-                  const today = isToday(day);
-                  const past = isBefore(day, new Date()) && !today;
-
-                  return (
-                    <div
-                      key={dateKey}
-                      className={cn(
-                        "relative flex flex-col items-center justify-start rounded-[var(--cal-cell-radius)] border border-border/50 transition-all duration-150",
-                        today && "ring-2 ring-primary/70 bg-primary/5 border-primary/30",
-                        past && "opacity-50",
-                        !schedule && !today && "bg-muted/20",
-                        schedule && "hover:shadow-sm"
-                      )}
-                      style={{
-                        aspectRatio: "1 / 1",
-                        padding: "var(--cal-cell-pad)",
-                      }}
-                    >
-                      {/* Date number */}
-                      <span
-                        className={cn(
-                          "font-medium leading-none",
-                          today ? "text-primary font-bold" : "text-foreground/80"
-                        )}
-                        style={{ fontSize: "var(--text-sm)" }}
-                      >
-                        {format(day, "d")}
-                      </span>
-
-                      {/* Duty pill */}
-                      {schedule ? (
-                        canEdit ? (
-                          <Select
-                            value={schedule.duty_code}
-                            onValueChange={(val) => handleCodeChange(schedule.id, val)}
-                          >
-                            <SelectTrigger
-                              className={cn(
-                                "mt-auto h-auto border-0 px-1.5 py-0.5 shadow-none justify-center",
-                                dutyColor(schedule.duty_code)
-                              )}
-                              style={{ fontSize: "var(--text-xs)", borderRadius: "var(--cal-cell-radius)" }}
-                            >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {DUTY_CODES.map((code) => (
-                                <SelectItem key={code} value={code}>
-                                  <span className="flex items-center gap-2">
-                                    <span
-                                      className={cn("inline-block rounded px-1.5 py-0.5 font-mono", dutyColor(code))}
-                                      style={{ fontSize: "var(--text-xs)" }}
-                                    >
-                                      {code}
-                                    </span>
-                                    <span style={{ fontSize: "var(--text-xs)" }} className="text-muted-foreground">
-                                      {DUTY_DESCRIPTIONS[code] || ""}
-                                    </span>
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <span
-                            className={cn(
-                              "mt-auto inline-flex items-center justify-center rounded-full px-1.5 py-0.5 font-mono font-semibold leading-none",
-                              dutyColor(schedule.duty_code)
-                            )}
-                            style={{ fontSize: "var(--text-xs)" }}
-                          >
-                            {schedule.duty_code}
-                          </span>
-                        )
-                      ) : (
-                        <span className="mt-auto text-muted-foreground/40" style={{ fontSize: "var(--text-xs)" }}>
-                          ·
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ── Legend ── */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle style={{ fontSize: "var(--text-base)" }}>Duty Legend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-[var(--space-2)]">
-              {DUTY_CODES.map((code) => (
-                <div
-                  key={code}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5",
-                    dutyColor(code)
-                  )}
-                >
-                  <span className="font-mono font-semibold" style={{ fontSize: "var(--text-xs)" }}>
-                    {code}
-                  </span>
-                  <span className="opacity-70" style={{ fontSize: "var(--text-xs)" }}>
-                    {DUTY_DESCRIPTIONS[code] || ""}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* ── Upcoming 7 Days ── */}
-        <Card className="overflow-hidden">
-          <div className="h-1 bg-gradient-to-r from-secondary/40 via-secondary/15 to-transparent" />
-          <CardHeader className="pb-2">
-            <CardTitle style={{ fontSize: "var(--text-lg)" }}>Upcoming 7 Days</CardTitle>
-          </CardHeader>
-          <CardContent>
             {isLoading ? (
               <div className="space-y-2">
-                {[...Array(4)].map((_, i) => (
+                {[...Array(2)].map((_, i) => (
                   <Skeleton key={i} className="h-14 w-full" />
                 ))}
               </div>
-            ) : upcomingDuties.length > 0 ? (
-              <div className="space-y-[var(--space-2)]">
-                {upcomingDuties.map((duty) => (
-                  <div
-                    key={duty.id}
-                    className="flex items-center justify-between rounded-lg border border-border/50 p-[var(--space-3)] hover:bg-accent/5 transition-colors"
-                  >
-                    <div className="flex items-center gap-[var(--space-4)]">
-                      {/* Date block */}
-                      <div className="text-center" style={{ minWidth: "3rem" }}>
-                        <p className="font-medium leading-none" style={{ fontSize: "var(--text-xs)" }}>
-                          {format(parseISO(duty.duty_date), "EEE")}
-                        </p>
-                        <p className="font-bold leading-tight" style={{ fontSize: "var(--text-xl)" }}>
-                          {format(parseISO(duty.duty_date), "d")}
-                        </p>
-                        <p className="text-muted-foreground leading-none" style={{ fontSize: "var(--text-xs)" }}>
-                          {format(parseISO(duty.duty_date), "MMM")}
-                        </p>
+            ) : nextDuty ? (
+              <div className="space-y-3">
+                {/* Date row */}
+                <div className="flex items-center gap-3 p-3 bg-white/80 dark:bg-gray-800/60 rounded-lg border border-slate-200/60 dark:border-slate-700/60 shadow-sm">
+                  <CalendarIcon className="text-slate-600 dark:text-slate-400" size={24} />
+                  <div>
+                    <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                      {format(parseISO(nextDuty.duty_date), "EEEE")}
+                    </p>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      {format(parseISO(nextDuty.duty_date), "MMMM d, yyyy")}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Duty status row */}
+                <div className="flex items-center justify-between p-3 bg-gradient-to-r from-rose-50/60 to-red-50/50 dark:from-rose-950/30 dark:to-red-950/20 rounded-lg border border-rose-200/50 dark:border-rose-800/50 shadow-sm">
+                  <div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Duty Status</p>
+                    <p className="text-lg font-bold text-rose-700 dark:text-rose-400">{nextDuty.duty_code}</p>
+                  </div>
+                  <span className="text-sm text-slate-600 dark:text-slate-400">
+                    {shiftTime(nextDuty.duty_code) || nextDuty.duty_description || "—"}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No upcoming duties</p>
+            )}
+          </div>
+
+          {/* Monthly Summary — Figma horizontal bar chart */}
+          <div className="bg-gradient-to-br from-slate-50 to-purple-50/30 dark:from-gray-900 dark:to-purple-950/20 rounded-lg p-5 shadow-sm border border-slate-200/50 dark:border-slate-700/50">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp className="text-purple-600 dark:text-purple-400" size={20} />
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100 text-base">
+                {format(currentMonth, "MMMM")} Summary
+              </h2>
+            </div>
+
+            {isLoading ? (
+              <Skeleton className="h-32 w-full" />
+            ) : dutyStats.length > 0 ? (
+              <div className="space-y-3">
+                {dutyStats.map(([code, count]) => (
+                  <div key={code} className="flex items-center gap-3">
+                    <span className={`text-xs font-semibold w-14 ${barTextColor(code)}`}>{code}</span>
+                    <div className="flex-1 relative">
+                      <div className="h-2 bg-gray-200/50 dark:bg-gray-700/50 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${barColor(code)} rounded-full transition-all duration-300`}
+                          style={{ width: `${(count / maxStatValue) * 100}%` }}
+                        />
                       </div>
-                      {/* Duty info */}
-                      <div>
-                        <Badge className={cn("font-mono mb-0.5", dutyColor(duty.duty_code))}>
-                          {duty.duty_code}
-                        </Badge>
-                        <p className="text-muted-foreground" style={{ fontSize: "var(--text-xs)" }}>
-                          {duty.duty_description || DUTY_DESCRIPTIONS[duty.duty_code] || ""}
-                        </p>
-                      </div>
+                      <span
+                        className="absolute top-1/2 -translate-y-1/2 text-xs font-bold text-gray-700 dark:text-gray-300"
+                        style={{ left: `${(count / maxStatValue) * 100}%`, marginLeft: '8px' }}
+                      >
+                        {count}
+                      </span>
                     </div>
-                    {/* Shift time or edit */}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No data for this month</p>
+            )}
+          </div>
+        </div>
+
+        {/* ── Schedule Calendar ── */}
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-4 md:p-6">
+          {/* Calendar Header */}
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Schedule Calendar</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                <ChevronLeft size={20} className="text-gray-600 dark:text-gray-400" />
+              </button>
+              <div className="min-w-[140px] text-center">
+                <span className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                  {format(currentMonth, "MMMM yyyy")}
+                </span>
+              </div>
+              <button
+                onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                <ChevronRight size={20} className="text-gray-600 dark:text-gray-400" />
+              </button>
+              <button
+                onClick={() => setCurrentMonth(new Date())}
+                className="px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+              >
+                Today
+              </button>
+            </div>
+          </div>
+
+          {/* Calendar Grid */}
+          {isLoading ? (
+            <Skeleton className="w-full aspect-[7/5]" />
+          ) : (
+            <div className="grid grid-cols-7 gap-1 sm:gap-2">
+              {/* Day headers */}
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                <div key={d} className="text-center text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 pb-2">
+                  {d}
+                </div>
+              ))}
+
+              {/* Leading empty cells */}
+              {Array.from({ length: calendarDays[0]?.getDay() || 0 }).map((_, i) => (
+                <div key={`pad-${i}`} />
+              ))}
+
+              {/* Calendar cells */}
+              {calendarDays.map((day) => {
+                const dateKey = format(day, "yyyy-MM-dd");
+                const schedule = scheduleMap.get(dateKey);
+                const today = isToday(day);
+                const past = isBefore(day, new Date()) && !today;
+
+                return (
+                  <div
+                    key={dateKey}
+                    className={cn(
+                      "min-h-[60px] sm:min-h-[80px] md:min-h-[100px] p-1 sm:p-2 border rounded-lg transition-colors cursor-pointer",
+                      today
+                        ? "border-blue-500 border-2 bg-blue-50/30 dark:bg-blue-950/20"
+                        : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900",
+                      past && "opacity-50",
+                      "hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                    )}
+                  >
+                    <div className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      {format(day, "d")}
+                    </div>
+                    {schedule ? (
+                      canEdit ? (
+                        <Select
+                          value={schedule.duty_code}
+                          onValueChange={(val) => handleCodeChange(schedule.id, val)}
+                        >
+                          <SelectTrigger
+                            className={cn(
+                              "h-auto border-0 px-1.5 py-0.5 shadow-none justify-center text-[10px] sm:text-xs font-semibold rounded",
+                              dutyColor(schedule.duty_code)
+                            )}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DUTY_CODES.map((code) => (
+                              <SelectItem key={code} value={code}>
+                                <span className="flex items-center gap-2">
+                                  <span className={cn("inline-block rounded px-1.5 py-0.5 font-mono text-xs", dutyColor(code))}>
+                                    {code}
+                                  </span>
+                                  <span className="text-xs text-gray-500">{DUTY_DESCRIPTIONS[code] || ""}</span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <div className={`text-[10px] sm:text-xs font-semibold px-1.5 py-0.5 rounded ${dutyColor(schedule.duty_code)} inline-block`}>
+                          {schedule.duty_code}
+                        </div>
+                      )
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── Duty Legend ── */}
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-4 md:p-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Duty Legend</h2>
+          <div className="flex flex-wrap gap-2">
+            {DUTY_CODES.map((code) => (
+              <span
+                key={code}
+                className={`text-xs font-medium px-3 py-1.5 rounded-md ${dutyColor(code)}`}
+              >
+                {code} {DUTY_DESCRIPTIONS[code] || ""}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Upcoming 7 Days ── */}
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-4 md:p-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Upcoming 7 Days</h2>
+
+          {isLoading ? (
+            <div className="space-y-2">
+              {[...Array(4)].map((_, i) => (
+                <Skeleton key={i} className="h-16 w-full" />
+              ))}
+            </div>
+          ) : upcomingDuties.length > 0 ? (
+            <div className="space-y-3">
+              {upcomingDuties.map((duty) => (
+                <div
+                  key={duty.id}
+                  className="flex items-center gap-4 p-4 bg-gradient-to-r from-slate-50 to-white dark:from-gray-800/50 dark:to-gray-900 rounded-lg border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow"
+                >
+                  {/* Date column */}
+                  <div className="flex flex-col items-center min-w-[60px]">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {format(parseISO(duty.duty_date), "EEE")}
+                    </span>
+                    <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                      {format(parseISO(duty.duty_date), "d")}
+                    </span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {format(parseISO(duty.duty_date), "MMM")}
+                    </span>
+                  </div>
+
+                  {/* Duty info */}
+                  <div className="flex-1 flex items-center gap-3">
+                    <span className={`text-xs font-semibold px-3 py-1.5 rounded-md ${dutyColor(duty.duty_code)}`}>
+                      {duty.duty_code}
+                    </span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">
+                      {duty.duty_description || DUTY_DESCRIPTIONS[duty.duty_code] || ""}
+                    </span>
+                  </div>
+
+                  {/* Time or edit */}
+                  <div className="text-right min-w-[120px]">
                     {canEdit ? (
                       <Select value={duty.duty_code} onValueChange={(val) => handleCodeChange(duty.id, val)}>
-                        <SelectTrigger className="h-7 w-[90px]" style={{ fontSize: "var(--text-xs)" }}>
+                        <SelectTrigger className="h-7 w-[90px] text-xs">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -492,20 +447,20 @@ export default function EmployeeSchedule() {
                         </SelectContent>
                       </Select>
                     ) : (
-                      <span className="text-muted-foreground" style={{ fontSize: "var(--text-sm)" }}>
+                      <span className="text-sm text-gray-600 dark:text-gray-400">
                         {shiftTime(duty.duty_code) || ""}
                       </span>
                     )}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-center py-6" style={{ fontSize: "var(--text-sm)" }}>
-                No duties in the next 7 days
-              </p>
-            )}
-          </CardContent>
-        </Card>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-6">
+              No duties in the next 7 days
+            </p>
+          )}
+        </div>
       </div>
     </DashboardLayout>
   );

@@ -22,7 +22,7 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto flex items-center justify-between px-4 py-4">
-          <h1 className="text-2xl font-bold text-primary">ShiftPlan</h1>
+          <h1 className="text-2xl font-bold text-primary">ShiftAtco</h1>
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -49,7 +49,7 @@ const Index = () => {
             Comprehensive Shift Management System
           </h2>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            ShiftPlan helps organizations manage complex rotating shift schedules,
+            ShiftAtco helps organizations manage complex rotating shift schedules,
             attendance tracking, leave management, and compliance monitoring.
           </p>
         </div>
@@ -105,7 +105,7 @@ const Index = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              This is the foundational setup for ShiftPlan. The authentication system,
+              This is the foundational setup for ShiftAtco. The authentication system,
               dashboard interfaces, and backend integration will be implemented in subsequent phases.
             </p>
             <div className="flex justify-center">
@@ -121,7 +121,7 @@ const Index = () => {
 
       <footer className="border-t mt-12">
         <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
-          ShiftPlan v1.0.0 - Phase 1 Implementation
+          ShiftAtco v1.0.0 - Phase 1 Implementation
         </div>
       </footer>
     </div>

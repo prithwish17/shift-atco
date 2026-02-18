@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const password = `ShiftPlan@${emp.employee_id}`;
+        const password = `ShiftAtco@${emp.employee_id}`;
 
         // Create auth user
         const { data: authUser, error: authError } = await adminClient.auth.admin.createUser({

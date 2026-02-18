@@ -1,10 +1,5 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { StatCard } from "@/components/StatCard";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-
-import { Calendar, FileText, Clock, Info, Shield, Users, ClipboardList, Briefcase, AlertTriangle, CheckCircle, XCircle, User } from "lucide-react";
+import { Calendar, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
@@ -23,6 +18,15 @@ const LICENSE_LABELS: Record<string, string> = {
   alpha: "Alpha",
   occ: "Oceanic",
 };
+
+/** Color map for duty code badges */
+function getDutyBadgeColor(code: string): string {
+  const upper = code?.toUpperCase() || '';
+  if (upper === 'N' || upper === 'NO') return 'bg-blue-500 text-white';
+  if (upper === 'M') return 'bg-orange-500 text-white';
+  if (upper === 'A') return 'bg-teal-500 text-white';
+  return 'bg-gray-600 text-white';
+}
 
 /** Parse roster date strings like "17-Feb-2026" into Date objects */
 function parseRosterDate(dateStr: string): Date | null {
@@ -58,8 +62,6 @@ export default function EmployeeDashboard() {
   const elBalance = yearBalances.find(b => b.leave_type === "el");
   const compOff = yearBalances.find(b => b.leave_type === "comp_off");
 
-  const recentLeaves = leaves?.slice(0, 5) || [];
-
   // 2-day roster + schedule lookup
   const now = new Date();
   const tomorrow = addDays(now, 1);
@@ -78,218 +80,200 @@ export default function EmployeeDashboard() {
 
   const isLoading = profileLoading || leavesLoading || balancesLoading || shiftsLoading;
 
-  const employeeName = profile?.full_name || "Employee";
-  const employeeId = profile?.employee_id || "—";
   const currentShift = profile?.current_shift ? `${profile.current_shift.toUpperCase()} Shift` : "—";
 
   return (
     <DashboardLayout role="employee">
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Welcome, {employeeName}</h1>
-          <p className="text-muted-foreground">
-            {employeeId} - {currentShift}
-          </p>
+      <div className="space-y-4 md:space-y-6">
+
+        {/* ─── Duty Overview Card ─── */}
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
+            <div className="flex items-center gap-3">
+              <div className="size-8 md:size-10 bg-blue-100 dark:bg-blue-900/40 rounded-full flex items-center justify-center">
+                <Clock className="size-4 md:size-5 text-blue-600 dark:text-blue-400" />
+              </div>
+              <h2 className="text-lg md:text-xl font-semibold text-gray-900 dark:text-gray-100">Duty Overview</h2>
+            </div>
+            <span className="text-base md:text-lg font-bold text-blue-600 dark:text-blue-400">{currentShift}</span>
+          </div>
+
+          {/* Today + Tomorrow Sub-Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 mb-4 md:mb-6">
+            {/* Today — Purple */}
+            <div className="bg-purple-100 dark:bg-purple-900/30 rounded-xl p-4 md:p-6">
+              <div className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-1">TODAY</div>
+              <div className="text-sm text-purple-700 dark:text-purple-300 mb-3 md:mb-4">{format(now, "EEE, dd MMM")}</div>
+              {(rosterLoading || scheduleLoading) ? (
+                <p className="text-sm text-purple-600 dark:text-purple-400">Loading…</p>
+              ) : todayRoster ? (
+                <div className="space-y-1">
+                  <div className="text-sm font-medium text-purple-800 dark:text-purple-200">{todayRoster.position}</div>
+                  <div className="text-sm font-medium text-purple-800 dark:text-purple-200">Unit {todayRoster.unit} · Team {todayRoster.team}</div>
+                </div>
+              ) : todaySchedule ? (
+                <div className="space-y-1">
+                  <div className="text-sm font-medium text-purple-800 dark:text-purple-200">{todaySchedule.duty_code}</div>
+                  <div className="text-sm font-medium text-purple-800 dark:text-purple-200">{todaySchedule.duty_description || DUTY_DESCRIPTIONS[todaySchedule.duty_code] || ''}</div>
+                </div>
+              ) : (
+                <p className="text-sm text-purple-600 dark:text-purple-400">No assignment</p>
+              )}
+            </div>
+
+            {/* Tomorrow — Blue */}
+            <div className="bg-blue-100 dark:bg-blue-900/30 rounded-xl p-4 md:p-6">
+              <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">TOMORROW</div>
+              <div className="text-sm text-blue-700 dark:text-blue-300 mb-3 md:mb-4">{format(tomorrow, "EEE, dd MMM")}</div>
+              {(rosterLoading || scheduleLoading) ? (
+                <p className="text-sm text-blue-600 dark:text-blue-400">Loading…</p>
+              ) : tomorrowRoster ? (
+                <div className="space-y-1">
+                  <div className="text-sm font-medium text-blue-800 dark:text-blue-200">{tomorrowRoster.position}</div>
+                  <div className="text-sm font-medium text-blue-800 dark:text-blue-200">Unit {tomorrowRoster.unit} · Team {tomorrowRoster.team}</div>
+                </div>
+              ) : tomorrowSchedule ? (
+                <div className="space-y-1">
+                  <div className="text-sm font-medium text-blue-800 dark:text-blue-200">{tomorrowSchedule.duty_code}</div>
+                  <div className="text-sm font-medium text-blue-800 dark:text-blue-200">{tomorrowSchedule.duty_description || DUTY_DESCRIPTIONS[tomorrowSchedule.duty_code] || ''}</div>
+                </div>
+              ) : (
+                <p className="text-sm text-blue-600 dark:text-blue-400">No assignment</p>
+              )}
+            </div>
+          </div>
+
+          {/* Balance Stat Cards — nested inside Duty Overview */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4">
+              <div className="flex items-center justify-between mb-2 md:mb-3">
+                <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">CL Balance</span>
+                <div className="size-6 md:size-8 bg-blue-100 dark:bg-blue-900/40 rounded-lg flex items-center justify-center">
+                  <FileText className="size-3 md:size-4 text-blue-600 dark:text-blue-400" />
+                </div>
+              </div>
+              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{clBalance ? clBalance.balance : "—"}</div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">Casual Leave</div>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4">
+              <div className="flex items-center justify-between mb-2 md:mb-3">
+                <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">RH Balance</span>
+                <div className="size-6 md:size-8 bg-purple-100 dark:bg-purple-900/40 rounded-lg flex items-center justify-center">
+                  <FileText className="size-3 md:size-4 text-purple-600 dark:text-purple-400" />
+                </div>
+              </div>
+              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{rhBalance ? rhBalance.balance : "—"}</div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">Restricted Holiday</div>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4">
+              <div className="flex items-center justify-between mb-2 md:mb-3">
+                <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">EL Balance</span>
+                <div className="size-6 md:size-8 bg-green-100 dark:bg-green-900/40 rounded-lg flex items-center justify-center">
+                  <FileText className="size-3 md:size-4 text-green-600 dark:text-green-400" />
+                </div>
+              </div>
+              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{elBalance ? elBalance.balance : "—"}</div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">Earned Leave</div>
+            </div>
+
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4">
+              <div className="flex items-center justify-between mb-2 md:mb-3">
+                <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">Comp Off</span>
+                <div className="size-6 md:size-8 bg-orange-100 dark:bg-orange-900/40 rounded-lg flex items-center justify-center">
+                  <Clock className="size-3 md:size-4 text-orange-600 dark:text-orange-400" />
+                </div>
+              </div>
+              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{compOff ? compOff.balance : "—"}</div>
+              <div className="text-xs text-gray-600 dark:text-gray-400">{compOff?.expiry_date ? `Expires ${compOff.expiry_date}` : "No comp off"}</div>
+            </div>
+          </div>
         </div>
 
-        {userRole && userRole !== 'employee' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Role Dashboards</CardTitle>
-              <CardDescription>Access your management dashboards</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 md:grid-cols-3">
-                {userRole === 'admin' && (
-                  <Link to="/admin">
-                    <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-primary/50 hover:bg-primary/10">
-                      <Shield className="h-6 w-6 text-primary" />
-                      <span className="font-semibold">Admin Dashboard</span>
-                    </Button>
-                  </Link>
-                )}
-                {userRole === 'supervisor' && (
-                  <Link to="/supervisor">
-                    <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-primary/50 hover:bg-primary/10">
-                      <Users className="h-6 w-6 text-primary" />
-                      <span className="font-semibold">Supervisor Dashboard</span>
-                    </Button>
-                  </Link>
-                )}
-                {userRole === 'wso' && (
-                  <Link to="/wso">
-                    <Button variant="outline" className="w-full h-20 flex flex-col gap-2 border-primary/50 hover:bg-primary/10">
-                      <ClipboardList className="h-6 w-6 text-primary" />
-                      <span className="font-semibold">WSO Dashboard</span>
-                    </Button>
-                  </Link>
-                )}
+        {/* ─── Bottom Two-Column Grid ─── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+
+          {/* ─── Upcoming Schedule ─── */}
+          <div className="bg-white dark:bg-gray-900 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="size-8 md:size-10 bg-purple-100 dark:bg-purple-900/40 rounded-full flex items-center justify-center">
+                <Calendar className="size-4 md:size-5 text-purple-600 dark:text-purple-400" />
               </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Duty Overview — Today + Tomorrow */}
-        <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
-          <CardHeader className="flex flex-row items-center justify-between p-[var(--space-4)]">
-            <CardTitle className="flex items-center gap-[var(--space-2)] font-semibold text-[length:var(--text-title)] text-slate-900 dark:text-slate-100">
-              <Briefcase className="h-5 w-5 text-slate-500 dark:text-slate-400" />
-              Duty Overview
-            </CardTitle>
-            <span className="font-medium text-[length:var(--text-body)] text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-[var(--space-2)] py-[var(--space-1)] rounded-md">
-              {currentShift}
-            </span>
-          </CardHeader>
-          <CardContent className="p-[var(--space-4)] pt-0">
-            {(rosterLoading || scheduleLoading) ? (
-              <p className="text-[length:var(--text-body)] text-slate-400">Loading…</p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--space-3)]">
-                {/* TODAY */}
-                <div className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-[var(--space-3)] space-y-[var(--space-2)]">
-                  <div>
-                    <p className="uppercase tracking-wide text-slate-500 dark:text-slate-400 text-[length:var(--text-meta)] font-semibold">Today</p>
-                    <p className="text-[length:var(--text-body)] text-slate-500 dark:text-slate-400">{format(now, "EEE, dd MMM")}</p>
-                  </div>
-                  {todayRoster ? (
-                    <div className="grid grid-cols-2 auto-rows-min gap-[var(--space-2)]">
-                      <div>
-                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Unit</p>
-                        <p className="font-medium text-[length:var(--text-body)] text-slate-800 dark:text-slate-200">{todayRoster.unit}</p>
-                      </div>
-                      <div>
-                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Position</p>
-                        <span className="inline-block bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium text-[length:var(--text-body)] rounded-md px-[var(--space-2)] py-[var(--space-1)]">{todayRoster.position}</span>
-                      </div>
-                      <div>
-                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Team</p>
-                        <p className="font-medium text-[length:var(--text-body)] text-slate-800 dark:text-slate-200">Team {todayRoster.team}</p>
-                      </div>
-                      <div>
-                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Shift</p>
-                        <span className="inline-block bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-600 font-medium text-[length:var(--text-body)] rounded-md px-[var(--space-2)] py-[var(--space-1)]">{todayRoster.shift}</span>
-                      </div>
-                    </div>
-                  ) : todaySchedule ? (
-                    <div className="space-y-[var(--space-1)]">
-                      <span className="inline-block bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-600 font-medium text-[length:var(--text-body)] font-mono rounded-md px-[var(--space-2)] py-[var(--space-1)]">{todaySchedule.duty_code}</span>
-                      <p className="text-[length:var(--text-body)] text-slate-500 dark:text-slate-400">{todaySchedule.duty_description || DUTY_DESCRIPTIONS[todaySchedule.duty_code] || ''}</p>
-                    </div>
-                  ) : (
-                    <p className="text-[length:var(--text-body)] text-slate-400 dark:text-slate-500">No assignment</p>
-                  )}
-                </div>
-
-                {/* TOMORROW */}
-                <div className="rounded-md border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/40 p-[var(--space-3)] space-y-[var(--space-2)]">
-                  <div>
-                    <p className="uppercase tracking-wide text-slate-400 dark:text-slate-500 text-[length:var(--text-meta)] font-semibold">Tomorrow</p>
-                    <p className="text-[length:var(--text-body)] text-slate-400 dark:text-slate-500">{format(tomorrow, "EEE, dd MMM")}</p>
-                  </div>
-                  {tomorrowRoster ? (
-                    <div className="grid grid-cols-2 auto-rows-min gap-[var(--space-2)]">
-                      <div>
-                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Unit</p>
-                        <p className="font-medium text-[length:var(--text-body)] text-slate-800 dark:text-slate-200">{tomorrowRoster.unit}</p>
-                      </div>
-                      <div>
-                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Position</p>
-                        <span className="inline-block bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium text-[length:var(--text-body)] rounded-md px-[var(--space-2)] py-[var(--space-1)]">{tomorrowRoster.position}</span>
-                      </div>
-                      <div>
-                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Team</p>
-                        <p className="font-medium text-[length:var(--text-body)] text-slate-800 dark:text-slate-200">Team {tomorrowRoster.team}</p>
-                      </div>
-                      <div>
-                        <p className="text-[length:var(--text-label)] text-slate-400 dark:text-slate-500">Shift</p>
-                        <span className="inline-block bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-600 font-medium text-[length:var(--text-body)] rounded-md px-[var(--space-2)] py-[var(--space-1)]">{tomorrowRoster.shift}</span>
-                      </div>
-                    </div>
-                  ) : tomorrowSchedule ? (
-                    <div className="space-y-[var(--space-1)]">
-                      <span className="inline-block bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-slate-600 font-medium text-[length:var(--text-body)] font-mono rounded-md px-[var(--space-2)] py-[var(--space-1)]">{tomorrowSchedule.duty_code}</span>
-                      <p className="text-[length:var(--text-body)] text-slate-400 dark:text-slate-500">{tomorrowSchedule.duty_description || DUTY_DESCRIPTIONS[tomorrowSchedule.duty_code] || ''}</p>
-                    </div>
-                  ) : (
-                    <p className="text-[length:var(--text-body)] text-slate-400 dark:text-slate-500">No assignment</p>
-                  )}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <StatCard title="CL Balance" value={clBalance ? clBalance.balance : "—"} icon={FileText} description="Casual Leave" />
-          <StatCard title="RH Balance" value={rhBalance ? rhBalance.balance : "—"} icon={FileText} description="Restricted Holiday" />
-          <StatCard title="EL Balance" value={elBalance ? elBalance.balance : "—"} icon={FileText} description="Earned Leave" />
-          <StatCard title="Comp Off" value={compOff ? compOff.balance : "—"} icon={Clock} description={compOff?.expiry_date ? `Expires ${compOff.expiry_date}` : "No comp off"} />
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Upcoming Schedule</CardTitle>
-              <CardDescription>Next 7 days duty assignments</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {mySchedule.length > 0 ? mySchedule.map((duty) => (
-                  <div key={duty.id} className="flex items-center justify-between border-b pb-2 last:border-0">
-                    <div>
-                      <p className="font-medium">{format(new Date(duty.duty_date), "MMM d, EEE")}</p>
-                      <p className="text-sm text-muted-foreground">{duty.duty_description || DUTY_DESCRIPTIONS[duty.duty_code] || duty.duty_code}</p>
-                    </div>
-                    <Badge variant={duty.duty_code === 'CO' || duty.duty_code === 'LEAVE' || duty.duty_code === 'SL' ? 'secondary' : 'default'} className="font-mono">
-                      {duty.duty_code}
-                    </Badge>
-                  </div>
-                )) : (
-                  <p className="text-sm text-muted-foreground text-center py-4">No schedule data yet. Fetch from Settings.</p>
-                )}
-              </div>
-              <Link to="/employee/schedule">
-                <Button variant="outline" className="w-full mt-4">View Full Schedule</Button>
-              </Link>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="h-5 w-5" />
-                Profile & Ratings
-              </CardTitle>
-              <CardDescription>Your profile snapshot and license validity</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Profile Snapshot */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between border-b pb-2">
-                  <span className="text-sm text-muted-foreground">Designation</span>
-                  <span className="font-medium">{profile?.designation || '—'}</span>
-                </div>
-                <div className="flex items-center justify-between border-b pb-2">
-                  <span className="text-sm text-muted-foreground">Email</span>
-                  <span className="font-medium text-sm truncate max-w-[180px]">{profile?.email || '—'}</span>
-                </div>
-                {profile?.stream && (
-                  <div className="flex items-center justify-between border-b pb-2">
-                    <span className="text-sm text-muted-foreground">Stream</span>
-                    <Badge variant="outline" className="uppercase">{profile.stream}</Badge>
-                  </div>
-                )}
-              </div>
-
-              {/* License / Ratings */}
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Licenses & Ratings</p>
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm md:text-base">Upcoming Schedule</h3>
+                <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">Next 7 days duty assignments</p>
+              </div>
+            </div>
+
+            <div className="space-y-2 md:space-y-3">
+              {mySchedule.length > 0 ? mySchedule.map((duty, idx) => (
+                <div key={duty.id} className={`flex items-center justify-between py-2 md:py-3 ${idx < mySchedule.length - 1 ? 'border-b border-gray-100 dark:border-gray-800' : ''}`}>
+                  <div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{format(new Date(duty.duty_date), "MMM d, EEE")}</div>
+                    <div className="text-xs md:text-sm text-gray-600 dark:text-gray-400">{duty.duty_description || DUTY_DESCRIPTIONS[duty.duty_code] || duty.duty_code}</div>
+                  </div>
+                  <span className={`w-16 px-2 md:px-3 py-1 text-xs font-medium rounded text-center ${getDutyBadgeColor(duty.duty_code)}`}>
+                    {duty.duty_code}
+                  </span>
+                </div>
+              )) : (
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No schedule data yet. Fetch from Settings.</p>
+              )}
+            </div>
+          </div>
+
+          {/* ─── Profile & Ratings ─── */}
+          <div className="bg-white dark:bg-gray-900 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="size-8 md:size-10 bg-green-100 dark:bg-green-900/40 rounded-full flex items-center justify-center">
+                <Users className="size-4 md:size-5 text-green-600 dark:text-green-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm md:text-base">Profile & Ratings</h3>
+                <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">Your profile snapshot and license validity</p>
+              </div>
+            </div>
+
+            {/* Profile rows with icons */}
+            <div className="space-y-3 md:space-y-4 mb-4 md:mb-6">
+              <div className="flex items-center justify-between py-2">
+                <div className="flex items-center gap-2 text-xs md:text-sm text-gray-700 dark:text-gray-300">
+                  <Award className="size-3 md:size-4 text-green-600 dark:text-green-400" />
+                  <span>Designation</span>
+                </div>
+                <span className="text-xs md:text-sm font-medium text-gray-900 dark:text-gray-100">{profile?.designation || '—'}</span>
+              </div>
+
+              <div className="flex items-center justify-between py-2">
+                <div className="flex items-center gap-2 text-xs md:text-sm text-gray-700 dark:text-gray-300">
+                  <Mail className="size-3 md:size-4 text-green-600 dark:text-green-400" />
+                  <span>Email</span>
+                </div>
+                <span className="text-xs md:text-sm font-medium text-gray-900 dark:text-gray-100 truncate max-w-[180px]">{profile?.email || '—'}</span>
+              </div>
+
+              {profile?.stream && (
+                <div className="flex items-center justify-between py-2">
+                  <div className="flex items-center gap-2 text-xs md:text-sm text-gray-700 dark:text-gray-300">
+                    <Waves className="size-3 md:size-4 text-green-600 dark:text-green-400" />
+                    <span>Stream</span>
+                  </div>
+                  <span className="text-xs md:text-sm font-medium text-gray-900 dark:text-gray-100">{profile.stream.toUpperCase()}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Licenses & Ratings */}
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+              <div className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">LICENSES & RATINGS</div>
+
+              {licenses && licenses.length > 0 ? (
                 <div className="space-y-2">
-                  {licenses && licenses.length > 0 ? licenses.map((lic) => {
-                    const now = new Date();
+                  {licenses.map((lic) => {
+                    const nowDate = new Date();
                     const expiry = lic.expiry_date ? new Date(lic.expiry_date) : null;
-                    const daysLeft = expiry ? differenceInDays(expiry, now) : null;
+                    const daysLeft = expiry ? differenceInDays(expiry, nowDate) : null;
                     let statusColor = 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
                     let StatusIcon = CheckCircle;
                     let statusLabel = 'Valid';
@@ -303,99 +287,40 @@ export default function EmployeeDashboard() {
                       statusLabel = `${daysLeft}d left`;
                     }
                     return (
-                      <div key={lic.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                      <div key={lic.id} className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
                         <div className="flex items-center gap-2">
-                          <Shield className="h-4 w-4 text-primary" />
+                          <Shield className="size-4 text-green-600 dark:text-green-400" />
                           <div>
-                            <p className="font-medium text-sm">{LICENSE_LABELS[lic.license_type] || lic.license_type.toUpperCase()}</p>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="font-medium text-sm text-gray-900 dark:text-gray-100">{LICENSE_LABELS[lic.license_type] || lic.license_type.toUpperCase()}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
                               {expiry ? `Expires ${format(expiry, 'dd MMM yyyy')}` : 'No expiry'}
                             </p>
                           </div>
                         </div>
                         <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${statusColor}`}>
-                          <StatusIcon className="h-3 w-3" />
+                          <StatusIcon className="size-3" />
                           {statusLabel}
                         </span>
                       </div>
                     );
-                  }) : (
-                    <p className="text-sm text-muted-foreground text-center py-3">No licenses found</p>
-                  )}
+                  })}
                 </div>
-              </div>
-
-              <Link to="/employee/profile">
-                <Button variant="outline" className="w-full mt-2">View Full Profile</Button>
-              </Link>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Leave History</CardTitle>
-            <CardDescription>Your recent leave applications</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {recentLeaves.length > 0 ? recentLeaves.map((leave) => (
-                <div key={leave.id} className="flex items-center justify-between border-b pb-3 last:border-0">
-                  <div>
-                    <p className="font-medium">{leave.leave_type.toUpperCase()}</p>
-                    <p className="text-sm text-muted-foreground">{leave.start_date} to {leave.end_date}</p>
+              ) : (
+                <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4 md:p-6 text-center border border-green-200 dark:border-green-800">
+                  <div className="size-10 md:size-12 bg-white dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-3 border border-green-300 dark:border-green-700">
+                    <Eye className="size-5 md:size-6 text-green-600 dark:text-green-400" />
                   </div>
-                  <Badge variant="outline" className="capitalize">{leave.status.replace("_", " ")}</Badge>
+                  <p className="text-xs md:text-sm text-gray-700 dark:text-gray-300 mb-4">No licenses found</p>
+                  <Link to="/employee/profile">
+                    <button className="px-4 py-2 bg-green-600 text-white text-xs md:text-sm font-medium rounded-lg hover:bg-green-700 transition-colors">
+                      View Full Profile
+                    </button>
+                  </Link>
                 </div>
-              )) : (
-                <p className="text-sm text-muted-foreground text-center py-4">No leave history</p>
               )}
             </div>
-            <Link to="/employee/leave">
-              <Button variant="outline" className="w-full mt-4">View All Leaves</Button>
-            </Link>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-5">
-              <Link to="/employee/leave">
-                <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                  <FileText className="h-6 w-6" />
-                  Apply for Leave
-                </Button>
-              </Link>
-              <Link to="/employee/duty-exchange">
-                <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                  <Clock className="h-6 w-6" />
-                  Request Exchange
-                </Button>
-              </Link>
-              <Link to="/employee/schedule">
-                <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                  <Calendar className="h-6 w-6" />
-                  View Schedule
-                </Button>
-              </Link>
-              <Link to="/employee/atc-duties">
-                <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                  <ClipboardList className="h-6 w-6" />
-                  ATC Duties
-                </Button>
-              </Link>
-              <Link to="/employee/profile">
-                <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                  <Info className="h-6 w-6" />
-                  My Profile
-                </Button>
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     </DashboardLayout>
   );

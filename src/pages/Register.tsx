@@ -28,14 +28,14 @@ export default function Register() {
   const { signUp } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
-  
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [selectedLicenses, setSelectedLicenses] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof RegisterInput, string>>>({});
   const [authError, setAuthError] = useState<string>("");
-  
+
   const [formData, setFormData] = useState({
     full_name: "",
     employee_id: "",
@@ -50,7 +50,7 @@ export default function Register() {
 
   const toggleLicense = (license: string) => {
     setSelectedLicenses(prev =>
-      prev.includes(license) 
+      prev.includes(license)
         ? prev.filter(l => l !== license)
         : [...prev, license]
     );
@@ -118,7 +118,7 @@ export default function Register() {
             <UserPlus className="h-10 w-10 text-primary" />
           </div>
           <CardTitle className="text-3xl">User Registration</CardTitle>
-          <CardDescription>Create your ShiftPlan account</CardDescription>
+          <CardDescription>Create your ShiftAtco account</CardDescription>
         </CardHeader>
         <CardContent>
           {authError && (
@@ -190,8 +190,8 @@ export default function Register() {
 
               <div className="space-y-2">
                 <Label htmlFor="current_shift">Current Shift *</Label>
-                <Select 
-                  value={formData.current_shift} 
+                <Select
+                  value={formData.current_shift}
                   onValueChange={(value: any) => setFormData({ ...formData, current_shift: value })}
                   disabled={isLoading}
                 >
