@@ -1,21 +1,17 @@
 import { useState, useMemo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar as CalendarIcon, Clock, RefreshCw, ChevronLeft, ChevronRight, TrendingUp } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, ChevronLeft, ChevronRight, TrendingUp } from "lucide-react";
 import { format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, isToday, isBefore, addMonths, subMonths, parseISO } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
 import {
   useMySchedule,
-  useFetchSchedule,
-  useUpdateSchedule,
   DUTY_CODES,
   DUTY_DESCRIPTIONS,
 } from "@/hooks/useEmployeeSchedules";
 import type { EmployeeSchedule as ScheduleType } from "@/hooks/useEmployeeSchedules";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 
 /* ── Figma-matched duty color map ── */
 const dutyColor = (code: string): string => {
@@ -83,9 +79,8 @@ const shiftTime = (code: string): string | null => {
 
 export default function EmployeeSchedule() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const { user, userRole } = useAuth();
+  const { user } = useAuth();
   const { profile, isLoading: profileLoading } = useUserProfile(user?.id);
-  const canEdit = userRole === "admin" || userRole === "supervisor";
 
   const monthStart = format(startOfMonth(currentMonth), "yyyy-MM-dd");
   const monthEnd = format(endOfMonth(currentMonth), "yyyy-MM-dd");
@@ -95,8 +90,6 @@ export default function EmployeeSchedule() {
     monthStart,
     monthEnd
   );
-  const fetchSchedule = useFetchSchedule();
-  const updateSchedule = useUpdateSchedule();
 
   const isLoading = profileLoading || schedulesLoading;
 
@@ -123,16 +116,6 @@ export default function EmployeeSchedule() {
 
   const nextDuty = schedules.find((s) => s.duty_date >= todayStr);
 
-  const handleCodeChange = (id: string, newCode: string) => {
-    updateSchedule.mutate(
-      { id, duty_code: newCode, duty_description: DUTY_DESCRIPTIONS[newCode] || newCode },
-      {
-        onSuccess: () => toast.success("Duty updated"),
-        onError: (err: any) => toast.error(err.message || "Update failed"),
-      }
-    );
-  };
-
   /* ── Duty stats for monthly summary bar chart ── */
   const dutyStats = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -157,25 +140,6 @@ export default function EmployeeSchedule() {
             <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
               {profile?.full_name || "—"} · {profile?.employee_id || ""}
             </p>
-          </div>
-          <div className="flex gap-2">
-            {canEdit && (
-              <button
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                onClick={() =>
-                  fetchSchedule.mutate(undefined, {
-                    onSuccess: (data: any) =>
-                      toast.success(`Fetched ${data.rows} entries for ${data.employees} employees`),
-                    onError: (err: any) => toast.error(err.message || "Fetch failed"),
-                  })
-                }
-                disabled={fetchSchedule.isPending}
-              >
-                <RefreshCw className={cn("size-4", fetchSchedule.isPending && "animate-spin")} />
-                Fetch Latest
-              </button>
-            )}
-
           </div>
         </div>
 
@@ -337,37 +301,9 @@ export default function EmployeeSchedule() {
                       {format(day, "d")}
                     </div>
                     {schedule ? (
-                      canEdit ? (
-                        <Select
-                          value={schedule.duty_code}
-                          onValueChange={(val) => handleCodeChange(schedule.id, val)}
-                        >
-                          <SelectTrigger
-                            className={cn(
-                              "h-auto border-0 px-1.5 py-0.5 shadow-none justify-center text-[10px] sm:text-xs font-semibold rounded",
-                              dutyColor(schedule.duty_code)
-                            )}
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {DUTY_CODES.map((code) => (
-                              <SelectItem key={code} value={code}>
-                                <span className="flex items-center gap-2">
-                                  <span className={cn("inline-block rounded px-1.5 py-0.5 font-mono text-xs", dutyColor(code))}>
-                                    {code}
-                                  </span>
-                                  <span className="text-xs text-gray-500">{DUTY_DESCRIPTIONS[code] || ""}</span>
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <div className={`text-[10px] sm:text-xs font-semibold px-1.5 py-0.5 rounded ${dutyColor(schedule.duty_code)} inline-block`}>
-                          {schedule.duty_code}
-                        </div>
-                      )
+                      <div className={`text-[10px] sm:text-xs font-semibold px-1.5 py-0.5 rounded ${dutyColor(schedule.duty_code)} inline-block`}>
+                        {schedule.duty_code}
+                      </div>
                     ) : null}
                   </div>
                 );
@@ -431,26 +367,11 @@ export default function EmployeeSchedule() {
                     </span>
                   </div>
 
-                  {/* Time or edit */}
+                  {/* Time/Status */}
                   <div className="text-right min-w-[120px]">
-                    {canEdit ? (
-                      <Select value={duty.duty_code} onValueChange={(val) => handleCodeChange(duty.id, val)}>
-                        <SelectTrigger className="h-7 w-[90px] text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {DUTY_CODES.map((code) => (
-                            <SelectItem key={code} value={code}>
-                              {code}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <span className="text-sm text-gray-600 dark:text-gray-400">
-                        {shiftTime(duty.duty_code) || ""}
-                      </span>
-                    )}
+                    <span className="text-sm text-gray-600 dark:text-gray-400">
+                      {shiftTime(duty.duty_code) || ""}
+                    </span>
                   </div>
                 </div>
               ))}
