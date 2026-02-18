@@ -65,6 +65,51 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        /* ===== CORPORATE SURFACES ===== */
+        page: "var(--corp-bg-page)",
+        surface: "var(--corp-bg-surface)",
+        elevated: "var(--corp-bg-elevated)",
+        soft: "var(--corp-bg-soft)",
+        /* ===== CORPORATE TEXT ===== */
+        "corp-text": {
+          main: "var(--corp-text-main)",
+          muted: "var(--corp-text-muted)",
+          soft: "var(--corp-text-soft)",
+        },
+        /* ===== CORPORATE BORDERS ===== */
+        "corp-border": {
+          soft: "var(--corp-border-soft)",
+          strong: "var(--corp-border-strong)",
+        },
+        /* ===== CORPORATE BRAND ===== */
+        "corp-primary": {
+          soft: "var(--corp-primary-soft)",
+          hover: "var(--corp-primary-hover)",
+        },
+        /* ===== SEMANTIC STATUS ===== */
+        status: {
+          success: "var(--corp-success)",
+          "success-soft": "var(--corp-success-soft)",
+          warning: "var(--corp-warning)",
+          "warning-soft": "var(--corp-warning-soft)",
+          danger: "var(--corp-danger)",
+          "danger-soft": "var(--corp-danger-soft)",
+          neutral: "var(--corp-neutral)",
+          "neutral-soft": "var(--corp-neutral-soft)",
+        },
+        /* ===== DUTY BADGES ===== */
+        duty: {
+          night: "var(--duty-night)",
+          "night-bg": "var(--duty-night-bg)",
+          morning: "var(--duty-morning)",
+          "morning-bg": "var(--duty-morning-bg)",
+          afternoon: "var(--duty-afternoon)",
+          "afternoon-bg": "var(--duty-afternoon-bg)",
+          leave: "var(--duty-leave)",
+          "leave-bg": "var(--duty-leave-bg)",
+          off: "var(--duty-off)",
+          "off-bg": "var(--duty-off-bg)",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

@@ -76,6 +76,47 @@ All colors MUST be HSL.
     --sidebar-accent-foreground: 215 25% 27%;
     --sidebar-border: 214 32% 91%;
     --sidebar-ring: 220 77% 39%;
+
+    /* ===== CORPORATE SURFACES ===== */
+    --corp-bg-page: #F6F8FB;
+    --corp-bg-surface: #FFFFFF;
+    --corp-bg-elevated: #F1F4F9;
+    --corp-bg-soft: #F8FAFF;
+
+    /* ===== CORPORATE BRAND ===== */
+    --corp-primary-soft: #E8EEFF;
+    --corp-primary-hover: #2447C6;
+
+    /* ===== CORPORATE TEXT ===== */
+    --corp-text-main: #1F2937;
+    --corp-text-muted: #6B7280;
+    --corp-text-soft: #94A3B8;
+
+    /* ===== CORPORATE BORDERS ===== */
+    --corp-border-soft: #E4E9F0;
+    --corp-border-strong: #CBD5E1;
+
+    /* ===== CORPORATE SEMANTIC STATUS ===== */
+    --corp-success: #16A34A;
+    --corp-success-soft: #DCFCE7;
+    --corp-warning: #F59E0B;
+    --corp-warning-soft: #FEF3C7;
+    --corp-danger: #DC2626;
+    --corp-danger-soft: #FEE2E2;
+    --corp-neutral: #64748B;
+    --corp-neutral-soft: #F1F5F9;
+
+    /* ===== DUTY BADGE TOKENS ===== */
+    --duty-night: #2F5BEA;
+    --duty-night-bg: #E8EEFF;
+    --duty-morning: #10B981;
+    --duty-morning-bg: #D1FAE5;
+    --duty-afternoon: #6366F1;
+    --duty-afternoon-bg: #E0E7FF;
+    --duty-leave: #64748B;
+    --duty-leave-bg: #F1F5F9;
+    --duty-off: #475569;
+    --duty-off-bg: #E2E8F0;
   }
 
   .dark {
@@ -118,6 +159,47 @@ All colors MUST be HSL.
     --sidebar-accent-foreground: 210 40% 98%;
     --sidebar-border: 217 33% 17%;
     --sidebar-ring: 220 77% 39%;
+
+    /* ===== CORPORATE SURFACES (DARK) ===== */
+    --corp-bg-page: #0F172A;
+    --corp-bg-surface: #111827;
+    --corp-bg-elevated: #1E293B;
+    --corp-bg-soft: #1A2332;
+
+    /* ===== CORPORATE BRAND (DARK) ===== */
+    --corp-primary-soft: #1E2A4A;
+    --corp-primary-hover: #4B7BF5;
+
+    /* ===== CORPORATE TEXT (DARK) ===== */
+    --corp-text-main: #E5E7EB;
+    --corp-text-muted: #9CA3AF;
+    --corp-text-soft: #6B7280;
+
+    /* ===== CORPORATE BORDERS (DARK) ===== */
+    --corp-border-soft: #1E293B;
+    --corp-border-strong: #334155;
+
+    /* ===== CORPORATE SEMANTIC STATUS (DARK) ===== */
+    --corp-success: #22C55E;
+    --corp-success-soft: #14532D;
+    --corp-warning: #FBBF24;
+    --corp-warning-soft: #422006;
+    --corp-danger: #EF4444;
+    --corp-danger-soft: #450A0A;
+    --corp-neutral: #94A3B8;
+    --corp-neutral-soft: #1E293B;
+
+    /* ===== DUTY BADGE TOKENS (DARK) ===== */
+    --duty-night: #6B8EF5;
+    --duty-night-bg: #1E2A4A;
+    --duty-morning: #34D399;
+    --duty-morning-bg: #064E3B;
+    --duty-afternoon: #A5B4FC;
+    --duty-afternoon-bg: #1E1B4B;
+    --duty-leave: #94A3B8;
+    --duty-leave-bg: #1E293B;
+    --duty-off: #94A3B8;
+    --duty-off-bg: #1E293B;
   }
 }
 

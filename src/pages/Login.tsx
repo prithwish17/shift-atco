@@ -15,9 +15,9 @@ import { loginSchema, LoginInput } from "@/lib/validations";
 export default function Login() {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
-  const { signIn, user } = useAuth();
+  const { signIn, user, userRole, loading } = useAuth();
   const { toast } = useToast();
-  
+
   const [formData, setFormData] = useState<LoginInput>({ email: "", password: "" });
   const [errors, setErrors] = useState<Partial<Record<keyof LoginInput, string>>>({});
   const [authError, setAuthError] = useState<string>("");
@@ -25,12 +25,12 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Redirect if already logged in
+  // Redirect if already logged in (wait for auth to fully initialize)
   useEffect(() => {
-    if (user) {
-      navigate('/');
+    if (!loading && user && userRole) {
+      navigate('/employee');
     }
-  }, [user, navigate]);
+  }, [user, userRole, loading, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

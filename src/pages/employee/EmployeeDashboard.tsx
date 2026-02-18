@@ -4,15 +4,25 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-import { Calendar, FileText, Clock, Info, Shield, Users, ClipboardList, Briefcase } from "lucide-react";
+import { Calendar, FileText, Clock, Info, Shield, Users, ClipboardList, Briefcase, AlertTriangle, CheckCircle, XCircle, User } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
 import { useLeaves, useLeaveBalances } from "@/hooks/useLeaves";
+import { useLicenses } from "@/hooks/useLicenses";
 import { useShifts } from "@/hooks/useShifts";
 import { useMyRoster } from "@/hooks/useRosters";
 import { useMySchedule, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
-import { format, addDays, isSameDay, parse } from "date-fns";
+import { format, addDays, isSameDay, parse, differenceInDays } from "date-fns";
+
+const LICENSE_LABELS: Record<string, string> = {
+  rdr: "Radar",
+  app: "Approach",
+  plr: "Precision",
+  adc: "Aerodrome",
+  alpha: "Alpha",
+  occ: "Oceanic",
+};
 
 /** Parse roster date strings like "17-Feb-2026" into Date objects */
 function parseRosterDate(dateStr: string): Date | null {
@@ -26,6 +36,7 @@ function parseRosterDate(dateStr: string): Date | null {
 export default function EmployeeDashboard() {
   const { user, userRole } = useAuth();
   const { profile, isLoading: profileLoading } = useUserProfile(user?.id);
+  const { licenses, isLoading: licensesLoading } = useLicenses(user?.id);
 
   const today = format(new Date(), "yyyy-MM-dd");
   const weekEnd = format(addDays(new Date(), 7), "yyyy-MM-dd");
@@ -246,30 +257,77 @@ export default function EmployeeDashboard() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Leave Balance Summary</CardTitle>
-              <CardDescription>Your available leave balances</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5" />
+                Profile & Ratings
+              </CardTitle>
+              <CardDescription>Your profile snapshot and license validity</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {yearBalances.length > 0 ? yearBalances.map((bal) => (
-                  <div key={bal.id} className="flex items-center justify-between border-b pb-2 last:border-0">
-                    <div>
-                      <p className="font-medium">{bal.leave_type.toUpperCase()}</p>
-                      {bal.expiry_date && (
-                        <p className="text-xs text-warning flex items-center gap-1">
-                          <Info className="h-3 w-3" />
-                          Expires: {bal.expiry_date}
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-lg">{bal.balance}</p>
-                    </div>
+            <CardContent className="space-y-4">
+              {/* Profile Snapshot */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-sm text-muted-foreground">Designation</span>
+                  <span className="font-medium">{profile?.designation || '—'}</span>
+                </div>
+                <div className="flex items-center justify-between border-b pb-2">
+                  <span className="text-sm text-muted-foreground">Email</span>
+                  <span className="font-medium text-sm truncate max-w-[180px]">{profile?.email || '—'}</span>
+                </div>
+                {profile?.stream && (
+                  <div className="flex items-center justify-between border-b pb-2">
+                    <span className="text-sm text-muted-foreground">Stream</span>
+                    <Badge variant="outline" className="uppercase">{profile.stream}</Badge>
                   </div>
-                )) : (
-                  <p className="text-sm text-muted-foreground text-center py-4">No leave balances configured</p>
                 )}
               </div>
+
+              {/* License / Ratings */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Licenses & Ratings</p>
+                <div className="space-y-2">
+                  {licenses && licenses.length > 0 ? licenses.map((lic) => {
+                    const now = new Date();
+                    const expiry = lic.expiry_date ? new Date(lic.expiry_date) : null;
+                    const daysLeft = expiry ? differenceInDays(expiry, now) : null;
+                    let statusColor = 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
+                    let StatusIcon = CheckCircle;
+                    let statusLabel = 'Valid';
+                    if (daysLeft !== null && daysLeft < 0) {
+                      statusColor = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+                      StatusIcon = XCircle;
+                      statusLabel = 'Expired';
+                    } else if (daysLeft !== null && daysLeft <= 30) {
+                      statusColor = 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
+                      StatusIcon = AlertTriangle;
+                      statusLabel = `${daysLeft}d left`;
+                    }
+                    return (
+                      <div key={lic.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <Shield className="h-4 w-4 text-primary" />
+                          <div>
+                            <p className="font-medium text-sm">{LICENSE_LABELS[lic.license_type] || lic.license_type.toUpperCase()}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {expiry ? `Expires ${format(expiry, 'dd MMM yyyy')}` : 'No expiry'}
+                            </p>
+                          </div>
+                        </div>
+                        <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${statusColor}`}>
+                          <StatusIcon className="h-3 w-3" />
+                          {statusLabel}
+                        </span>
+                      </div>
+                    );
+                  }) : (
+                    <p className="text-sm text-muted-foreground text-center py-3">No licenses found</p>
+                  )}
+                </div>
+              </div>
+
+              <Link to="/employee/profile">
+                <Button variant="outline" className="w-full mt-2">View Full Profile</Button>
+              </Link>
             </CardContent>
           </Card>
         </div>

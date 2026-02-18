@@ -1,11 +1,22 @@
-import { Link } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Moon, Sun, Calendar, Users, ClipboardList, Shield } from "lucide-react";
 
 const Index = () => {
   const { theme, toggleTheme } = useTheme();
+  const { user, userRole, loading } = useAuth();
+  const navigate = useNavigate();
+
+  // Redirect logged-in users to their dashboard
+  useEffect(() => {
+    if (!loading && user && userRole) {
+      navigate('/employee');
+    }
+  }, [user, userRole, loading, navigate]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -38,7 +49,7 @@ const Index = () => {
             Comprehensive Shift Management System
           </h2>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            ShiftPlan helps organizations manage complex rotating shift schedules, 
+            ShiftPlan helps organizations manage complex rotating shift schedules,
             attendance tracking, leave management, and compliance monitoring.
           </p>
         </div>
@@ -94,7 +105,7 @@ const Index = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              This is the foundational setup for ShiftPlan. The authentication system, 
+              This is the foundational setup for ShiftPlan. The authentication system,
               dashboard interfaces, and backend integration will be implemented in subsequent phases.
             </p>
             <div className="flex justify-center">
