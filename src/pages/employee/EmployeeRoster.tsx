@@ -196,8 +196,8 @@ export default function EmployeeRoster() {
                                             size="sm"
                                             onClick={() => setSelectedDate(dateStr)}
                                             className={`flex flex-col items-center min-w-[72px] h-auto py-1.5 px-3 gap-0 ${label.isToday && !isSelected
-                                                    ? "border-primary text-primary"
-                                                    : ""
+                                                ? "border-primary text-primary"
+                                                : ""
                                                 }`}
                                         >
                                             <span className="text-[11px] font-normal opacity-70">
@@ -294,6 +294,69 @@ export default function EmployeeRoster() {
                         )}
                     </CardContent>
                 </Card>
+
+                {/* Bottom Status Tables */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+                    {/* Duty Change Table */}
+                    <Card>
+                        <CardHeader className="py-3 bg-muted/50">
+                            <CardTitle className="text-sm font-semibold">Duty Change</CardTitle>
+                        </CardHeader>
+                        <CardContent className="pt-3 pb-3">
+                            <div className="divide-y text-sm">
+                                {filteredRosters.filter(r => r.position?.toUpperCase() === 'DUTY CHANGE').map((r, idx) => (
+                                    <div key={r.id || idx} className="py-2 flex justify-between">
+                                        <span className="font-medium">{r.employee_name}</span>
+                                        <span className="text-muted-foreground ml-2">{r.unit}</span>
+                                    </div>
+                                ))}
+                                {filteredRosters.filter(r => r.position?.toUpperCase() === 'DUTY CHANGE').length === 0 && (
+                                    <div className="py-2 text-center text-muted-foreground">No duty changes</div>
+                                )}
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    {/* Extra Duty Table */}
+                    <Card>
+                        <CardHeader className="py-3 bg-muted/50">
+                            <CardTitle className="text-sm font-semibold">Extra Duty</CardTitle>
+                        </CardHeader>
+                        <CardContent className="pt-3 pb-3">
+                            <div className="divide-y text-sm">
+                                {filteredRosters.filter(r => r.position?.toUpperCase() === 'EXTRA DUTY').map((r, idx) => (
+                                    <div key={r.id || idx} className="py-2 flex justify-between items-center">
+                                        <span className="font-medium">{r.employee_name}</span>
+                                        <span className="text-muted-foreground ml-2">{r.unit}</span>
+                                    </div>
+                                ))}
+                                {filteredRosters.filter(r => r.position?.toUpperCase() === 'EXTRA DUTY').length === 0 && (
+                                    <div className="py-2 text-center text-muted-foreground">No extra duties</div>
+                                )}
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    {/* Leave Table */}
+                    <Card>
+                        <CardHeader className="py-3 bg-muted/50">
+                            <CardTitle className="text-sm font-semibold text-destructive">Leave</CardTitle>
+                        </CardHeader>
+                        <CardContent className="pt-3 pb-3">
+                            <div className="divide-y text-sm">
+                                {filteredRosters.filter(r => r.position?.toUpperCase().includes('LEAVE')).map((r, idx) => (
+                                    <div key={r.id || idx} className="py-2 flex justify-between items-center">
+                                        <span className="font-medium">{r.employee_name}</span>
+                                        <Badge variant="secondary" className="font-normal text-[10px] uppercase ml-2">{r.position}</Badge>
+                                    </div>
+                                ))}
+                                {filteredRosters.filter(r => r.position?.toUpperCase().includes('LEAVE')).length === 0 && (
+                                    <div className="py-2 text-center text-muted-foreground">No one on leave</div>
+                                )}
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
             </div>
         </DashboardLayout>
     );

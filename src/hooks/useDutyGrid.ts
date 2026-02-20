@@ -68,6 +68,8 @@ export function useDutyRoster(date: Date, shift: string) {
             if (error) throw error;
             return data as DutyRoster | null;
         },
+        staleTime: 2 * 60 * 1000,
+        gcTime: 5 * 60 * 1000,
     });
 }
 
@@ -126,6 +128,8 @@ export function useRosterAssignments(rosterId: string | undefined) {
             return records;
         },
         enabled: !!rosterId,
+        staleTime: 2 * 60 * 1000,
+        gcTime: 5 * 60 * 1000,
     });
 }
 
@@ -197,6 +201,8 @@ export function useGridLeaveRecords(date: Date) {
             }
             return records;
         },
+        staleTime: 2 * 60 * 1000,
+        gcTime: 5 * 60 * 1000,
     });
 }
 
@@ -231,6 +237,8 @@ export function useGridExtraDuties(rosterId: string | undefined) {
             return records;
         },
         enabled: !!rosterId,
+        staleTime: 2 * 60 * 1000,
+        gcTime: 5 * 60 * 1000,
     });
 }
 
@@ -282,6 +290,8 @@ export function useGridEmployees() {
             if (error) throw error;
             return (data || []) as GridEmployee[];
         },
+        staleTime: 5 * 60 * 1000,
+        gcTime: 10 * 60 * 1000,
     });
 }
 
@@ -298,5 +308,44 @@ export function useSyncRosterToGrid() {
             qc.invalidateQueries({ queryKey: ['duty-roster'] });
             qc.invalidateQueries({ queryKey: ['roster-assignments'] });
         },
+    });
+}
+
+// ---------- Roster Status Entries (Duty Change / Extra Duty from Google Sheets rosters) ----------
+
+export type RosterStatusEntry = {
+    id: string;
+    employee_name: string;
+    unit: string;
+    position: string;
+    date: string;
+    shift: string;
+    team: string;
+};
+
+export function useRosterStatusEntries(date: Date, shift: string, team: string) {
+    const dateStr = format(date, 'yyyy-MM-dd');
+    // Convert to the format stored in rosters table (dd-MMM-yyyy)
+    const rosterDateStr = format(date, 'dd-MMM-yyyy');
+    const rosterShift = shift.toUpperCase();
+
+    return useQuery({
+        queryKey: ['roster-status-entries', dateStr, shift, team],
+        queryFn: async () => {
+            // Query rosters for DUTY CHANGE and EXTRA DUTY entries
+            const { data, error } = await supabase
+                .from('rosters' as any)
+                .select('*')
+                .eq('date', rosterDateStr)
+                .eq('shift', rosterShift)
+                .eq('team', team)
+                .in('unit', ['DUTY CHANGE', 'EXTRA DUTY', 'Duty Change', 'Extra Duty', 'duty change', 'extra duty']);
+
+            if (error) throw error;
+            return (data || []) as RosterStatusEntry[];
+        },
+        enabled: !!team,
+        staleTime: 2 * 60 * 1000,
+        gcTime: 5 * 60 * 1000,
     });
 }

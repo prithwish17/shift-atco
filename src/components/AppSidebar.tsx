@@ -53,7 +53,7 @@ const menuItems = {
     { title: "Attendance", url: "/wso/attendance", icon: ClipboardList },
     { title: "ATC Duty Grid", url: "/wso/atc-grid", icon: Radio },
     { title: "BA Test Management", url: "/wso/ba-test", icon: Shield },
-    { title: "Requests", url: "/wso/requests", icon: FileText },
+    { title: "Leave Requests", url: "/wso/leaves", icon: FileText },
     { title: "Profile Settings", url: "/wso/profile", icon: UserCog },
   ],
   employee: [

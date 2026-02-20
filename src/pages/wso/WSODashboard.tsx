@@ -7,10 +7,11 @@ import { Users, FileText, Shield, Clock, Calendar } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
-import { useLeaves } from "@/hooks/useLeaves";
 import { useDutyExchanges } from "@/hooks/useDutyExchanges";
 import { useAttendance } from "@/hooks/useAttendance";
 import { useBaTests } from "@/hooks/useBaTests";
+import { useAllLeaveRequests } from "@/hooks/useLeaveRequests";
+import { getLeaveTypeLabel, getLeaveStatusInfo } from "@/lib/leaveConstants";
 import { format } from "date-fns";
 
 export default function WSODashboard() {
@@ -18,15 +19,20 @@ export default function WSODashboard() {
   const { profile } = useUserProfile(user?.id);
   const today = format(new Date(), "yyyy-MM-dd");
 
-  const { data: allLeaves } = useLeaves();
+  // WSO's team from profile (e.g. "a", "b", "c")
+  const wsoTeam = profile?.current_shift?.toUpperCase() || '';
+
+  // Fetch leave requests filtered by WSO's team + Pending status
+  const { data: teamLeaveRequests = [] } = useAllLeaveRequests(
+    wsoTeam ? { team: wsoTeam, status: 'Pending' } : undefined
+  );
   const { data: allExchanges } = useDutyExchanges();
   const { attendance } = useAttendance(today);
   const { data: baTests } = useBaTests();
 
   const shiftLabel = profile?.current_shift ? `${profile.current_shift.toUpperCase()} Shift` : "—";
-  const pendingLeaves = allLeaves?.filter(l => l.status === "pending_wso") || [];
   const pendingExchanges = allExchanges?.filter(e => e.status === "pending_wso") || [];
-  const pendingCount = pendingLeaves.length + pendingExchanges.length;
+  const pendingCount = teamLeaveRequests.length + pendingExchanges.length;
   const onDutyCount = attendance?.filter(a => a.status === "present").length || 0;
   const latestBaTest = baTests?.[0];
 
@@ -106,15 +112,17 @@ export default function WSODashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {pendingLeaves.slice(0, 3).map((leave) => (
-                  <div key={leave.id} className="flex items-center justify-between border-b pb-3 last:border-0">
+                {teamLeaveRequests.slice(0, 5).map((req) => (
+                  <div key={req.id} className="flex items-center justify-between border-b pb-3 last:border-0">
                     <div>
-                      <p className="font-medium">{(leave as any).user?.full_name || "Unknown"}</p>
+                      <p className="font-medium">{req.employee_name}</p>
                       <p className="text-sm text-muted-foreground">
-                        Leave: {leave.leave_type.toUpperCase()} - {leave.start_date}
+                        {getLeaveTypeLabel(req.leave_type)} — {format(new Date(req.start_date), 'dd MMM')}
+                        {req.start_date !== req.end_date && ` to ${format(new Date(req.end_date), 'dd MMM')}`}
+                        {' '}({req.total_days} day{req.total_days > 1 ? 's' : ''})
                       </p>
                     </div>
-                    <Link to="/supervisor/leaves">
+                    <Link to="/wso/leaves">
                       <Button size="sm" variant="outline">Review</Button>
                     </Link>
                   </div>
@@ -198,10 +206,10 @@ export default function WSODashboard() {
                   ATC Duty Grid
                 </Button>
               </Link>
-              <Link to="/wso/requests">
+              <Link to="/wso/leaves">
                 <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
                   <FileText className="h-6 w-6" />
-                  Approve Requests
+                  Leave Requests
                 </Button>
               </Link>
               <Link to="/wso/ba-test">

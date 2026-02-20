@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { format } from 'date-fns';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -24,6 +24,7 @@ import {
   useDeleteExtraDuty,
   useGridEmployees,
   useSyncRosterToGrid,
+  useRosterStatusEntries,
 } from '@/hooks/useDutyGrid';
 import { useATCAssignments } from '@/hooks/useATCAssignments';
 import { toast } from 'sonner';
@@ -48,7 +49,7 @@ export default function ATCDutyGrid() {
 
   // Supabase CRUD hooks
   const { data: employees = [] } = useGridEmployees();
-  const { data: roster } = useDutyRoster(date, shift);
+  const { data: roster, isLoading: rosterLoading } = useDutyRoster(date, shift);
   const createOrGetRoster = useCreateOrGetRoster();
   const { data: assignments = [] } = useRosterAssignments(roster?.id);
   const upsertAssignment = useUpsertAssignment();
@@ -58,13 +59,18 @@ export default function ATCDutyGrid() {
   const deleteExtraDuty = useDeleteExtraDuty();
   const syncFromRoster = useSyncRosterToGrid();
 
-  // Ensure roster exists when date/shift changes
+  // Fetch roster entries with DUTY CHANGE / EXTRA DUTY from Google Sheets
+  const { data: statusEntries = [] } = useRosterStatusEntries(date, shift, team);
+  const dutyChangeEntries = statusEntries.filter(e => e.unit?.toUpperCase() === 'DUTY CHANGE');
+  const extraDutyEntries = statusEntries.filter(e => e.unit?.toUpperCase() === 'EXTRA DUTY');
+
+  // Ensure roster exists when date/shift changes — only after query confirms none exists
   useEffect(() => {
-    if (!roster && canEdit) {
+    if (!rosterLoading && !roster && canEdit && !createOrGetRoster.isPending) {
       createOrGetRoster.mutate({ date: format(date, 'yyyy-MM-dd'), shift, team: team || undefined });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateStr, shift]);
+  }, [dateStr, shift, rosterLoading]);
 
   // Track assigned employees to prevent double-booking
   const assignedEmployeeIds = useMemo(() => {
@@ -80,25 +86,25 @@ export default function ATCDutyGrid() {
     leaveRecords.forEach((l) => ids.add(l.employee_id));
     return ids;
   }, [leaveRecords]);
-  const getAvailableEmployees = (currentEmployeeId?: string | null): GridEmployee[] => {
+
+  const getAvailableEmployees = useCallback((currentEmployeeId?: string | null): GridEmployee[] => {
     return employees.filter((e) => {
       if (unavailableIds.has(e.id)) return false;
       if (e.id === currentEmployeeId) return true;
       if (assignedEmployeeIds.has(e.id)) return false;
       return true;
     });
-  };
+  }, [employees, unavailableIds, assignedEmployeeIds]);
 
-
-  const getAssignment = (positionKey: string, department: string) => {
+  const getAssignment = useCallback((positionKey: string, department: string) => {
     return assignments.find(
       (a) => a.position_name === positionKey && a.department === department
     );
-  };
+  }, [assignments]);
 
-  const handleAssign = (positionKey: string, department: string, employeeId: string | null, remark?: string) => {
+  const handleAssign = useCallback((positionKey: string, department: string, employeeId: string | null, remark?: string) => {
     if (!roster) return;
-    const existing = getAssignment(positionKey, department);
+    const existing = assignments.find((a) => a.position_name === positionKey && a.department === department);
     upsertAssignment.mutate({
       id: existing?.id,
       roster_id: roster.id,
@@ -109,11 +115,11 @@ export default function ATCDutyGrid() {
       remark: remark ?? existing?.remark,
       section_type: POSITION_ROWS.find((p) => p.key === positionKey)?.sectionType || 'sector',
     });
-  };
+  }, [roster, assignments, positionLabels, upsertAssignment]);
 
-  const handleRemarkChange = (positionKey: string, department: string, remark: string) => {
+  const handleRemarkChange = useCallback((positionKey: string, department: string, remark: string) => {
     if (!roster) return;
-    const existing = getAssignment(positionKey, department);
+    const existing = assignments.find((a) => a.position_name === positionKey && a.department === department);
     if (existing) {
       upsertAssignment.mutate({
         id: existing.id,
@@ -125,7 +131,7 @@ export default function ATCDutyGrid() {
         section_type: existing.section_type,
       });
     }
-  };
+  }, [roster, assignments, upsertAssignment]);
 
   const sections = useMemo(() => {
     let rows = isNight
@@ -286,7 +292,7 @@ export default function ATCDutyGrid() {
                       {DEPARTMENTS.map((dept) => (
                         <React.Fragment key={dept}>
                           <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground">Name</th>
-                          <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground border-r last:border-r-0">Remark</th>
+                          <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground border-r last:border-r-0">Reliever</th>
                         </React.Fragment>
                       ))}
                     </tr>
@@ -317,79 +323,108 @@ export default function ATCDutyGrid() {
                                 <span className="text-foreground">{row.label}</span>
                               )}
                             </td>
-                            {DEPARTMENTS.slice(0, row.deptCount || 3).map((dept) => {
-                              const assignment = getAssignment(row.key, dept);
-                              const available = getAvailableEmployees(assignment?.employee_id);
-                              return (
-                                <React.Fragment key={dept}>
-                                  <td className="px-1 py-1 min-w-[140px]">
-                                    {canEdit ? (
-                                      <Select
-                                        value={assignment?.employee_id || '_none'}
-                                        onValueChange={(val) => handleAssign(row.key, dept, val === '_none' ? null : val)}
-                                      >
-                                        <SelectTrigger className={cn('h-7 text-xs', assignment?.employee_id && 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800')}>
-                                          <SelectValue placeholder="Select..." />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="_none">— None —</SelectItem>
-                                          {available.map((emp) => (
-                                            <SelectItem key={emp.id} value={emp.id}>
-                                              {emp.full_name} {emp.designation ? `(${emp.designation})` : ''}
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                    ) : (
-                                      <span className="text-xs px-2">
-                                        {assignment?.profiles?.full_name || '—'}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="px-1 py-1 min-w-[140px] border-r last:border-r-0">
-                                    {row.hasReliever ? (
-                                      canEdit ? (
-                                        <Select
-                                          value={assignment?.remark || '_none'}
-                                          onValueChange={(val) => handleRemarkChange(row.key, dept, val === '_none' ? '' : val)}
-                                        >
-                                          <SelectTrigger className={cn('h-7 text-xs', assignment?.remark && assignment.remark !== '' && 'bg-sky-50 border-sky-200 dark:bg-sky-950/30 dark:border-sky-800')}>
-                                            <SelectValue placeholder="Reliever..." />
-                                          </SelectTrigger>
+                            {/* Tower/Info/Flow rows in day shift: full-width dropdowns, no remark */}
+                            {!isNight && (row.sectionType === 'tower' || row.sectionType === 'info' || row.sectionType === 'flow') ? (
+                              <>
+                                {DEPARTMENTS.slice(0, row.sectionType === 'flow' ? 3 : 2).map((dept) => {
+                                  const assignment = getAssignment(row.key, dept);
+                                  const available = getAvailableEmployees(assignment?.employee_id);
+                                  return (
+                                    <td key={dept} colSpan={row.sectionType === 'flow' ? 2 : 3} className="px-1 py-1">
+                                      {canEdit ? (
+                                        <Select value={assignment?.employee_id || '_none'} onValueChange={(val) => handleAssign(row.key, dept, val === '_none' ? null : val)}>
+                                          <SelectTrigger className={cn('h-7 text-xs', assignment?.employee_id && 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800')}><SelectValue placeholder="Select..." /></SelectTrigger>
                                           <SelectContent>
                                             <SelectItem value="_none">— None —</SelectItem>
-                                            {(employees || []).map((emp: any) => (
-                                              <SelectItem key={emp.id} value={emp.full_name || emp.id}>
-                                                {emp.full_name} {emp.designation ? `(${emp.designation})` : ''}
-                                              </SelectItem>
+                                            {available.map((emp) => (
+                                              <SelectItem key={emp.id} value={emp.id}>{emp.full_name} {emp.designation ? `(${emp.designation})` : ''}</SelectItem>
                                             ))}
                                           </SelectContent>
                                         </Select>
                                       ) : (
-                                        <span className="text-xs text-muted-foreground px-2">
-                                          {assignment?.remark || '—'}
-                                        </span>
-                                      )
-                                    ) : (
-                                      canEdit ? (
-                                        <Input
-                                          className="h-7 text-xs"
-                                          placeholder="Remark"
-                                          defaultValue={assignment?.remark || ''}
-                                          onBlur={(e) => handleRemarkChange(row.key, dept, e.target.value)}
-                                        />
-                                      ) : (
-                                        <span className="text-xs text-muted-foreground px-2">
-                                          {assignment?.remark || ''}
-                                        </span>
-                                      )
-                                    )}
-                                  </td>
-                                </React.Fragment>
-                              );
-                            })}
-                            {(row.deptCount && row.deptCount < 3) && (
-                              <td colSpan={(3 - row.deptCount) * 2} className="bg-muted/20 border-r last:border-r-0" />
+                                        <span className="text-xs px-2">{assignment?.profiles?.full_name || '—'}</span>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </>
+                            ) : (
+                              <>
+                                {DEPARTMENTS.slice(0, row.deptCount || 3).map((dept) => {
+                                  const assignment = getAssignment(row.key, dept);
+                                  const available = getAvailableEmployees(assignment?.employee_id);
+                                  return (
+                                    <React.Fragment key={dept}>
+                                      <td className="px-1 py-1 min-w-[140px]">
+                                        {canEdit ? (
+                                          <Select
+                                            value={assignment?.employee_id || '_none'}
+                                            onValueChange={(val) => handleAssign(row.key, dept, val === '_none' ? null : val)}
+                                          >
+                                            <SelectTrigger className={cn('h-7 text-xs', assignment?.employee_id && 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800')}>
+                                              <SelectValue placeholder="Select..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="_none">— None —</SelectItem>
+                                              {available.map((emp) => (
+                                                <SelectItem key={emp.id} value={emp.id}>
+                                                  {emp.full_name} {emp.designation ? `(${emp.designation})` : ''}
+                                                </SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                        ) : (
+                                          <span className="text-xs px-2">
+                                            {assignment?.profiles?.full_name || '—'}
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="px-1 py-1 min-w-[140px] border-r last:border-r-0">
+                                        {row.hasReliever ? (
+                                          canEdit ? (
+                                            <Select
+                                              value={assignment?.remark || '_none'}
+                                              onValueChange={(val) => handleRemarkChange(row.key, dept, val === '_none' ? '' : val)}
+                                            >
+                                              <SelectTrigger className={cn('h-7 text-xs', assignment?.remark && assignment.remark !== '' && 'bg-sky-50 border-sky-200 dark:bg-sky-950/30 dark:border-sky-800')}>
+                                                <SelectValue placeholder="Reliever..." />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="_none">— None —</SelectItem>
+                                                {(employees || []).map((emp: any) => (
+                                                  <SelectItem key={emp.id} value={emp.full_name || emp.id}>
+                                                    {emp.full_name} {emp.designation ? `(${emp.designation})` : ''}
+                                                  </SelectItem>
+                                                ))}
+                                              </SelectContent>
+                                            </Select>
+                                          ) : (
+                                            <span className="text-xs text-muted-foreground px-2">
+                                              {assignment?.remark || '—'}
+                                            </span>
+                                          )
+                                        ) : (
+                                          canEdit ? (
+                                            <Input
+                                              className="h-7 text-xs"
+                                              placeholder="Remark"
+                                              defaultValue={assignment?.remark || ''}
+                                              onBlur={(e) => handleRemarkChange(row.key, dept, e.target.value)}
+                                            />
+                                          ) : (
+                                            <span className="text-xs text-muted-foreground px-2">
+                                              {assignment?.remark || ''}
+                                            </span>
+                                          )
+                                        )}
+                                      </td>
+                                    </React.Fragment>
+                                  );
+                                })}
+                                {(row.deptCount && row.deptCount < 3) && (
+                                  <td colSpan={(3 - row.deptCount) * 2} className="bg-muted/20 border-r last:border-r-0" />
+                                )}
+                              </>
                             )}
                           </tr>
                         ))}
@@ -467,13 +502,13 @@ export default function ATCDutyGrid() {
             </CardHeader>
             <CardContent className="pt-3 pb-3">
               <div className="divide-y text-sm">
-                {assignments.filter(a => a.position_name.toUpperCase() === 'DUTY CHANGE').map((a) => (
-                  <div key={a.id} className="py-2 flex justify-between">
-                    <span>{a.profiles?.full_name || a.remark || 'Unknown'} {a.profiles?.designation ? `(${a.profiles.designation})` : ''}</span>
-                    <span className="text-muted-foreground ml-2">{a.department}</span>
+                {dutyChangeEntries.map((entry, idx) => (
+                  <div key={entry.id || idx} className="py-2 flex justify-between">
+                    <span className="font-medium">{entry.employee_name}</span>
+                    <span className="text-muted-foreground ml-2">{entry.position}</span>
                   </div>
                 ))}
-                {assignments.filter(a => a.position_name.toUpperCase() === 'DUTY CHANGE').length === 0 && (
+                {dutyChangeEntries.length === 0 && (
                   <div className="py-2 text-center text-muted-foreground">No duty changes</div>
                 )}
               </div>
@@ -487,13 +522,19 @@ export default function ATCDutyGrid() {
             </CardHeader>
             <CardContent className="pt-3 pb-3">
               <div className="divide-y text-sm">
+                {extraDutyEntries.map((entry, idx) => (
+                  <div key={entry.id || idx} className="py-2 flex justify-between items-center">
+                    <span className="font-medium">{entry.employee_name}</span>
+                    <span className="text-muted-foreground ml-2">{entry.position}</span>
+                  </div>
+                ))}
                 {extraDuties.map((duty) => (
                   <div key={duty.id} className="py-2 flex justify-between items-center">
                     <span>{duty.profiles?.full_name || '(unassigned)'} {duty.remarks ? <span className="text-muted-foreground ml-1">— {duty.remarks}</span> : null}</span>
                     <Badge variant="outline" className="font-normal text-[10px] uppercase ml-2">{duty.duty_type}</Badge>
                   </div>
                 ))}
-                {extraDuties.length === 0 && (
+                {extraDutyEntries.length === 0 && extraDuties.length === 0 && (
                   <div className="py-2 text-center text-muted-foreground">No extra duties</div>
                 )}
               </div>

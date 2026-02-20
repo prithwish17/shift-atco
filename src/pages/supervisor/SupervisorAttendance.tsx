@@ -7,7 +7,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CalendarIcon, Download, CheckCircle, XCircle, Clock } from "lucide-react";
+import { CalendarIcon, Download, CheckCircle, XCircle, Clock, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useUsers } from "@/hooks/useUsers";
@@ -29,15 +29,22 @@ interface AttendanceRow {
   existingId?: string;
 }
 
+interface ScheduleEntry {
+  id: string;
+  employee_code: string;
+  employee_name: string;
+  duty_date: string;
+  duty_code: string;
+  duty_description: string;
+}
+
 export default function SupervisorAttendance() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedTeam, setSelectedTeam] = useState("all");
-  const [selectedDutyShift, setSelectedDutyShift] = useState("all");
+  const [selectedShiftCategory, setSelectedShiftCategory] = useState<string>("all");
   const [attendanceRows, setAttendanceRows] = useState<AttendanceRow[]>([]);
 
   const dateStr = format(selectedDate, "yyyy-MM-dd");
-  const rosterDateDisplay = format(selectedDate, "dd-MMM-yyyy");
-  const rosterDateDisplayNoPad = format(selectedDate, "d-MMM-yyyy");
   const { users, isLoading: usersLoading } = useUsers();
   const {
     attendance,
@@ -46,91 +53,53 @@ export default function SupervisorAttendance() {
     isBulkUpserting,
   } = useAttendance(dateStr);
 
-  const { data: rosters = [], isLoading: rostersLoading } = useQuery({
-    queryKey: ["attendance-rosters", dateStr],
+  // Fetch employee schedules for the selected date
+  const { data: schedules = [], isLoading: schedulesLoading } = useQuery({
+    queryKey: ["attendance-schedules", dateStr],
     queryFn: async () => {
-      // Primary lookup: exact ISO date format (yyyy-MM-dd)
-      const { data: isoRows, error: isoError } = await supabase
-        .from("rosters" as any)
-        .select("date, team, shift, employee_name, position")
-        .eq("date", dateStr);
-      if (isoError) throw isoError;
-
-      if ((isoRows || []).length > 0) {
-        return (isoRows || []) as Array<{
-          date: string;
-          team: string;
-          shift: string;
-          employee_name: string;
-          position: string;
-        }>;
-      }
-
-      // Fallback for legacy stored date formats
-      const { data: legacyRows, error: legacyError } = await supabase
-        .from("rosters" as any)
-        .select("date, team, shift, employee_name, position")
-        .or(`date.eq.${rosterDateDisplay},date.eq.${rosterDateDisplayNoPad}`);
-      if (legacyError) throw legacyError;
-      return (legacyRows || []) as Array<{
-        date: string;
-        team: string;
-        shift: string;
-        employee_name: string;
-        position: string;
-      }>;
+      const { data, error } = await supabase
+        .from("employee_schedules" as any)
+        .select("id, employee_code, employee_name, duty_date, duty_code, duty_description")
+        .eq("duty_date", dateStr);
+      if (error) throw error;
+      return (data || []) as unknown as ScheduleEntry[];
     },
   });
 
+  const employees = useMemo(() => users || [], [users]);
+
+  // Build a map of employee_id → user profile for fast lookup
+  const employeeMap = useMemo(() => {
+    const map = new Map<string, (typeof employees)[number]>();
+    for (const u of employees) {
+      if (u.employee_id) {
+        map.set(u.employee_id.trim().toUpperCase(), u);
+      }
+    }
+    return map;
+  }, [employees]);
+
+  // Join schedules with profiles via employee_code → employee_id
+  const scheduleEntries = useMemo(() => {
+    return schedules.map((s) => ({
+      schedule: s,
+      user: employeeMap.get((s.employee_code || "").trim().toUpperCase()) || null,
+    }));
+  }, [schedules, employeeMap]);
+
+  // Derive team options from matched profiles' current_shift
   const teamOptions = useMemo(() => {
-    const values = Array.from(new Set(rosters.map((r) => r.team))).filter(Boolean);
-    return values.sort((a, b) => a.localeCompare(b));
-  }, [rosters]);
+    const teams = new Set<string>();
+    for (const entry of scheduleEntries) {
+      if (entry.user?.current_shift) {
+        teams.add(entry.user.current_shift);
+      }
+    }
+    return Array.from(teams).sort((a, b) => a.localeCompare(b));
+  }, [scheduleEntries]);
 
-  const normalizeName = (name: string) =>
-    name
-      .toLowerCase()
-      .split("/")[0]
-      .replace(/-(sm|dgm|mgr|je|am|agm)$/i, "")
-      .replace(/[._,-]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-  const employees = useMemo(() => {
-    // Use all profiles for matching; many valid employee rows may not have approved role metadata yet.
-    return users || [];
-  }, [users]);
-
-  const findUserByRosterName = (rosterName: string) => {
-    const normalizedRoster = normalizeName(rosterName);
-    const normalizedRosterNoSpace = normalizedRoster.replace(/\s+/g, "");
-    const rosterTokens = normalizedRoster.split(" ").filter(Boolean);
-
-    let matched = employees.find((u) => normalizeName(u.full_name) === normalizedRoster);
-    if (matched) return matched;
-
-    matched = employees.find(
-      (u) => normalizeName(u.full_name).replace(/\s+/g, "") === normalizedRosterNoSpace
-    );
-    if (matched) return matched;
-
-    matched = employees.find((u) => {
-      const n = normalizeName(u.full_name);
-      return n.includes(normalizedRoster) || normalizedRoster.includes(n);
-    });
-    if (matched) return matched;
-
-    // Fallback: token overlap (handles initials/order/noise in roster names)
-    matched = employees.find((u) => {
-      const tokens = normalizeName(u.full_name).split(" ").filter(Boolean);
-      const common = rosterTokens.filter((t) => tokens.includes(t)).length;
-      return common >= Math.min(2, rosterTokens.length);
-    });
-    return matched || null;
-  };
-
-  const normalizeDutyShift = (shift: string) => {
-    const s = (shift || "").trim().toUpperCase();
+  const normalizeDutyShift = (code: string) => {
+    const s = (code || "").trim().toUpperCase();
     if (s === "GENERAL" || s === "G") return "G";
     if (s === "M" || s === "MORNING") return "M";
     if (s === "A" || s === "AFTERNOON") return "A";
@@ -138,76 +107,115 @@ export default function SupervisorAttendance() {
     return s;
   };
 
-  const teamRosterEntries = useMemo(() => {
-    const teamFiltered = selectedTeam === "all" ? rosters : rosters.filter((r) => r.team === selectedTeam);
-    const rows =
-      selectedDutyShift === "all"
-        ? teamFiltered
-        : teamFiltered.filter((r) => normalizeDutyShift(r.shift) === selectedDutyShift);
-    return rows.map((r) => ({
-      roster: r,
-      user: findUserByRosterName(r.employee_name),
-    }));
-  }, [rosters, selectedTeam, selectedDutyShift, employees]);
+  // Compute counts for each shift category
+  const allUnmatched = useMemo(
+    () => scheduleEntries.filter((e) => !e.user),
+    [scheduleEntries]
+  );
 
-  const unmatchedRosterEntries = teamRosterEntries.filter((e) => !e.user);
+  const shiftCounts = useMemo(() => {
+    const matched = scheduleEntries.filter((e) => !!e.user);
+    return {
+      G: matched.filter((e) => normalizeDutyShift(e.schedule.duty_code) === "G").length,
+      M: matched.filter((e) => normalizeDutyShift(e.schedule.duty_code) === "M").length,
+      A: matched.filter((e) => normalizeDutyShift(e.schedule.duty_code) === "A").length,
+      N: matched.filter((e) => normalizeDutyShift(e.schedule.duty_code) === "N").length,
+      unmatched: allUnmatched.length,
+    };
+  }, [scheduleEntries, allUnmatched]);
 
-  // Build attendance rows from real data
+  // Filter by team (from profile) and shift category
+  const filteredEntries = useMemo(() => {
+    if (selectedShiftCategory === "unmatched") return [];
+
+    let entries = scheduleEntries.filter((e) => !!e.user);
+
+    if (selectedTeam !== "all") {
+      entries = entries.filter((e) => e.user?.current_shift === selectedTeam);
+    }
+
+    if (selectedShiftCategory !== "all") {
+      entries = entries.filter(
+        (e) => normalizeDutyShift(e.schedule.duty_code) === selectedShiftCategory
+      );
+    }
+
+    return entries;
+  }, [scheduleEntries, selectedTeam, selectedShiftCategory]);
+
+  // Build attendance rows from schedule + profile data
   useEffect(() => {
-    const rows: AttendanceRow[] = teamRosterEntries
+    const rows: AttendanceRow[] = filteredEntries
       .filter((e) => !!e.user)
-      .map(({ roster, user }) => {
-      const existing = attendance?.find(a => a.user_id === user.id);
-      return {
-        userId: user.id,
-        name: user.full_name,
-        empId: user.employee_id,
-        team: roster.team,
-        shift: roster.shift,
-        position: roster.position,
-        status: existing ? (existing.status as "present" | "absent") : "present",
-        timeIn: existing?.time_in ? format(new Date(existing.time_in), "HH:mm") : "",
-        timeOut: existing?.time_out ? format(new Date(existing.time_out), "HH:mm") : "",
-        comments: existing?.comments || "",
-        existingId: existing?.id,
-      };
-    });
+      .map(({ schedule, user }) => {
+        const existing = attendance?.find((a) => a.user_id === user!.id);
+        return {
+          userId: user!.id,
+          name: user!.full_name,
+          empId: user!.employee_id,
+          team: user!.current_shift || "—",
+          shift: schedule.duty_code,
+          position: schedule.duty_description || "",
+          status: existing
+            ? (existing.status as "present" | "absent")
+            : "present",
+          timeIn: existing?.time_in
+            ? format(new Date(existing.time_in), "HH:mm")
+            : "",
+          timeOut: existing?.time_out
+            ? format(new Date(existing.time_out), "HH:mm")
+            : "",
+          comments: existing?.comments || "",
+          existingId: existing?.id,
+        };
+      });
     setAttendanceRows(rows);
-  }, [teamRosterEntries, attendance]);
+  }, [filteredEntries, attendance]);
 
   const handleMarkAll = (status: "present" | "absent") => {
-    setAttendanceRows(prev => prev.map(emp => ({ ...emp, status })));
+    setAttendanceRows((prev) => prev.map((emp) => ({ ...emp, status })));
   };
 
   const toggleStatus = (userId: string) => {
-    setAttendanceRows(prev =>
-      prev.map(emp =>
+    setAttendanceRows((prev) =>
+      prev.map((emp) =>
         emp.userId === userId
-          ? { ...emp, status: emp.status === "present" ? "absent" : "present" }
+          ? {
+            ...emp,
+            status: emp.status === "present" ? "absent" : "present",
+          }
           : emp
       )
     );
   };
 
   const handleSave = () => {
-    const records = attendanceRows.map(r => ({
-        user_id: r.userId,
-        attendance_date: dateStr,
-        status: r.status as any,
-        marked_by: "",
-        time_in: r.timeIn ? new Date(`${dateStr}T${r.timeIn}`).toISOString() : null,
-        time_out: r.timeOut ? new Date(`${dateStr}T${r.timeOut}`).toISOString() : null,
-        comments: r.comments || null,
-      }));
+    const records = attendanceRows.map((r) => ({
+      user_id: r.userId,
+      attendance_date: dateStr,
+      status: r.status as any,
+      marked_by: "",
+      time_in: r.timeIn
+        ? new Date(`${dateStr}T${r.timeIn}`).toISOString()
+        : null,
+      time_out: r.timeOut
+        ? new Date(`${dateStr}T${r.timeOut}`).toISOString()
+        : null,
+      comments: r.comments || null,
+    }));
 
     if (records.length > 0) {
       bulkUpsertAttendance(records);
     }
   };
 
-  const presentCount = attendanceRows.filter(a => a.status === "present").length;
-  const absentCount = attendanceRows.filter(a => a.status === "absent").length;
-  const isLoading = usersLoading || attendanceLoading || rostersLoading;
+  const presentCount = attendanceRows.filter(
+    (a) => a.status === "present"
+  ).length;
+  const absentCount = attendanceRows.filter(
+    (a) => a.status === "absent"
+  ).length;
+  const isLoading = usersLoading || attendanceLoading || schedulesLoading;
 
   return (
     <DashboardLayout role="supervisor">
@@ -215,12 +223,40 @@ export default function SupervisorAttendance() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold">Attendance Management</h1>
-            <p className="text-muted-foreground">Mark and track employee attendance</p>
+            <p className="text-muted-foreground">
+              Mark and track employee attendance
+            </p>
           </div>
           <Button>
             <Download className="mr-2 h-4 w-4" />
             Export Report
           </Button>
+        </div>
+
+        {/* Shift Category Filter Buttons */}
+        <div className="flex flex-wrap gap-2">
+          {[
+            { key: "all", label: "ALL", count: scheduleEntries.filter(e => !!e.user).length, color: "" },
+            { key: "G", label: "GENERAL", count: shiftCounts.G, color: "bg-blue-600 hover:bg-blue-700 text-white" },
+            { key: "M", label: "MORNING", count: shiftCounts.M, color: "bg-amber-500 hover:bg-amber-600 text-white" },
+            { key: "A", label: "AFTERNOON", count: shiftCounts.A, color: "bg-orange-500 hover:bg-orange-600 text-white" },
+            { key: "N", label: "NIGHT", count: shiftCounts.N, color: "bg-indigo-600 hover:bg-indigo-700 text-white" },
+            { key: "unmatched", label: "NOT MATCHED", count: shiftCounts.unmatched, color: "bg-red-600 hover:bg-red-700 text-white" },
+          ].map((cat) => (
+            <Button
+              key={cat.key}
+              variant={selectedShiftCategory === cat.key ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedShiftCategory(cat.key)}
+              className={cn(
+                "font-semibold",
+                selectedShiftCategory === cat.key && cat.color
+              )}
+            >
+              {cat.key === "unmatched" && <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />}
+              {cat.label} ({cat.count})
+            </Button>
+          ))}
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
@@ -231,7 +267,9 @@ export default function SupervisorAttendance() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{presentCount}</div>
-              <p className="text-xs text-muted-foreground">employees on duty</p>
+              <p className="text-xs text-muted-foreground">
+                employees on duty
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -241,7 +279,9 @@ export default function SupervisorAttendance() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{absentCount}</div>
-              <p className="text-xs text-muted-foreground">employees absent</p>
+              <p className="text-xs text-muted-foreground">
+                employees absent
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -251,79 +291,26 @@ export default function SupervisorAttendance() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{attendanceRows.length}</div>
-              <p className="text-xs text-muted-foreground">employees in team/date filter</p>
+              <p className="text-xs text-muted-foreground">
+                employees in team/date filter
+              </p>
             </CardContent>
           </Card>
         </div>
 
-        <Card>
-          <CardHeader>
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <CardTitle>Mark Attendance</CardTitle>
-              <div className="flex flex-wrap items-center gap-2">
-                  <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("justify-start text-left font-normal")}>
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {format(selectedDate, "PPP")}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar mode="single" selected={selectedDate} onSelect={(date) => date && setSelectedDate(date)} initialFocus />
-                  </PopoverContent>
-                </Popover>
-                <Select value={selectedTeam} onValueChange={setSelectedTeam}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Select team" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Teams</SelectItem>
-                    {teamOptions.map((team) => (
-                      <SelectItem key={team} value={team}>
-                        Team {team}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={selectedDutyShift} onValueChange={setSelectedDutyShift}>
-                  <SelectTrigger className="w-[160px]">
-                    <SelectValue placeholder="Select shift" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Shifts</SelectItem>
-                    <SelectItem value="G">G</SelectItem>
-                    <SelectItem value="M">M</SelectItem>
-                    <SelectItem value="A">A</SelectItem>
-                    <SelectItem value="N">N</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{attendanceRows.length} employees</p>
-                  {unmatchedRosterEntries.length > 0 && (
-                    <p className="text-xs text-amber-600">
-                      {unmatchedRosterEntries.length} roster name(s) could not be matched with employee profiles.
-                    </p>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => handleMarkAll("present")}>Mark All Present</Button>
-                  <Button variant="outline" size="sm" onClick={() => handleMarkAll("absent")}>Mark All Absent</Button>
-                </div>
-              </div>
-
-              {isLoading ? (
-                <div className="space-y-2">
-                  {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
-                </div>
-              ) : attendanceRows.length === 0 ? (
+        {/* NOT MATCHED view */}
+        {selectedShiftCategory === "unmatched" ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-red-600" />
+                Not Matched Schedule Entries ({allUnmatched.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {allUnmatched.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
-                  No employees found for selected team and date
+                  All schedule entries are matched with employee profiles!
                 </p>
               ) : (
                 <div className="border rounded-lg">
@@ -331,68 +318,19 @@ export default function SupervisorAttendance() {
                     <table className="w-full">
                       <thead className="bg-muted/50">
                         <tr>
-                          <th className="text-left p-3 font-medium">Employee</th>
-                          <th className="text-left p-3 font-medium">Team</th>
-                          <th className="text-left p-3 font-medium">Shift/Pos</th>
-                          <th className="text-left p-3 font-medium">Status</th>
-                          <th className="text-left p-3 font-medium">Time In</th>
-                          <th className="text-left p-3 font-medium">Time Out</th>
-                          <th className="text-left p-3 font-medium">Comments</th>
+                          <th className="text-left p-3 font-medium">Employee Code</th>
+                          <th className="text-left p-3 font-medium">Employee Name</th>
+                          <th className="text-left p-3 font-medium">Duty Code</th>
+                          <th className="text-left p-3 font-medium">Description</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {attendanceRows.map((emp) => (
-                          <tr key={emp.userId} className="border-t hover:bg-accent/50 transition-colors">
-                            <td className="p-3">
-                              <div>
-                                <p className="font-medium">{emp.name}</p>
-                                <p className="text-xs text-muted-foreground">{emp.empId}</p>
-                              </div>
-                            </td>
-                            <td className="p-3">Team {emp.team}</td>
-                            <td className="p-3">
-                              <div className="text-sm">{normalizeDutyShift(emp.shift)}</div>
-                              <div className="text-xs text-muted-foreground">{emp.position}</div>
-                            </td>
-                            <td className="p-3">
-                              <Button
-                                variant={emp.status === "present" ? "default" : "outline"}
-                                size="sm"
-                                onClick={() => toggleStatus(emp.userId)}
-                                className={cn(
-                                  emp.status === "present" && "bg-green-600 hover:bg-green-700",
-                                  emp.status === "absent" && "bg-red-600 hover:bg-red-700 text-white"
-                                )}
-                              >
-                                {emp.status === "present" ? "Present" : "Absent"}
-                              </Button>
-                            </td>
-                            <td className="p-3">
-                              <Input
-                                type="time"
-                                value={emp.timeIn}
-                                onChange={e => setAttendanceRows(prev => prev.map(r => r.userId === emp.userId ? { ...r, timeIn: e.target.value } : r))}
-                                disabled={emp.status !== "present"}
-                                className="w-32"
-                              />
-                            </td>
-                            <td className="p-3">
-                              <Input
-                                type="time"
-                                value={emp.timeOut}
-                                onChange={e => setAttendanceRows(prev => prev.map(r => r.userId === emp.userId ? { ...r, timeOut: e.target.value } : r))}
-                                disabled={emp.status !== "present"}
-                                className="w-32"
-                              />
-                            </td>
-                            <td className="p-3">
-                              <Input
-                                placeholder="Add note..."
-                                value={emp.comments}
-                                onChange={e => setAttendanceRows(prev => prev.map(r => r.userId === emp.userId ? { ...r, comments: e.target.value } : r))}
-                                className="w-40"
-                              />
-                            </td>
+                        {allUnmatched.map((entry) => (
+                          <tr key={entry.schedule.id} className="border-t hover:bg-accent/50 transition-colors">
+                            <td className="p-3 font-mono font-medium">{entry.schedule.employee_code}</td>
+                            <td className="p-3">{entry.schedule.employee_name}</td>
+                            <td className="p-3 font-semibold">{entry.schedule.duty_code}</td>
+                            <td className="p-3 text-muted-foreground">{entry.schedule.duty_description || "—"}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -400,15 +338,196 @@ export default function SupervisorAttendance() {
                   </div>
                 </div>
               )}
-
-              <div className="flex justify-end">
-                <Button onClick={handleSave} size="lg" disabled={isBulkUpserting || attendanceRows.length === 0}>
-                  {isBulkUpserting ? "Saving..." : "Save Attendance"}
-                </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <CardTitle>Mark Attendance</CardTitle>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "justify-start text-left font-normal"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {format(selectedDate, "PPP")}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={selectedDate}
+                        onSelect={(date) => date && setSelectedDate(date)}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <Select
+                    value={selectedTeam}
+                    onValueChange={setSelectedTeam}
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Select team" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Teams</SelectItem>
+                      {teamOptions.map((team) => (
+                        <SelectItem key={team} value={team}>
+                          TEAM {team.toUpperCase()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">
+                      {attendanceRows.length} employees
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleMarkAll("present")}
+                    >
+                      Mark All Present
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleMarkAll("absent")}
+                    >
+                      Mark All Absent
+                    </Button>
+                  </div>
+                </div>
+
+                {isLoading ? (
+                  <div className="space-y-2">
+                    {[...Array(3)].map((_, i) => (
+                      <Skeleton key={i} className="h-16 w-full" />
+                    ))}
+                  </div>
+                ) : attendanceRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    No employees found for selected team and date
+                  </p>
+                ) : (
+                  <div className="border rounded-lg">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-muted/50">
+                          <tr>
+                            <th className="text-left p-3 font-medium">
+                              Employee
+                            </th>
+                            <th className="text-left p-3 font-medium">Team</th>
+                            <th className="text-left p-3 font-medium">
+                              Duty Code
+                            </th>
+                            <th className="text-left p-3 font-medium">
+                              Status
+                            </th>
+                            <th className="text-left p-3 font-medium">
+                              Comments
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {attendanceRows.map((emp) => (
+                            <tr
+                              key={emp.userId}
+                              className="border-t hover:bg-accent/50 transition-colors"
+                            >
+                              <td className="p-3">
+                                <div>
+                                  <p className="font-medium">{emp.name}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {emp.empId}
+                                  </p>
+                                </div>
+                              </td>
+                              <td className="p-3 font-semibold">{(emp.team || "").toUpperCase()}</td>
+                              <td className="p-3">
+                                <div className="text-sm font-medium">
+                                  {normalizeDutyShift(emp.shift)}
+                                </div>
+                                {emp.position && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {emp.position}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="p-3">
+                                <Button
+                                  variant={
+                                    emp.status === "present"
+                                      ? "default"
+                                      : "outline"
+                                  }
+                                  size="sm"
+                                  onClick={() => toggleStatus(emp.userId)}
+                                  className={cn(
+                                    emp.status === "present" &&
+                                    "bg-green-600 hover:bg-green-700",
+                                    emp.status === "absent" &&
+                                    "bg-red-600 hover:bg-red-700 text-white"
+                                  )}
+                                >
+                                  {emp.status === "present"
+                                    ? "Present"
+                                    : "Absent"}
+                                </Button>
+                              </td>
+                              <td className="p-3">
+                                <Input
+                                  placeholder="Add note..."
+                                  value={emp.comments}
+                                  onChange={(e) =>
+                                    setAttendanceRows((prev) =>
+                                      prev.map((r) =>
+                                        r.userId === emp.userId
+                                          ? { ...r, comments: e.target.value }
+                                          : r
+                                      )
+                                    )
+                                  }
+                                  className="w-40"
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end">
+                  <Button
+                    onClick={handleSave}
+                    size="lg"
+                    disabled={
+                      isBulkUpserting || attendanceRows.length === 0
+                    }
+                  >
+                    {isBulkUpserting ? "Saving..." : "Save Attendance"}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </DashboardLayout>
   );

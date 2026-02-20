@@ -1,263 +1,333 @@
-import { useState } from "react";
-import { useAuth } from "@/contexts/AuthContext";
-import { useLeaves, useUpdateLeave } from "@/hooks/useLeaves";
-import { DashboardLayout } from "@/components/DashboardLayout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { useToast } from "@/hooks/use-toast";
-import { Calendar, User, Clock, CheckCircle, XCircle } from "lucide-react";
-import { format } from "date-fns";
+import { useState, useMemo, useEffect } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useUserProfile } from '@/hooks/useUsers';
+import { DashboardLayout } from '@/components/DashboardLayout';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { toast } from 'sonner';
+import { Calendar, Filter, CheckCircle, XCircle, Clock, Users } from 'lucide-react';
+import { format } from 'date-fns';
+import { LEAVE_STATUS, getLeaveTypeLabel, getLeaveStatusInfo } from '@/lib/leaveConstants';
+import { useAllLeaveRequests, useReviewLeaveRequest } from '@/hooks/useLeaveRequests';
+import type { LeaveRequest } from '@/hooks/useLeaveRequests';
 
 export default function LeaveApprovals() {
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const { data: leaves, isLoading } = useLeaves();
-  const updateLeave = useUpdateLeave();
+  const { user, userRole } = useAuth();
+  const { profile } = useUserProfile(user?.id);
+  const dashboardRole = userRole === 'wso' ? 'wso' : 'supervisor';
+  const isWSO = userRole === 'wso';
 
-  const [selectedLeave, setSelectedLeave] = useState<any>(null);
-  const [comments, setComments] = useState("");
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [action, setAction] = useState<"approve" | "reject">("approve");
+  // WSO's team (auto-filter) — e.g. "A", "B"
+  const wsoTeam = isWSO ? (profile?.current_shift?.toUpperCase() || '') : '';
 
-  const handleAction = async () => {
-    if (!user || !selectedLeave) return;
+  // Filters — WSO team is auto-set and locked
+  const [teamFilter, setTeamFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
-    const isWSOApproval = selectedLeave.status === "pending_wso";
-    const isSupervisorApproval = selectedLeave.status === "pending_supervisor";
+  // Auto-set team filter for WSO
+  useEffect(() => {
+    if (isWSO && wsoTeam) setTeamFilter(wsoTeam);
+  }, [isWSO, wsoTeam]);
 
-    const updates: any = {};
+  const filters = useMemo(() => ({
+    team: (teamFilter && teamFilter !== '__all__') ? teamFilter : undefined,
+    status: (statusFilter && statusFilter !== '__all__') ? statusFilter : undefined,
+    startDate: dateFrom || undefined,
+    endDate: dateTo || undefined,
+  }), [teamFilter, statusFilter, dateFrom, dateTo]);
 
-    if (action === "approve") {
-      if (isWSOApproval) {
-        updates.status = "pending_supervisor";
-        updates.wso_approved_by = user.id;
-        updates.wso_approved_at = new Date().toISOString();
-        updates.wso_comments = comments;
-      } else if (isSupervisorApproval) {
-        updates.status = "approved";
-        updates.supervisor_approved_by = user.id;
-        updates.supervisor_approved_at = new Date().toISOString();
-        updates.supervisor_comments = comments;
-      }
-    } else {
-      updates.status = "rejected";
-      if (isWSOApproval) {
-        updates.wso_approved_by = user.id;
-        updates.wso_approved_at = new Date().toISOString();
-        updates.wso_comments = comments;
-      } else {
-        updates.supervisor_approved_by = user.id;
-        updates.supervisor_approved_at = new Date().toISOString();
-        updates.supervisor_comments = comments;
-      }
-    }
+  const { data: allRequests = [], isLoading } = useAllLeaveRequests(filters);
+  const reviewRequest = useReviewLeaveRequest();
 
+  // Review dialog
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState<LeaveRequest | null>(null);
+  const [reviewAction, setReviewAction] = useState<'Approved' | 'Rejected'>('Approved');
+  const [reviewRemarks, setReviewRemarks] = useState('');
+
+  const openReview = (request: LeaveRequest, action: 'Approved' | 'Rejected') => {
+    setReviewTarget(request);
+    setReviewAction(action);
+    setReviewRemarks('');
+    setReviewDialogOpen(true);
+  };
+
+  const handleReview = async () => {
+    if (!reviewTarget || !user) return;
     try {
-      await updateLeave.mutateAsync({ id: selectedLeave.id, ...updates });
-
-      toast({
-        title: action === "approve" ? "Leave approved" : "Leave rejected",
-        description: `Leave request has been ${action === "approve" ? "approved" : "rejected"}`,
+      await reviewRequest.mutateAsync({
+        id: reviewTarget.id,
+        status: reviewAction,
+        reviewed_by: user.id,
+        remarks: reviewRemarks || undefined,
       });
-
-      setDialogOpen(false);
-      setComments("");
-      setSelectedLeave(null);
+      toast.success(`Leave request ${reviewAction.toLowerCase()} successfully`);
+      setReviewDialogOpen(false);
+      setReviewTarget(null);
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(error.message || 'Failed to process request');
     }
   };
 
-  const openApprovalDialog = (leave: any, actionType: "approve" | "reject") => {
-    setSelectedLeave(leave);
-    setAction(actionType);
-    setDialogOpen(true);
-  };
+  // Summary counts
+  const pendingCount = allRequests.filter(r => r.status === 'Pending').length;
+  const approvedCount = allRequests.filter(r => r.status === 'Approved').length;
+  const rejectedCount = allRequests.filter(r => r.status === 'Rejected').length;
 
-  const pendingLeaves = leaves?.filter((l: any) => 
-    l.status === "pending_wso" || l.status === "pending_supervisor"
-  );
-  const approvedLeaves = leaves?.filter((l: any) => l.status === "approved");
-  const rejectedLeaves = leaves?.filter((l: any) => l.status === "rejected");
+  // Unique teams for filter
+  const teams = useMemo(() => {
+    const t = new Set(allRequests.map(r => r.team).filter(Boolean));
+    return [...t].sort();
+  }, [allRequests]);
 
   if (isLoading) {
     return (
-      <DashboardLayout role="supervisor">
+      <DashboardLayout role={dashboardRole}>
         <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
         </div>
       </DashboardLayout>
     );
   }
 
-  const LeaveCard = ({ leave }: { leave: any }) => (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between">
-          <div>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <User className="h-5 w-5" />
-              {leave.user?.full_name}
-              <Badge variant="outline">{leave.user?.employee_id}</Badge>
-            </CardTitle>
-            <CardDescription>
-              <Badge className="mt-2">{leave.leave_type.toUpperCase().replace(/_/g, " ")}</Badge>
-            </CardDescription>
-          </div>
-          <Badge variant={leave.status === "pending_wso" || leave.status === "pending_supervisor" ? "secondary" : "default"}>
-            {leave.status.replace(/_/g, " ").toUpperCase()}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex items-center gap-2 text-sm">
-          <Calendar className="h-4 w-4 text-muted-foreground" />
-          <span>
-            {format(new Date(leave.start_date), "dd MMM yyyy")} - {format(new Date(leave.end_date), "dd MMM yyyy")}
-          </span>
-          <Badge variant="outline">{leave.days_count} day(s)</Badge>
-        </div>
-
-        <div className="text-sm">
-          <p className="font-medium mb-1">Reason:</p>
-          <p className="text-muted-foreground">{leave.reason}</p>
-        </div>
-
-        {leave.wso_comments && (
-          <div className="text-sm bg-secondary/50 p-3 rounded">
-            <p className="font-medium mb-1">WSO Comments:</p>
-            <p className="text-muted-foreground">{leave.wso_comments}</p>
-          </div>
-        )}
-
-        {leave.supervisor_comments && (
-          <div className="text-sm bg-secondary/50 p-3 rounded">
-            <p className="font-medium mb-1">Supervisor Comments:</p>
-            <p className="text-muted-foreground">{leave.supervisor_comments}</p>
-          </div>
-        )}
-
-        {(leave.status === "pending_wso" || leave.status === "pending_supervisor") && (
-          <div className="flex gap-2 pt-2">
-            <Button
-              size="sm"
-              variant="default"
-              onClick={() => openApprovalDialog(leave, "approve")}
-              className="flex-1"
-            >
-              <CheckCircle className="h-4 w-4 mr-1" />
-              Approve
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => openApprovalDialog(leave, "reject")}
-              className="flex-1"
-            >
-              <XCircle className="h-4 w-4 mr-1" />
-              Reject
-            </Button>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-
   return (
-    <DashboardLayout role="supervisor">
-      <div className="space-y-6">
+    <DashboardLayout role={dashboardRole}>
+      <div className="space-y-5">
         <div>
-          <h1 className="text-3xl font-bold">Leave Approvals</h1>
-          <p className="text-muted-foreground">Review and approve leave requests</p>
+          <h1 className="text-2xl font-bold">Leave Approvals</h1>
+          <p className="text-muted-foreground text-sm">Review and manage leave requests</p>
         </div>
 
-        <Tabs defaultValue="pending" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="pending">
-              Pending <Badge className="ml-2">{pendingLeaves?.length || 0}</Badge>
-            </TabsTrigger>
-            <TabsTrigger value="approved">Approved</TabsTrigger>
-            <TabsTrigger value="rejected">Rejected</TabsTrigger>
-          </TabsList>
+        {/* Summary */}
+        <div className="grid gap-3 grid-cols-4">
+          <Card>
+            <CardContent className="pt-4 pb-4 text-center">
+              <div className="text-2xl font-bold">{allRequests.length}</div>
+              <div className="text-xs text-muted-foreground">Total</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-4 text-center">
+              <div className="text-2xl font-bold text-yellow-600">{pendingCount}</div>
+              <div className="text-xs text-muted-foreground">Pending</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-4 text-center">
+              <div className="text-2xl font-bold text-green-600">{approvedCount}</div>
+              <div className="text-xs text-muted-foreground">Approved</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-4 text-center">
+              <div className="text-2xl font-bold text-red-600">{rejectedCount}</div>
+              <div className="text-xs text-muted-foreground">Rejected</div>
+            </CardContent>
+          </Card>
+        </div>
 
-          <TabsContent value="pending" className="space-y-4">
-            {pendingLeaves?.map((leave: any) => (
-              <LeaveCard key={leave.id} leave={leave} />
-            ))}
-            {pendingLeaves?.length === 0 && (
-              <Card>
-                <CardContent className="text-center py-12 text-muted-foreground">
-                  <Clock className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>No pending leave requests</p>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
+        {/* Filters */}
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <div className="flex flex-wrap gap-3 items-end">
+              <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
+                <Filter className="h-4 w-4" />
+                Filters:
+              </div>
+              <div className="min-w-[120px]">
+                <Select value={teamFilter} onValueChange={setTeamFilter} disabled={isWSO}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder={isWSO && wsoTeam ? `Team ${wsoTeam}` : "All Teams"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All Teams</SelectItem>
+                    {teams.map(t => (
+                      <SelectItem key={t} value={t!}>{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="min-w-[120px]">
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="All Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All Status</SelectItem>
+                    {LEAVE_STATUS.map(s => (
+                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  onChange={e => setDateFrom(e.target.value)}
+                  className="h-8 text-xs w-[140px]"
+                  placeholder="From"
+                />
+              </div>
+              <div>
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={e => setDateTo(e.target.value)}
+                  className="h-8 text-xs w-[140px]"
+                  placeholder="To"
+                />
+              </div>
+              {(teamFilter || statusFilter || dateFrom || dateTo) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => { setTeamFilter(''); setStatusFilter(''); setDateFrom(''); setDateTo(''); }}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
-          <TabsContent value="approved" className="space-y-4">
-            {approvedLeaves?.map((leave: any) => (
-              <LeaveCard key={leave.id} leave={leave} />
-            ))}
-            {approvedLeaves?.length === 0 && (
-              <Card>
-                <CardContent className="text-center py-12 text-muted-foreground">
-                  <CheckCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>No approved leaves</p>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
+        {/* Requests Table */}
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="px-4 py-2.5 text-left font-medium">Employee</th>
+                    <th className="px-4 py-2.5 text-left font-medium">Dates</th>
+                    <th className="px-4 py-2.5 text-left font-medium">Type</th>
+                    <th className="px-4 py-2.5 text-center font-medium">Days</th>
+                    <th className="px-4 py-2.5 text-center font-medium">Status</th>
+                    <th className="px-4 py-2.5 text-left font-medium">Reason</th>
+                    <th className="px-4 py-2.5 text-center font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allRequests.map((req) => {
+                    const statusInfo = getLeaveStatusInfo(req.status);
+                    return (
+                      <tr key={req.id} className="border-b hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{req.employee_name}</div>
+                          {req.team && (
+                            <span className="text-[10px] text-muted-foreground uppercase">Team {req.team}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {format(new Date(req.start_date), 'dd MMM')}
+                          {req.start_date !== req.end_date && ` — ${format(new Date(req.end_date), 'dd MMM')}`}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="outline" className="font-normal text-[10px]">
+                            {getLeaveTypeLabel(req.leave_type)}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-center font-medium">{req.total_days}</td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge className={`text-[10px] font-medium border ${statusInfo.color}`}>
+                            {statusInfo.label}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground text-xs max-w-[180px] truncate">
+                          {req.reason || '—'}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {req.status === 'Pending' ? (
+                            <div className="flex gap-1 justify-center">
+                              <Button
+                                size="sm"
+                                variant="default"
+                                className="h-7 text-xs px-2"
+                                onClick={() => openReview(req, 'Approved')}
+                              >
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Approve
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="h-7 text-xs px-2"
+                                onClick={() => openReview(req, 'Rejected')}
+                              >
+                                <XCircle className="h-3 w-3 mr-1" />
+                                Reject
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {req.remarks && `"${req.remarks}"`}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {allRequests.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center text-muted-foreground">
+                        <Clock className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                        No leave requests found
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
 
-          <TabsContent value="rejected" className="space-y-4">
-            {rejectedLeaves?.map((leave: any) => (
-              <LeaveCard key={leave.id} leave={leave} />
-            ))}
-            {rejectedLeaves?.length === 0 && (
-              <Card>
-                <CardContent className="text-center py-12 text-muted-foreground">
-                  <XCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>No rejected leaves</p>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-        </Tabs>
-
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        {/* Review Dialog */}
+        <Dialog open={reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
-                {action === "approve" ? "Approve" : "Reject"} Leave Request
+                {reviewAction === 'Approved' ? 'Approve' : 'Reject'} Leave Request
               </DialogTitle>
               <DialogDescription>
-                Add comments for the {action === "approve" ? "approval" : "rejection"}
+                {reviewTarget && (
+                  <>
+                    <strong>{reviewTarget.employee_name}</strong> —{' '}
+                    {getLeaveTypeLabel(reviewTarget.leave_type)} ({reviewTarget.total_days} day{reviewTarget.total_days > 1 ? 's' : ''})
+                    <br />
+                    {format(new Date(reviewTarget.start_date), 'dd MMM yyyy')}
+                    {reviewTarget.start_date !== reviewTarget.end_date && ` — ${format(new Date(reviewTarget.end_date), 'dd MMM yyyy')}`}
+                  </>
+                )}
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <Textarea
-                value={comments}
-                onChange={(e) => setComments(e.target.value)}
-                placeholder="Enter your comments..."
-                rows={4}
-              />
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Remarks (optional)</label>
+                <Textarea
+                  value={reviewRemarks}
+                  onChange={e => setReviewRemarks(e.target.value)}
+                  placeholder="Add remarks..."
+                  rows={3}
+                />
+              </div>
               <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                  Cancel
-                </Button>
+                <Button variant="outline" onClick={() => setReviewDialogOpen(false)}>Cancel</Button>
                 <Button
-                  variant={action === "approve" ? "default" : "destructive"}
-                  onClick={handleAction}
-                  disabled={updateLeave.isPending}
+                  variant={reviewAction === 'Approved' ? 'default' : 'destructive'}
+                  onClick={handleReview}
+                  disabled={reviewRequest.isPending}
                 >
-                  {updateLeave.isPending ? "Processing..." : action === "approve" ? "Approve" : "Reject"}
+                  {reviewRequest.isPending
+                    ? 'Processing...'
+                    : reviewAction === 'Approved' ? 'Approve' : 'Reject'}
                 </Button>
               </div>
             </div>

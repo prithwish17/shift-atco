@@ -42,7 +42,7 @@ interface Props {
 const N1_HALF = [...NIGHT_DEPARTMENTS_N1];
 const N2_HALF = [...NIGHT_DEPARTMENTS_N2];
 
-function EmployeeDropdown({
+const EmployeeDropdown = React.memo(function EmployeeDropdown({
     positionKey,
     department,
     getAssignment,
@@ -88,7 +88,7 @@ function EmployeeDropdown({
             </SelectContent>
         </Select>
     );
-}
+});
 
 export function NightDutyGrid({
     sections,
