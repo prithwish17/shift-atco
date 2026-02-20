@@ -60,21 +60,44 @@ const barTextColor = (code: string): string => {
   return "text-slate-700";
 };
 
-/* ── Shift time display ── */
+/* ── Shift time display (IST) ── */
+const DUTY_TIMINGS_IST: Record<string, string> = {
+  M: "07:00 AM - 01:00 PM",
+  A: "01:00 PM - 07:00 PM",
+  N: "07:00 PM - 07:00 AM",
+  NO: "Night Off",
+  CO: "Comp Off",
+  "M+A": "07:00 AM - 07:00 PM",
+  "NO+N": "07:00 PM - 07:00 AM",
+  LEAVE: "Leave",
+  SAT: "Saturday",
+  SUN: "Sunday",
+  G: "08:30 AM - 06:00 PM",
+  T: "Tour",
+  CH: "Closed Holiday",
+  NH: "National Holiday",
+  "SAT+NO": "Night Off",
+  NA: "Not Available",
+  "SUN+N": "07:00 PM - 07:00 AM",
+  "SUN+M": "07:00 AM - 01:00 PM",
+  "SUN+A": "01:00 PM - 07:00 PM",
+  "SUN+NO": "Night Off",
+  "SAT+N": "07:00 PM - 07:00 AM",
+  "CO+N": "07:00 PM - 07:00 AM",
+  SL: "Clear Off",
+  TR: "Training",
+  "CO+A": "01:00 PM - 07:00 PM",
+  "CO+M": "07:00 AM - 01:00 PM",
+  GO: "General Off",
+  "A+M": "07:00 AM - 07:00 PM",
+};
+
 const shiftTime = (code: string): string | null => {
-  const map: Record<string, string> = {
-    M: "06:00 – 14:00",
-    A: "14:00 – 22:00",
-    N: "22:00 – 06:00",
-    CO: "Comp Off",
-    NO: "Night Off",
-    LEAVE: "On Leave",
-    SL: "Sick Leave",
-    G: "General Duty",
-    T: "Training",
-    GO: "Gazette Off",
-  };
-  return map[code.toUpperCase()] || null;
+  const raw = code?.trim() || "";
+  const value = DUTY_TIMINGS_IST[raw] || DUTY_TIMINGS_IST[raw.toUpperCase()];
+  if (!value) return null;
+  if (value.includes("AM") || value.includes("PM")) return `${value} IST`;
+  return value;
 };
 
 export default function EmployeeSchedule() {
@@ -175,12 +198,12 @@ export default function EmployeeSchedule() {
                 </div>
 
                 {/* Duty status row */}
-                <div className="flex items-center justify-between p-3 bg-gradient-to-r from-rose-50/60 to-red-50/50 dark:from-rose-950/30 dark:to-red-950/20 rounded-lg border border-rose-200/50 dark:border-rose-800/50 shadow-sm">
-                  <div>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 bg-gradient-to-r from-rose-50/60 to-red-50/50 dark:from-rose-950/30 dark:to-red-950/20 rounded-lg border border-rose-200/50 dark:border-rose-800/50 shadow-sm">
+                  <div className="min-w-0">
                     <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Duty Status</p>
                     <p className="text-lg font-bold text-rose-700 dark:text-rose-400">{nextDuty.duty_code}</p>
                   </div>
-                  <span className="text-sm text-slate-600 dark:text-slate-400">
+                  <span className="text-sm text-slate-600 dark:text-slate-400 break-words whitespace-normal leading-snug sm:text-right">
                     {shiftTime(nextDuty.duty_code) || nextDuty.duty_description || "—"}
                   </span>
                 </div>
@@ -342,7 +365,7 @@ export default function EmployeeSchedule() {
               {upcomingDuties.map((duty) => (
                 <div
                   key={duty.id}
-                  className="flex items-center gap-4 p-4 bg-gradient-to-r from-slate-50 to-white dark:from-gray-800/50 dark:to-gray-900 rounded-lg border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow"
+                  className="flex items-start gap-3 sm:gap-4 p-4 bg-gradient-to-r from-slate-50 to-white dark:from-gray-800/50 dark:to-gray-900 rounded-lg border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow"
                 >
                   {/* Date column */}
                   <div className="flex flex-col items-center min-w-[60px]">
@@ -358,18 +381,18 @@ export default function EmployeeSchedule() {
                   </div>
 
                   {/* Duty info */}
-                  <div className="flex-1 flex items-center gap-3">
-                    <span className={`text-xs font-semibold px-3 py-1.5 rounded-md ${dutyColor(duty.duty_code)}`}>
+                  <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                    <span className={`text-xs font-semibold px-3 py-1.5 rounded-md w-fit ${dutyColor(duty.duty_code)}`}>
                       {duty.duty_code}
                     </span>
-                    <span className="text-sm text-gray-700 dark:text-gray-300">
+                    <span className="text-sm text-gray-700 dark:text-gray-300 break-words whitespace-normal leading-snug">
                       {duty.duty_description || DUTY_DESCRIPTIONS[duty.duty_code] || ""}
                     </span>
                   </div>
 
                   {/* Time/Status */}
-                  <div className="text-right min-w-[120px]">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
+                  <div className="text-right min-w-[100px] sm:min-w-[140px]">
+                    <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 break-words whitespace-normal leading-snug">
                       {shiftTime(duty.duty_code) || ""}
                     </span>
                   </div>

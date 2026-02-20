@@ -8,7 +8,7 @@ import { useLicenses } from "@/hooks/useLicenses";
 import { useShifts } from "@/hooks/useShifts";
 import { useMyRoster } from "@/hooks/useRosters";
 import { useMySchedule, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
-import { format, addDays, isSameDay, parse, differenceInDays } from "date-fns";
+import { format, addDays, isSameDay, parse, parseISO, differenceInDays } from "date-fns";
 
 const LICENSE_LABELS: Record<string, string> = {
   rdr: "Radar",
@@ -21,11 +21,22 @@ const LICENSE_LABELS: Record<string, string> = {
 
 /** Color map for duty code badges */
 function getDutyBadgeColor(code: string): string {
-  const upper = code?.toUpperCase() || '';
-  if (upper === 'N' || upper === 'NO') return 'bg-blue-500 text-white';
-  if (upper === 'M') return 'bg-orange-500 text-white';
-  if (upper === 'A') return 'bg-teal-500 text-white';
-  return 'bg-gray-600 text-white';
+  const c = code?.toUpperCase() || "";
+  if (c === "M" || c === "M+A" || c === "CO+M" || c === "SUN+M") return "bg-yellow-100 text-yellow-700";
+  if (c === "A" || c === "A+M" || c === "CO+A" || c === "SUN+A") return "bg-orange-100 text-orange-700";
+  if (c === "N" || c === "CO+N" || c === "SUN+N" || c === "SAT+N") return "bg-blue-100 text-blue-700";
+  if (c === "NO" || c === "SAT+NO" || c === "SUN+NO") return "bg-indigo-100 text-indigo-700";
+  if (c === "CO") return "bg-teal-100 text-teal-700";
+  if (c === "LEAVE" || c === "SL") return "bg-red-100 text-red-700";
+  if (c === "CH") return "bg-lime-100 text-lime-700";
+  if (c === "NH") return "bg-green-100 text-green-700";
+  if (c === "GO") return "bg-lime-100 text-lime-700";
+  if (c === "G") return "bg-neutral-100 text-neutral-700";
+  if (c === "NA") return "bg-gray-100 text-gray-700";
+  if (c.startsWith("SAT")) return "bg-cyan-100 text-cyan-700";
+  if (c.startsWith("SUN")) return "bg-purple-100 text-purple-700";
+  if (c === "T" || c === "TR") return "bg-rose-100 text-rose-700";
+  return "bg-slate-100 text-slate-700";
 }
 
 /** Parse roster date strings like "17-Feb-2026" into Date objects */
@@ -43,7 +54,7 @@ export default function EmployeeDashboard() {
   const { licenses, isLoading: licensesLoading } = useLicenses(user?.id);
 
   const today = format(new Date(), "yyyy-MM-dd");
-  const weekEnd = format(addDays(new Date(), 7), "yyyy-MM-dd");
+  const weekEnd = format(addDays(new Date(), 6), "yyyy-MM-dd");
 
   const { data: leaves, isLoading: leavesLoading } = useLeaves(user?.id);
   const { data: balances, isLoading: balancesLoading } = useLeaveBalances(user?.id);
@@ -52,7 +63,7 @@ export default function EmployeeDashboard() {
   const { data: mySchedule = [], isLoading: scheduleLoading } = useMySchedule(
     profile?.employee_id,
     today,
-    format(addDays(new Date(), 7), 'yyyy-MM-dd')
+    format(addDays(new Date(), 6), 'yyyy-MM-dd')
   );
 
   const currentYear = new Date().getFullYear();
@@ -202,18 +213,19 @@ export default function EmployeeDashboard() {
               </div>
               <div>
                 <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm md:text-base">Upcoming Schedule</h3>
-                <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">Next 7 days duty assignments</p>
               </div>
             </div>
 
             <div className="space-y-2 md:space-y-3">
               {mySchedule.length > 0 ? mySchedule.map((duty, idx) => (
-                <div key={duty.id} className={`flex items-center justify-between py-2 md:py-3 ${idx < mySchedule.length - 1 ? 'border-b border-gray-100 dark:border-gray-800' : ''}`}>
-                  <div>
-                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{format(new Date(duty.duty_date), "MMM d, EEE")}</div>
-                    <div className="text-xs md:text-sm text-gray-600 dark:text-gray-400">{duty.duty_description || DUTY_DESCRIPTIONS[duty.duty_code] || duty.duty_code}</div>
+                <div key={duty.id} className={`flex items-start justify-between gap-3 py-2 md:py-3 ${idx < mySchedule.length - 1 ? 'border-b border-gray-100 dark:border-gray-800' : ''}`}>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{format(parseISO(duty.duty_date), "MMM d, EEE")}</div>
+                    <div className="text-xs md:text-sm text-gray-600 dark:text-gray-400 break-words whitespace-normal leading-snug">
+                      {duty.duty_description || DUTY_DESCRIPTIONS[duty.duty_code] || duty.duty_code}
+                    </div>
                   </div>
-                  <span className={`w-16 px-2 md:px-3 py-1 text-xs font-medium rounded text-center ${getDutyBadgeColor(duty.duty_code)}`}>
+                  <span className={`shrink-0 w-16 px-2 md:px-3 py-1 text-xs font-medium rounded text-center ${getDutyBadgeColor(duty.duty_code)}`}>
                     {duty.duty_code}
                   </span>
                 </div>

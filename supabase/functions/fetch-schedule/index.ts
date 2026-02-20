@@ -6,7 +6,7 @@ const corsHeaders = {
         "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const APPS_SCRIPT_URL =
+const DEFAULT_APPS_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbyj6zFzcEh16H07ZKj7NAMOndgNeUWG_Hgk8zopLnSDduLzjBFIDWmLvzqqCthPtcF2/exec";
 
 Deno.serve(async (req) => {
@@ -28,21 +28,39 @@ Deno.serve(async (req) => {
         const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
         const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-        // Verify user token
+        // Verify caller token (allow authenticated user tokens and service-role tokens)
+        const token = authHeader.replace("Bearer ", "");
         const userClient = createClient(supabaseUrl, supabaseAnonKey, {
             global: { headers: { Authorization: authHeader } },
         });
-        const { data: { user }, error: userError } = await userClient.auth.getUser();
-        if (userError || !user) {
+        const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(token);
+        const role = claimsData?.claims?.role as string | undefined;
+        if (claimsError || !claimsData?.claims || !(role === "authenticated" || role === "service_role")) {
             return new Response(JSON.stringify({ error: "Unauthorized" }), {
                 status: 401,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
         }
 
+        // Try to read the webapp URL from app_settings table (admin-configurable)
+        const adminClient = createClient(supabaseUrl, serviceRoleKey);
+        let appsScriptUrl = DEFAULT_APPS_SCRIPT_URL;
+        try {
+            const { data: setting } = await adminClient
+                .from("app_settings")
+                .select("value")
+                .eq("key", "schedule_webapp_url")
+                .single();
+            if (setting?.value) {
+                appsScriptUrl = setting.value;
+            }
+        } catch {
+            // Table may not exist yet — use default
+        }
+
         // Fetch from Google Apps Script
-        console.log(`Fetching schedules from: ${APPS_SCRIPT_URL}`);
-        const response = await fetch(APPS_SCRIPT_URL, {
+        console.log(`Fetching schedules from: ${appsScriptUrl}`);
+        const response = await fetch(appsScriptUrl, {
             method: "GET",
             redirect: "follow",
             headers: {

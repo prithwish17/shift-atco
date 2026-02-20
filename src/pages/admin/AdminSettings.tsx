@@ -20,6 +20,7 @@ export default function AdminSettings() {
     const { toast } = useToast();
     const qc = useQueryClient();
     const [rosterUrl, setRosterUrl] = useState("");
+    const [scheduleUrl, setScheduleUrl] = useState("");
 
     const { data: settings, isLoading } = useQuery({
         queryKey: ["app-settings"],
@@ -35,8 +36,10 @@ export default function AdminSettings() {
     // Initialize form values from fetched settings
     useEffect(() => {
         if (settings) {
-            const url = settings.find((s) => s.key === "roster_webapp_url");
-            if (url) setRosterUrl(url.value);
+            const roster = settings.find((s) => s.key === "roster_webapp_url");
+            const schedule = settings.find((s) => s.key === "schedule_webapp_url");
+            if (roster) setRosterUrl(roster.value);
+            if (schedule) setScheduleUrl(schedule.value);
         }
     }, [settings]);
 
@@ -68,6 +71,18 @@ export default function AdminSettings() {
             key: "roster_webapp_url",
             value: rosterUrl.trim(),
             label: "Roster Sync Webapp URL",
+        });
+    };
+
+    const handleSaveScheduleUrl = () => {
+        if (!scheduleUrl.trim()) {
+            toast({ title: "Error", description: "URL cannot be empty", variant: "destructive" });
+            return;
+        }
+        updateSetting.mutate({
+            key: "schedule_webapp_url",
+            value: scheduleUrl.trim(),
+            label: "Schedule Sync Webapp URL",
         });
     };
 
@@ -110,6 +125,44 @@ export default function AdminSettings() {
                         </div>
                         <Button
                             onClick={handleSaveRosterUrl}
+                            disabled={updateSetting.isPending || isLoading}
+                        >
+                            {updateSetting.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <Save className="h-4 w-4 mr-2" />
+                            )}
+                            Save URL
+                        </Button>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Schedule Integration</CardTitle>
+                        <CardDescription>
+                            Configure the Google Apps Script webapp URL used to sync duty schedules from Google Sheets.
+                            Update this when you re-deploy the Apps Script.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="schedule-url">Schedule Sync Webapp URL</Label>
+                            <Input
+                                id="schedule-url"
+                                type="url"
+                                placeholder="https://script.google.com/macros/s/.../exec"
+                                value={scheduleUrl}
+                                onChange={(e) => setScheduleUrl(e.target.value)}
+                                className="font-mono text-sm"
+                                disabled={isLoading}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                The full URL of the deployed Google Apps Script web app (ends with /exec)
+                            </p>
+                        </div>
+                        <Button
+                            onClick={handleSaveScheduleUrl}
                             disabled={updateSetting.isPending || isLoading}
                         >
                             {updateSetting.isPending ? (

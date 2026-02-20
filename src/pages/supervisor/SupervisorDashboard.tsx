@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
+import { useToast } from "@/hooks/use-toast";
+import { useFetchSchedule } from "@/hooks/useEmployeeSchedules";
 
-import { Users, FileText, Calendar as CalendarIcon, ClipboardList, Clock, Search } from "lucide-react";
+import { Users, FileText, Calendar as CalendarIcon, ClipboardList, Clock, Search, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useState } from "react";
 import { useLeaves } from "@/hooks/useLeaves";
@@ -19,17 +21,37 @@ export default function SupervisorDashboard() {
   const [date, setDate] = useState<Date | undefined>(new Date());
   const today = format(new Date(), "yyyy-MM-dd");
   const [rosterSearch, setRosterSearch] = useState("");
+  const { toast } = useToast();
 
   const { data: allLeaves, isLoading: leavesLoading } = useLeaves();
   const { data: allExchanges, isLoading: exchangesLoading } = useDutyExchanges();
   const { attendance, isLoading: attendanceLoading } = useAttendance(today);
   const { data: rosterResults = [] } = useRosters({ search: rosterSearch || undefined });
+  const fetchSchedule = useFetchSchedule();
 
   const pendingLeaves = allLeaves?.filter(l => l.status === "pending_supervisor" || l.status === "pending_wso") || [];
   const pendingExchanges = allExchanges?.filter(e => e.status === "pending_supervisor") || [];
   const onDutyCount = attendance?.filter(a => a.status === "present").length || 0;
 
   const isLoading = leavesLoading || exchangesLoading || attendanceLoading;
+
+  const handleFetchSchedule = () => {
+    fetchSchedule.mutate(undefined, {
+      onSuccess: (result: any) => {
+        toast({
+          title: "Schedule synced",
+          description: `Fetched ${result?.rows ?? 0} duty rows for ${result?.employees ?? 0} employees.`,
+        });
+      },
+      onError: (error: any) => {
+        toast({
+          title: "Schedule sync failed",
+          description: error?.message || "Unable to fetch schedule right now.",
+          variant: "destructive",
+        });
+      },
+    });
+  };
 
   return (
     <DashboardLayout role="supervisor">
@@ -179,12 +201,19 @@ export default function SupervisorDashboard() {
                   Manage Employees
                 </Button>
               </Link>
-              <Link to="/supervisor/atc-grid">
-                <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
+              <Button
+                variant="outline"
+                className="w-full h-20 flex flex-col gap-2"
+                onClick={handleFetchSchedule}
+                disabled={fetchSchedule.isPending}
+              >
+                {fetchSchedule.isPending ? (
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                ) : (
                   <CalendarIcon className="h-6 w-6" />
-                  ATC Operations
-                </Button>
-              </Link>
+                )}
+                Fetch Schedule
+              </Button>
               <Link to="/roster">
                 <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
                   <CalendarIcon className="h-6 w-6" />
