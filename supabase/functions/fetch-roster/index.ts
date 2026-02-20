@@ -6,8 +6,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const APPS_SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycbxEVSyee7qsL3B0TA8ivzgJ2LBw1vfSCw8wdkW8d3oxK2VLFDjxaAMSud9nD3MK_ZYksw/exec";
+const DEFAULT_APPS_SCRIPT_URL =
+  "https://script.google.com/macros/s/AKfycby0ZL9nspDkRuln1JRpr8llBRaNxvaO9Zo1X6zMg89i_inQSeDBJd6EyQE9Wj6dhQ-S1Q/exec";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -47,8 +47,24 @@ Deno.serve(async (req) => {
     const team = url.searchParams.get("team") || "";
     const shift = url.searchParams.get("shift") || "";
 
+    // Try to read the webapp URL from app_settings table (admin-configurable)
+    const adminClient = createClient(supabaseUrl, serviceRoleKey);
+    let appsScriptUrl = DEFAULT_APPS_SCRIPT_URL;
+    try {
+      const { data: setting } = await adminClient
+        .from("app_settings")
+        .select("value")
+        .eq("key", "roster_webapp_url")
+        .single();
+      if (setting?.value) {
+        appsScriptUrl = setting.value;
+      }
+    } catch {
+      // Table may not exist yet — use default
+    }
+
     // Fetch from Google Apps Script
-    const scriptUrl = new URL(APPS_SCRIPT_URL);
+    const scriptUrl = new URL(appsScriptUrl);
     if (team) scriptUrl.searchParams.set("team", team);
     if (shift) scriptUrl.searchParams.set("shift", shift);
 
@@ -72,6 +88,12 @@ Deno.serve(async (req) => {
     if (rows.length > 0) {
       const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
+      // Log the first row to identify field names from the webapp
+      if (rows.length > 0) {
+        console.log("[fetch-roster] Sample row keys:", Object.keys(rows[0]));
+        console.log("[fetch-roster] Sample row:", JSON.stringify(rows[0]));
+      }
+
       const toInsert = rows.map((row: Record<string, string>) => {
         // Parse employee name: strip designation/rating after "/"
         // and trailing designation codes like "-AM", "-JE", "-SM"
@@ -79,13 +101,17 @@ Deno.serve(async (req) => {
         empName = empName.replace(/-(SM|DGM|MGR|JE|AM|AGM)$/i, "").trim();
         empName = empName.replace(/-+$/, "").trim();
 
+        // The webapp may return the position/half info under different field names
+        // Check: position, mark, remark, half (in order of priority)
+        const positionValue = row.position || row.mark || row.remark || row.half || "";
+
         return {
           date: row.date || "",
           shift: row.shift || "",
           team: row.team || "",
           unit: (row.unit || "").toUpperCase().trim() === "HQ" ? "WSO" : (row.unit || ""),
           employee_name: empName,
-          position: row.position || "",
+          position: positionValue,
         };
       });
 

@@ -1,5 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
-import { POSITION_ROWS } from '@/lib/atcConstants';
+import { POSITION_ROWS, NIGHT_SPAN_POSITIONS, NIGHT_FULL_SPAN_POSITIONS, NIGHT_TRIPLE_FULL_POSITIONS, NIGHT_FULL_DEPARTMENTS } from '@/lib/atcConstants';
 import { format, parse } from 'date-fns';
 
 /**
@@ -86,20 +86,7 @@ export async function syncRosterToGrid(
         .eq('roster_id', rosterId);
 
     // 5. Map flat rows → grid assignments
-    // Group roster rows by unit+department (position key + dept in the grid)
-    // Each (unit, dept) combo can hold 2 employees: Name (employee_id) + Reliever (remark)
-    const DEPT_ORDER = ['RSR', 'ACC-PLR', 'ACC-A'];
-
-    // Helper: normalize position strings for comparison
-    const normalizePos = (s: string) => s.toUpperCase().trim().replace(/\s+/g, '-');
-
-    // Helper: map position field to preferred department
-    const posToDept = (rawPosition: string): string => {
-        const np = normalizePos(rawPosition);
-        if (np.includes('ACC-PLR') || np === 'PLR') return 'ACC-PLR';
-        if (np.includes('ACC-A') || np === 'ACC') return 'ACC-A';
-        return 'RSR';
-    };
+    const isNightShift = shift === 'Night';
 
     // Known designation suffixes that may be appended to names with a hyphen
     const DESIGNATION_SUFFIXES = ['SM', 'DGM', 'MGR', 'JE', 'AM', 'AGM'];
@@ -108,9 +95,7 @@ export async function syncRosterToGrid(
     // Helper: parse employee name (strip role suffix after "/" and trailing designation/hyphens)
     const parseName = (raw: string): string => {
         let name = (raw || '').split('/')[0].trim();
-        // Strip trailing designation suffix like "-AM", "-JE", "-SM"
         name = name.replace(designationPattern, '').trim();
-        // Strip any remaining trailing hyphens
         name = name.replace(/[-]+$/, '').trim();
         return name;
     };
@@ -119,109 +104,267 @@ export async function syncRosterToGrid(
     const normalizeName = (s: string): string =>
         s.toLowerCase().replace(/\s+/g, ' ').trim();
 
-    // Group by unit → department → list of employee names
-    const grid = new Map<string, Map<string, string[]>>();
-    for (const row of rosterRows as any[]) {
-        let rawUnit = (row.unit || '').toUpperCase().trim();
-        // Map HQ → WSO so it maps to the WSO row in the grid
-        if (rawUnit === 'HQ') rawUnit = 'WSO';
-        const rawEmpName = parseName(row.employee_name || '');
-        if (!rawUnit || !rawEmpName) continue;
-
-        const dept = posToDept(row.position || '');
-        if (!grid.has(rawUnit)) grid.set(rawUnit, new Map());
-        const deptMap = grid.get(rawUnit)!;
-        if (!deptMap.has(dept)) deptMap.set(dept, []);
-        deptMap.get(dept)!.push(rawEmpName);
-    }
+    // Helper: resolve employee name to profile
+    const resolveProfile = (empName: string): { id: string; full_name: string } | null => {
+        let profile = nameMap.get(empName.toLowerCase()) || null;
+        if (!profile) {
+            const norm = normalizeName(empName);
+            for (const [k, v] of nameMap) {
+                if (normalizeName(k) === norm) { profile = v; break; }
+            }
+        }
+        return profile;
+    };
 
     const assignments: any[] = [];
     const unmatched: string[] = [];
 
-    for (const [unitKey, deptMap] of grid) {
-        const posRow = POSITION_ROWS.find(
-            (p) => p.key.toUpperCase() === unitKey || p.label.toUpperCase() === unitKey
-        );
-        const sectionType = posRow?.sectionType || 'sector';
-        const positionName = posRow?.key || unitKey;
-        const maxDepts = posRow?.deptCount || 3;
-        const canReliever = posRow?.hasReliever || false;
-        const availableDepts = DEPT_ORDER.slice(0, maxDepts);
 
-        // Track overflow employees (3rd+ for same dept) to reassign to other depts
-        const overflow: string[] = [];
+    if (isNightShift) {
+        // ---------- NIGHT SHIFT SYNC ----------
+        // Roster `position` field contains half info: "ACC-PLR (1st Half)", "RSR+UBN (2nd Half)"
+        // Night grid department keys: RSR-N1, ACC-D-N1, ACC-A-N1, RSR-N2, ACC-D-N2, ACC-A-N2
+        // Span positions use RSR-N1-SPAN / RSR-N2-SPAN (single dropdown per half)
+        //
+        // Strategy: group roster rows by (positionKey + half), then distribute
+        // employees across the 3 department columns per half — same pattern as
+        // the morning/afternoon path does with DEPT_ORDER.
 
-        for (const dept of availableDepts) {
-            const empNames = deptMap.get(dept) || [];
+        const NIGHT_DEPT_ORDER_N1 = ['RSR-N1', 'ACC-D-N1', 'ACC-A-N1'];
+        const NIGHT_DEPT_ORDER_N2 = ['RSR-N2', 'ACC-D-N2', 'ACC-A-N2'];
 
-            // Slot 1: Name → employee_id
-            const firstName = empNames[0] || null;
-            // Slot 2: Reliever → remark (only for hasReliever positions)
-            const secondName = canReliever ? (empNames[1] || null) : null;
+        // Extract half from position string — returns 'N1' | 'N2' | null
+        const extractHalf = (rawPosition: string): 'N1' | 'N2' | null => {
+            const pos = (rawPosition || '').toLowerCase();
+            if (pos.includes('1st half')) return 'N1';
+            if (pos.includes('2nd half')) return 'N2';
+            return null;
+        };
 
-            // Any extras beyond 2 (or beyond 1 for non-reliever) go to overflow
-            const startOverflow = canReliever ? 2 : 1;
-            for (let i = startOverflow; i < empNames.length; i++) {
-                overflow.push(empNames[i]);
+        // Group: composite key "positionKey::half" → list of employee names
+        // For full-span and triple-full positions, half is always 'FULL' (no N1/N2 split)
+        const nightGrid = new Map<string, string[]>();
+        // Track position metadata per key
+        const posMetaMap = new Map<string, { posRow: typeof POSITION_ROWS[0] | undefined; positionName: string; sectionType: string }>();
+
+        for (const row of rosterRows as any[]) {
+            let rawUnit = (row.unit || '').toUpperCase().trim();
+            if (rawUnit === 'HQ') rawUnit = 'WSO';
+            const rawEmpName = parseName(row.employee_name || '');
+            if (!rawUnit || !rawEmpName) continue;
+
+            const posRow = POSITION_ROWS.find(
+                (p) => p.key.toUpperCase() === rawUnit || p.label.toUpperCase() === rawUnit
+            );
+            const positionName = posRow?.key || rawUnit;
+            const sectionType = posRow?.sectionType || 'sector';
+
+            // Full-span and triple-full positions have no half division
+            const isNoHalf = NIGHT_FULL_SPAN_POSITIONS.has(positionName) || NIGHT_TRIPLE_FULL_POSITIONS.has(positionName);
+            const half = isNoHalf ? 'FULL' : (extractHalf(row.position || '') || 'N1');
+
+            const groupKey = `${positionName}::${half}`;
+            if (!nightGrid.has(groupKey)) nightGrid.set(groupKey, []);
+            nightGrid.get(groupKey)!.push(rawEmpName);
+
+            if (!posMetaMap.has(groupKey)) {
+                posMetaMap.set(groupKey, { posRow, positionName, sectionType });
             }
-
-            if (!firstName) continue;
-
-            // Try exact match first, then fallback to whitespace-normalized match
-            let resolvedProfile1 = nameMap.get(firstName.toLowerCase()) || null;
-            if (!resolvedProfile1) {
-                const norm = normalizeName(firstName);
-                for (const [k, v] of nameMap) {
-                    if (normalizeName(k) === norm) { resolvedProfile1 = v; break; }
-                }
-            }
-            if (!resolvedProfile1) unmatched.push(firstName);
-
-            let remarkValue: string | null = null;
-            if (secondName) {
-                // For reliever: store the second employee's name in remark
-                let resolvedProfile2 = nameMap.get(secondName.toLowerCase()) || null;
-                if (!resolvedProfile2) {
-                    const norm = normalizeName(secondName);
-                    for (const [k, v] of nameMap) {
-                        if (normalizeName(k) === norm) { resolvedProfile2 = v; break; }
-                    }
-                }
-                if (!resolvedProfile2) unmatched.push(secondName);
-                // Store reliever as their display name (profile name or raw name)
-                remarkValue = resolvedProfile2?.full_name || secondName;
-            }
-
-            assignments.push({
-                roster_id: rosterId,
-                position_name: positionName,
-                position_label: posRow?.label || unitKey,
-                department: dept,
-                employee_id: resolvedProfile1?.id || null,
-                remark: resolvedProfile1 ? remarkValue : firstName,
-                section_type: sectionType,
-            });
         }
 
-        // Try to place overflow employees into empty department slots
-        for (const empName of overflow) {
-            const emptyDept = availableDepts.find(
-                (d) => !assignments.some((a) => a.position_name === positionName && a.department === d)
+
+        // Now generate assignments from grouped data
+        for (const [groupKey, empNames] of nightGrid) {
+            const [positionName, half] = groupKey.split('::');
+            const meta = posMetaMap.get(groupKey)!;
+            const isFullSpan = NIGHT_FULL_SPAN_POSITIONS.has(positionName);
+            const isTripleFull = NIGHT_TRIPLE_FULL_POSITIONS.has(positionName);
+            const isSpan = NIGHT_SPAN_POSITIONS.has(positionName);
+
+            if (isFullSpan) {
+                // Full span: 1 dropdown across all 6 cols → use FULL-SPAN dept key
+                const firstName = empNames[0];
+                const profile = resolveProfile(firstName);
+                if (!profile) unmatched.push(firstName);
+
+                assignments.push({
+                    roster_id: rosterId,
+                    position_name: positionName,
+                    position_label: meta.posRow?.label || positionName,
+                    department: 'FULL-SPAN',
+                    employee_id: profile?.id || null,
+                    remark: profile ? null : firstName,
+                    section_type: meta.sectionType,
+                });
+
+                for (let i = 1; i < empNames.length; i++) {
+                    console.warn(`[SyncRoster] Night full-span overflow — extra employee "${empNames[i]}" at ${positionName} has no slot`);
+                }
+            } else if (isTripleFull) {
+                // Triple full: 3 dropdowns across 6 cols → distribute across NIGHT_FULL_DEPARTMENTS
+                const deptOrder = [...NIGHT_FULL_DEPARTMENTS];
+
+                for (let i = 0; i < empNames.length; i++) {
+                    if (i >= deptOrder.length) {
+                        console.warn(`[SyncRoster] Night triple-full overflow — extra employee "${empNames[i]}" at ${positionName} exceeds ${deptOrder.length} columns`);
+                        continue;
+                    }
+
+                    const empName = empNames[i];
+                    const profile = resolveProfile(empName);
+                    if (!profile) unmatched.push(empName);
+
+                    assignments.push({
+                        roster_id: rosterId,
+                        position_name: positionName,
+                        position_label: meta.posRow?.label || positionName,
+                        department: deptOrder[i],
+                        employee_id: profile?.id || null,
+                        remark: profile ? null : empName,
+                        section_type: meta.sectionType,
+                    });
+                }
+            } else if (isSpan) {
+                // Span positions: one dropdown per half → use RSR-Nx-SPAN key
+                const deptKey = `RSR-${half}-SPAN`;
+                const firstName = empNames[0];
+                const profile = resolveProfile(firstName);
+                if (!profile) unmatched.push(firstName);
+
+                assignments.push({
+                    roster_id: rosterId,
+                    position_name: positionName,
+                    position_label: meta.posRow?.label || positionName,
+                    department: deptKey,
+                    employee_id: profile?.id || null,
+                    remark: profile ? null : firstName,
+                    section_type: meta.sectionType,
+                });
+
+                for (let i = 1; i < empNames.length; i++) {
+                    console.warn(`[SyncRoster] Night span overflow — extra employee "${empNames[i]}" at ${positionName} ${half} has no slot`);
+                }
+            } else {
+                // Non-span positions: distribute across 3 department columns per half
+                const deptOrder = half === 'N2' ? NIGHT_DEPT_ORDER_N2 : NIGHT_DEPT_ORDER_N1;
+
+                for (let i = 0; i < empNames.length; i++) {
+                    if (i >= deptOrder.length) {
+                        console.warn(`[SyncRoster] Night overflow — extra employee "${empNames[i]}" at ${positionName} ${half} exceeds ${deptOrder.length} columns`);
+                        continue;
+                    }
+
+                    const empName = empNames[i];
+                    const profile = resolveProfile(empName);
+                    if (!profile) unmatched.push(empName);
+
+                    assignments.push({
+                        roster_id: rosterId,
+                        position_name: positionName,
+                        position_label: meta.posRow?.label || positionName,
+                        department: deptOrder[i],
+                        employee_id: profile?.id || null,
+                        remark: profile ? null : empName,
+                        section_type: meta.sectionType,
+                    });
+                }
+            }
+        }
+    } else {
+        // ---------- MORNING / AFTERNOON SHIFT SYNC ----------
+        // (existing logic unchanged)
+        const DEPT_ORDER = ['RSR', 'ACC-PLR', 'ACC-A'];
+
+        const normalizePos = (s: string) => s.toUpperCase().trim().replace(/\s+/g, '-');
+
+        const posToDept = (rawPosition: string): string => {
+            const np = normalizePos(rawPosition);
+            if (np.includes('ACC-PLR') || np === 'PLR') return 'ACC-PLR';
+            if (np.includes('ACC-A') || np === 'ACC') return 'ACC-A';
+            return 'RSR';
+        };
+
+        // Group by unit → department → list of employee names
+        const grid = new Map<string, Map<string, string[]>>();
+        for (const row of rosterRows as any[]) {
+            let rawUnit = (row.unit || '').toUpperCase().trim();
+            if (rawUnit === 'HQ') rawUnit = 'WSO';
+            const rawEmpName = parseName(row.employee_name || '');
+            if (!rawUnit || !rawEmpName) continue;
+
+            const dept = posToDept(row.position || '');
+            if (!grid.has(rawUnit)) grid.set(rawUnit, new Map());
+            const deptMap = grid.get(rawUnit)!;
+            if (!deptMap.has(dept)) deptMap.set(dept, []);
+            deptMap.get(dept)!.push(rawEmpName);
+        }
+
+
+        for (const [unitKey, deptMap] of grid) {
+            const posRow = POSITION_ROWS.find(
+                (p) => p.key.toUpperCase() === unitKey || p.label.toUpperCase() === unitKey
             );
-            if (!emptyDept) continue;
+            const sectionType = posRow?.sectionType || 'sector';
+            const positionName = posRow?.key || unitKey;
+            const maxDepts = posRow?.deptCount || 3;
+            const canReliever = posRow?.hasReliever || false;
+            const availableDepts = DEPT_ORDER.slice(0, maxDepts);
 
-            const profile = nameMap.get(empName.toLowerCase());
-            if (!profile) unmatched.push(empName);
+            const overflow: string[] = [];
 
-            assignments.push({
-                roster_id: rosterId,
-                position_name: positionName,
-                position_label: posRow?.label || unitKey,
-                department: emptyDept,
-                employee_id: profile?.id || null,
-                remark: profile ? null : empName,
-                section_type: sectionType,
-            });
+            for (const dept of availableDepts) {
+                const empNames = deptMap.get(dept) || [];
+
+                const firstName = empNames[0] || null;
+                const secondName = canReliever ? (empNames[1] || null) : null;
+
+                const startOverflow = canReliever ? 2 : 1;
+                for (let i = startOverflow; i < empNames.length; i++) {
+                    overflow.push(empNames[i]);
+                }
+
+                if (!firstName) continue;
+
+                const resolvedProfile1 = resolveProfile(firstName);
+                if (!resolvedProfile1) unmatched.push(firstName);
+
+                let remarkValue: string | null = null;
+                if (secondName) {
+                    const resolvedProfile2 = resolveProfile(secondName);
+                    if (!resolvedProfile2) unmatched.push(secondName);
+                    remarkValue = resolvedProfile2?.full_name || secondName;
+                }
+
+                assignments.push({
+                    roster_id: rosterId,
+                    position_name: positionName,
+                    position_label: posRow?.label || unitKey,
+                    department: dept,
+                    employee_id: resolvedProfile1?.id || null,
+                    remark: resolvedProfile1 ? remarkValue : firstName,
+                    section_type: sectionType,
+                });
+            }
+
+            for (const empName of overflow) {
+                const emptyDept = availableDepts.find(
+                    (d) => !assignments.some((a) => a.position_name === positionName && a.department === d)
+                );
+                if (!emptyDept) continue;
+
+                const profile = resolveProfile(empName);
+                if (!profile) unmatched.push(empName);
+
+                assignments.push({
+                    roster_id: rosterId,
+                    position_name: positionName,
+                    position_label: posRow?.label || unitKey,
+                    department: emptyDept,
+                    employee_id: profile?.id || null,
+                    remark: profile ? null : empName,
+                    section_type: sectionType,
+                });
+            }
         }
     }
 
@@ -235,7 +378,6 @@ export async function syncRosterToGrid(
 
     return {
         synced: assignments.length,
-        unmatched: [...new Set(unmatched)], // deduplicate
+        unmatched: [...new Set(unmatched)],
     };
 }
-

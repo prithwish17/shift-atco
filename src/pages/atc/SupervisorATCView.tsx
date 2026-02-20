@@ -11,7 +11,8 @@ import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon, Search, FileDown, Plus, Trash2, RefreshCw, DatabaseZap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { DEPARTMENTS, POSITION_ROWS, ATC_SHIFTS, EXTRA_DUTY_TYPES } from '@/lib/atcConstants';
+import { DEPARTMENTS, POSITION_ROWS, ATC_SHIFTS, EXTRA_DUTY_TYPES, ALL_NIGHT_DEPARTMENTS } from '@/lib/atcConstants';
+import { NightDutyGrid } from '@/components/NightDutyGrid';
 import {
   useDutyRoster,
   useCreateOrGetRoster,
@@ -33,6 +34,8 @@ export default function SupervisorATCView() {
   const [team, setTeam] = useState('');
   const [search, setSearch] = useState('');
   const [positionLabels, setPositionLabels] = useState<Record<string, string>>({});
+
+  const isNight = shift === 'Night';
 
   const dateStr = format(date, 'yyyy-MM-dd');
   const { gridData: edgeFuncData, isLoading: edgeLoading, refetch: refetchEdge } = useATCAssignments(dateStr, shift || undefined);
@@ -104,14 +107,18 @@ export default function SupervisorATCView() {
   };
 
   const sections = useMemo(() => {
+    const rows = isNight
+      ? POSITION_ROWS
+      : POSITION_ROWS.filter((r) => !r.nightOnly);
+
     const grouped: { label: string; color: string; rows: typeof POSITION_ROWS }[] = [];
     let cs = '';
-    POSITION_ROWS.forEach((row) => {
+    rows.forEach((row) => {
       if (row.sectionLabel !== cs) { cs = row.sectionLabel; grouped.push({ label: cs, color: row.sectionColor, rows: [] }); }
       grouped[grouped.length - 1].rows.push(row);
     });
     return grouped;
-  }, []);
+  }, [isNight]);
 
   // Search filter: match position or employee name
   const matchesSearch = (positionKey: string, department: string) => {
@@ -124,8 +131,10 @@ export default function SupervisorATCView() {
     return false;
   };
 
+  const activeDepts = isNight ? ALL_NIGHT_DEPARTMENTS : DEPARTMENTS;
+  const activeRows = isNight ? POSITION_ROWS : POSITION_ROWS.filter((r) => !r.nightOnly);
   const markedCount = assignments.filter((a) => a.employee_id).length;
-  const totalPositions = POSITION_ROWS.length * DEPARTMENTS.length;
+  const totalPositions = activeRows.length * activeDepts.length;
 
   return (
     <DashboardLayout role="supervisor">
@@ -204,96 +213,108 @@ export default function SupervisorATCView() {
 
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted">
-                    <th className="px-3 py-2 text-left font-semibold w-[180px] border-r">Position</th>
-                    {DEPARTMENTS.map((dept) => (
-                      <th key={dept} colSpan={2} className="px-3 py-2 text-center font-semibold border-r last:border-r-0">{dept}</th>
-                    ))}
-                  </tr>
-                  <tr className="border-b bg-muted/50">
-                    <th className="border-r" />
-                    {DEPARTMENTS.map((dept) => (
-                      <React.Fragment key={dept}>
-                        <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground">Name</th>
-                        <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground border-r last:border-r-0">Remark</th>
-                      </React.Fragment>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sections.map((section) => {
-                    const hasVisibleRows = section.rows.some((row) =>
-                      DEPARTMENTS.some((dept) => matchesSearch(row.key, dept)) || !search.trim()
-                    );
-                    if (!hasVisibleRows && search.trim()) return null;
-                    return (
-                      <React.Fragment key={section.label}>
-                        <tr>
-                          <td colSpan={1 + DEPARTMENTS.length * 2} className="px-3 py-1.5 font-semibold text-xs uppercase tracking-wide text-white" style={{ backgroundColor: section.color }}>
-                            {section.label}
-                          </td>
-                        </tr>
-                        {section.rows.map((row) => {
-                          const visible = DEPARTMENTS.some((dept) => matchesSearch(row.key, dept)) || !search.trim();
-                          if (!visible) return null;
-                          return (
-                            <tr key={row.key} className="border-b hover:bg-accent/30">
-                              <td className="px-3 py-1.5 border-r font-medium">
-                                {row.editable ? (
-                                  <Input value={positionLabels[row.key] ?? row.label} onChange={(e) => setPositionLabels((prev) => ({ ...prev, [row.key]: e.target.value }))} className="h-7 text-xs border-dashed" />
-                                ) : (
-                                  <span>{row.label}</span>
-                                )}
-                              </td>
-                              {DEPARTMENTS.slice(0, row.deptCount || 3).map((dept) => {
-                                const assignment = getAssignment(row.key, dept);
-                                const available = getAvailableEmployees(assignment?.employee_id);
-                                return (
-                                  <React.Fragment key={dept}>
-                                    <td className="px-1 py-1 min-w-[140px]">
-                                      <Select value={assignment?.employee_id || '_none'} onValueChange={(val) => handleAssign(row.key, dept, val === '_none' ? null : val)}>
-                                        <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="_none">— None —</SelectItem>
-                                          {available.map((emp) => (
-                                            <SelectItem key={emp.id} value={emp.id}>{emp.full_name}{emp.designation ? ` (${emp.designation})` : ''}</SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                    </td>
-                                    <td className="px-1 py-1 min-w-[140px] border-r last:border-r-0">
-                                      {row.hasReliever ? (
-                                        <Select value={assignment?.remark || '_none'} onValueChange={(val) => handleRemarkChange(row.key, dept, val === '_none' ? '' : val)}>
-                                          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Reliever..." /></SelectTrigger>
+            {isNight ? (
+              <NightDutyGrid
+                sections={sections}
+                canEdit={true}
+                positionLabels={positionLabels}
+                setPositionLabels={setPositionLabels}
+                getAssignment={getAssignment}
+                getAvailableEmployees={getAvailableEmployees}
+                handleAssign={handleAssign}
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted">
+                      <th className="px-3 py-2 text-left font-semibold w-[180px] border-r">Position</th>
+                      {DEPARTMENTS.map((dept) => (
+                        <th key={dept} colSpan={2} className="px-3 py-2 text-center font-semibold border-r last:border-r-0">{dept}</th>
+                      ))}
+                    </tr>
+                    <tr className="border-b bg-muted/50">
+                      <th className="border-r" />
+                      {DEPARTMENTS.map((dept) => (
+                        <React.Fragment key={dept}>
+                          <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground">Name</th>
+                          <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground border-r last:border-r-0">Remark</th>
+                        </React.Fragment>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sections.map((section) => {
+                      const hasVisibleRows = section.rows.some((row) =>
+                        DEPARTMENTS.some((dept) => matchesSearch(row.key, dept)) || !search.trim()
+                      );
+                      if (!hasVisibleRows && search.trim()) return null;
+                      return (
+                        <React.Fragment key={section.label}>
+                          <tr>
+                            <td colSpan={1 + DEPARTMENTS.length * 2} className="px-3 py-1.5 font-semibold text-xs uppercase tracking-wide text-white" style={{ backgroundColor: section.color }}>
+                              {section.label}
+                            </td>
+                          </tr>
+                          {section.rows.map((row) => {
+                            const visible = DEPARTMENTS.some((dept) => matchesSearch(row.key, dept)) || !search.trim();
+                            if (!visible) return null;
+                            return (
+                              <tr key={row.key} className="border-b hover:bg-accent/30">
+                                <td className="px-3 py-1.5 border-r font-medium">
+                                  {row.editable ? (
+                                    <Input value={positionLabels[row.key] ?? row.label} onChange={(e) => setPositionLabels((prev) => ({ ...prev, [row.key]: e.target.value }))} className="h-7 text-xs border-dashed" />
+                                  ) : (
+                                    <span>{row.label}</span>
+                                  )}
+                                </td>
+                                {DEPARTMENTS.slice(0, row.deptCount || 3).map((dept) => {
+                                  const assignment = getAssignment(row.key, dept);
+                                  const available = getAvailableEmployees(assignment?.employee_id);
+                                  return (
+                                    <React.Fragment key={dept}>
+                                      <td className="px-1 py-1 min-w-[140px]">
+                                        <Select value={assignment?.employee_id || '_none'} onValueChange={(val) => handleAssign(row.key, dept, val === '_none' ? null : val)}>
+                                          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Select..." /></SelectTrigger>
                                           <SelectContent>
                                             <SelectItem value="_none">— None —</SelectItem>
-                                            {(employees || []).map((emp: any) => (
-                                              <SelectItem key={emp.id} value={emp.full_name || emp.id}>{emp.full_name}{emp.designation ? ` (${emp.designation})` : ''}</SelectItem>
+                                            {available.map((emp) => (
+                                              <SelectItem key={emp.id} value={emp.id}>{emp.full_name}{emp.designation ? ` (${emp.designation})` : ''}</SelectItem>
                                             ))}
                                           </SelectContent>
                                         </Select>
-                                      ) : (
-                                        <Input className="h-7 text-xs" placeholder="Remark" defaultValue={assignment?.remark || ''} onBlur={(e) => handleRemarkChange(row.key, dept, e.target.value)} />
-                                      )}
-                                    </td>
-                                  </React.Fragment>
-                                );
-                              })}
-                              {(row.deptCount && row.deptCount < 3) && (
-                                <td colSpan={(3 - row.deptCount) * 2} className="bg-muted/20 border-r last:border-r-0" />
-                              )}
-                            </tr>
-                          );
-                        })}
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                                      </td>
+                                      <td className="px-1 py-1 min-w-[140px] border-r last:border-r-0">
+                                        {row.hasReliever ? (
+                                          <Select value={assignment?.remark || '_none'} onValueChange={(val) => handleRemarkChange(row.key, dept, val === '_none' ? '' : val)}>
+                                            <SelectTrigger className="h-7 text-xs"><SelectValue placeholder="Reliever..." /></SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="_none">— None —</SelectItem>
+                                              {(employees || []).map((emp: any) => (
+                                                <SelectItem key={emp.id} value={emp.full_name || emp.id}>{emp.full_name}{emp.designation ? ` (${emp.designation})` : ''}</SelectItem>
+                                              ))}
+                                            </SelectContent>
+                                          </Select>
+                                        ) : (
+                                          <Input className="h-7 text-xs" placeholder="Remark" defaultValue={assignment?.remark || ''} onBlur={(e) => handleRemarkChange(row.key, dept, e.target.value)} />
+                                        )}
+                                      </td>
+                                    </React.Fragment>
+                                  );
+                                })}
+                                {(row.deptCount && row.deptCount < 3) && (
+                                  <td colSpan={(3 - row.deptCount) * 2} className="bg-muted/20 border-r last:border-r-0" />
+                                )}
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
 

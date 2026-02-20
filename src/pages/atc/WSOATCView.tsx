@@ -11,7 +11,8 @@ import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon, RefreshCw, DatabaseZap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { DEPARTMENTS, POSITION_ROWS, ATC_SHIFTS } from '@/lib/atcConstants';
+import { DEPARTMENTS, POSITION_ROWS, ATC_SHIFTS, ALL_NIGHT_DEPARTMENTS } from '@/lib/atcConstants';
+import { NightDutyGrid } from '@/components/NightDutyGrid';
 import {
   useDutyRoster,
   useCreateOrGetRoster,
@@ -30,6 +31,8 @@ export default function WSOATCView() {
   const [shift, setShift] = useState('Morning');
   const [team, setTeam] = useState('');
   const [positionLabels, setPositionLabels] = useState<Record<string, string>>({});
+
+  const isNight = shift === 'Night';
 
   const dateStr = format(date, 'yyyy-MM-dd');
   const { isLoading: edgeLoading, refetch: refetchEdge } = useATCAssignments(dateStr, shift || undefined);
@@ -99,17 +102,23 @@ export default function WSOATCView() {
   };
 
   const sections = useMemo(() => {
+    const rows = isNight
+      ? POSITION_ROWS
+      : POSITION_ROWS.filter((r) => !r.nightOnly);
+
     const grouped: { label: string; color: string; rows: typeof POSITION_ROWS }[] = [];
     let cs = '';
-    POSITION_ROWS.forEach((row) => {
+    rows.forEach((row) => {
       if (row.sectionLabel !== cs) { cs = row.sectionLabel; grouped.push({ label: cs, color: row.sectionColor, rows: [] }); }
       grouped[grouped.length - 1].rows.push(row);
     });
     return grouped;
-  }, []);
+  }, [isNight]);
 
+  const activeDepts = isNight ? ALL_NIGHT_DEPARTMENTS : DEPARTMENTS;
+  const activeRows = isNight ? POSITION_ROWS : POSITION_ROWS.filter((r) => !r.nightOnly);
   const markedCount = assignments.filter((a) => a.employee_id).length;
-  const totalPositions = POSITION_ROWS.length * DEPARTMENTS.length;
+  const totalPositions = activeRows.length * activeDepts.length;
 
   return (
     <DashboardLayout role="wso">
@@ -181,125 +190,163 @@ export default function WSOATCView() {
 
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted">
-                    <th className="px-3 py-2 text-left font-semibold w-[180px] border-r">Position</th>
-                    {DEPARTMENTS.map((dept) => (
-                      <th key={dept} colSpan={2} className="px-3 py-2 text-center font-semibold border-r last:border-r-0">{dept}</th>
-                    ))}
-                  </tr>
-                  <tr className="border-b bg-muted/50">
-                    <th className="border-r" />
-                    {DEPARTMENTS.map((dept) => (
-                      <React.Fragment key={dept}>
-                        <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground">Name</th>
-                        <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground border-r last:border-r-0">Remark</th>
-                      </React.Fragment>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sections.map((section) => (
-                    <React.Fragment key={section.label}>
-                      <tr>
-                        <td colSpan={1 + DEPARTMENTS.length * 2} className="px-3 py-1.5 font-semibold text-xs uppercase tracking-wide text-white" style={{ backgroundColor: section.color }}>
-                          {section.label}
-                        </td>
-                      </tr>
-                      {section.rows.map((row) => (
-                        <tr key={row.key} className="border-b hover:bg-accent/30">
-                          <td className="px-3 py-1.5 border-r font-medium">
-                            {row.editable ? (
-                              <Input value={positionLabels[row.key] ?? row.label} onChange={(e) => setPositionLabels((prev) => ({ ...prev, [row.key]: e.target.value }))} className="h-7 text-xs border-dashed" />
-                            ) : (
-                              <span>{row.label}</span>
-                            )}
+            {isNight ? (
+              <NightDutyGrid
+                sections={sections}
+                canEdit={true}
+                positionLabels={positionLabels}
+                setPositionLabels={setPositionLabels}
+                getAssignment={getAssignment}
+                getAvailableEmployees={getAvailableEmployees}
+                handleAssign={handleAssign}
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted">
+                      <th className="px-3 py-2 text-left font-semibold w-[180px] border-r">Position</th>
+                      {DEPARTMENTS.map((dept) => (
+                        <th key={dept} colSpan={2} className="px-3 py-2 text-center font-semibold border-r last:border-r-0">{dept}</th>
+                      ))}
+                    </tr>
+                    <tr className="border-b bg-muted/50">
+                      <th className="border-r" />
+                      {DEPARTMENTS.map((dept) => (
+                        <React.Fragment key={dept}>
+                          <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground">Name</th>
+                          <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground border-r last:border-r-0">Remark</th>
+                        </React.Fragment>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sections.map((section) => (
+                      <React.Fragment key={section.label}>
+                        <tr>
+                          <td colSpan={1 + DEPARTMENTS.length * 2} className="px-3 py-1.5 font-semibold text-xs uppercase tracking-wide text-white" style={{ backgroundColor: section.color }}>
+                            {section.label}
                           </td>
-                          {DEPARTMENTS.slice(0, row.deptCount || 3).map((dept) => {
-                            const assignment = getAssignment(row.key, dept);
-                            const available = getAvailableEmployees(assignment?.employee_id);
-                            return (
-                              <React.Fragment key={dept}>
-                                <td className="px-1 py-1 min-w-[140px]">
-                                  <Select value={assignment?.employee_id || '_none'} onValueChange={(val) => handleAssign(row.key, dept, val === '_none' ? null : val)}>
-                                    <SelectTrigger className={cn('h-7 text-xs', assignment?.employee_id && 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800')}><SelectValue placeholder="Select..." /></SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="_none">— None —</SelectItem>
-                                      {available.map((emp) => (
-                                        <SelectItem key={emp.id} value={emp.id}>{emp.full_name}{emp.designation ? ` (${emp.designation})` : ''}</SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </td>
-                                <td className="px-1 py-1 min-w-[140px] border-r last:border-r-0">
-                                  {row.hasReliever ? (
-                                    <Select value={assignment?.remark || '_none'} onValueChange={(val) => handleRemarkChange(row.key, dept, val === '_none' ? '' : val)}>
-                                      <SelectTrigger className={cn('h-7 text-xs', assignment?.remark && assignment.remark !== '' && 'bg-sky-50 border-sky-200 dark:bg-sky-950/30 dark:border-sky-800')}><SelectValue placeholder="Reliever..." /></SelectTrigger>
+                        </tr>
+                        {section.rows.map((row) => (
+                          <tr key={row.key} className="border-b hover:bg-accent/30">
+                            <td className="px-3 py-1.5 border-r font-medium">
+                              {row.editable ? (
+                                <Input value={positionLabels[row.key] ?? row.label} onChange={(e) => setPositionLabels((prev) => ({ ...prev, [row.key]: e.target.value }))} className="h-7 text-xs border-dashed" />
+                              ) : (
+                                <span>{row.label}</span>
+                              )}
+                            </td>
+                            {DEPARTMENTS.slice(0, row.deptCount || 3).map((dept) => {
+                              const assignment = getAssignment(row.key, dept);
+                              const available = getAvailableEmployees(assignment?.employee_id);
+                              return (
+                                <React.Fragment key={dept}>
+                                  <td className="px-1 py-1 min-w-[140px]">
+                                    <Select value={assignment?.employee_id || '_none'} onValueChange={(val) => handleAssign(row.key, dept, val === '_none' ? null : val)}>
+                                      <SelectTrigger className={cn('h-7 text-xs', assignment?.employee_id && 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800')}><SelectValue placeholder="Select..." /></SelectTrigger>
                                       <SelectContent>
                                         <SelectItem value="_none">— None —</SelectItem>
-                                        {(employees || []).map((emp: any) => (
-                                          <SelectItem key={emp.id} value={emp.full_name || emp.id}>{emp.full_name}{emp.designation ? ` (${emp.designation})` : ''}</SelectItem>
+                                        {available.map((emp) => (
+                                          <SelectItem key={emp.id} value={emp.id}>{emp.full_name}{emp.designation ? ` (${emp.designation})` : ''}</SelectItem>
                                         ))}
                                       </SelectContent>
                                     </Select>
-                                  ) : (
-                                    <Input className="h-7 text-xs" placeholder="Remark" defaultValue={assignment?.remark || ''} onBlur={(e) => handleRemarkChange(row.key, dept, e.target.value)} />
-                                  )}
-                                </td>
-                              </React.Fragment>
-                            );
-                          })}
-                          {(row.deptCount && row.deptCount < 3) && (
-                            <td colSpan={(3 - row.deptCount) * 2} className="bg-muted/20 border-r last:border-r-0" />
-                          )}
-                        </tr>
-                      ))}
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                                  </td>
+                                  <td className="px-1 py-1 min-w-[140px] border-r last:border-r-0">
+                                    {row.hasReliever ? (
+                                      <Select value={assignment?.remark || '_none'} onValueChange={(val) => handleRemarkChange(row.key, dept, val === '_none' ? '' : val)}>
+                                        <SelectTrigger className={cn('h-7 text-xs', assignment?.remark && assignment.remark !== '' && 'bg-sky-50 border-sky-200 dark:bg-sky-950/30 dark:border-sky-800')}><SelectValue placeholder="Reliever..." /></SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="_none">— None —</SelectItem>
+                                          {(employees || []).map((emp: any) => (
+                                            <SelectItem key={emp.id} value={emp.full_name || emp.id}>{emp.full_name}{emp.designation ? ` (${emp.designation})` : ''}</SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    ) : (
+                                      <Input className="h-7 text-xs" placeholder="Remark" defaultValue={assignment?.remark || ''} onBlur={(e) => handleRemarkChange(row.key, dept, e.target.value)} />
+                                    )}
+                                  </td>
+                                </React.Fragment>
+                              );
+                            })}
+                            {(row.deptCount && row.deptCount < 3) && (
+                              <td colSpan={(3 - row.deptCount) * 2} className="bg-muted/20 border-r last:border-r-0" />
+                            )}
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* WSO sees extra duties read-only */}
-        {extraDuties.length > 0 && (
+        {/* Bottom Status Tables (Side by Side) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+          {/* Duty Change Table */}
           <Card>
-            <CardHeader className="py-3">
-              <CardTitle className="text-sm">Extra Duties</CardTitle>
+            <CardHeader className="py-3 bg-muted/50">
+              <CardTitle className="text-sm font-semibold">Duty Change</CardTitle>
             </CardHeader>
-            <CardContent className="pt-0">
-              <div className="divide-y">
-                {extraDuties.map((duty) => (
-                  <div key={duty.id} className="py-2 text-sm flex gap-4">
-                    <Badge variant="outline">{duty.duty_type}</Badge>
-                    <span>{duty.profiles?.full_name || '(unassigned)'}</span>
-                    {duty.remarks && <span className="text-muted-foreground">{duty.remarks}</span>}
+            <CardContent className="pt-3 pb-3">
+              <div className="divide-y text-sm">
+                {assignments.filter(a => a.position_name.toUpperCase() === 'DUTY CHANGE').map((a) => (
+                  <div key={a.id} className="py-2 flex justify-between">
+                    <span>{a.profiles?.full_name || a.remark || 'Unknown'} {a.profiles?.designation ? `(${a.profiles.designation})` : ''}</span>
+                    <span className="text-muted-foreground ml-2">{a.department}</span>
                   </div>
                 ))}
+                {assignments.filter(a => a.position_name.toUpperCase() === 'DUTY CHANGE').length === 0 && (
+                  <div className="py-2 text-center text-muted-foreground">No duty changes</div>
+                )}
               </div>
             </CardContent>
           </Card>
-        )}
 
-        <Card>
-          <CardHeader className="py-3">
-            <CardTitle className="text-sm text-destructive">On Leave — {format(date, 'dd MMM yyyy')}</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="divide-y">
-              {leaveRecords.map((l) => (
-                <div key={l.id} className="py-2 text-sm flex justify-between">
-                  <span>{l.profiles?.full_name}{l.profiles?.designation ? ` (${l.profiles.designation})` : ''}</span>
-                  <Badge variant="secondary">{l.leave_type}</Badge>
-                </div>
-              ))}
-              {leaveRecords.length === 0 && <div className="py-4 text-center text-muted-foreground text-sm">No one on leave</div>}
-            </div>
-          </CardContent>
-        </Card>
+          {/* Extra Duty Table */}
+          <Card>
+            <CardHeader className="py-3 bg-muted/50">
+              <CardTitle className="text-sm font-semibold">Extra Duty</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-3 pb-3">
+              <div className="divide-y text-sm">
+                {extraDuties.map((duty) => (
+                  <div key={duty.id} className="py-2 flex justify-between items-center">
+                    <span>{duty.profiles?.full_name || '(unassigned)'} {duty.remarks ? <span className="text-muted-foreground ml-1">— {duty.remarks}</span> : null}</span>
+                    <Badge variant="outline" className="font-normal text-[10px] uppercase ml-2">{duty.duty_type}</Badge>
+                  </div>
+                ))}
+                {extraDuties.length === 0 && (
+                  <div className="py-2 text-center text-muted-foreground">No extra duties</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Leave Table */}
+          <Card>
+            <CardHeader className="py-3 bg-muted/50">
+              <CardTitle className="text-sm font-semibold text-destructive">Leave</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-3 pb-3">
+              <div className="divide-y text-sm">
+                {leaveRecords.map((l) => (
+                  <div key={l.id} className="py-2 flex justify-between items-center">
+                    <span>{l.profiles?.full_name || 'Unknown'} {l.profiles?.designation ? `(${l.profiles.designation})` : ''}</span>
+                    <Badge variant="secondary" className="font-normal text-[10px] uppercase ml-2">{l.leave_type}</Badge>
+                  </div>
+                ))}
+                {leaveRecords.length === 0 && (
+                  <div className="py-2 text-center text-muted-foreground">No one on leave</div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </DashboardLayout>
   );

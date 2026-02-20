@@ -9,7 +9,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { DEPARTMENTS, POSITION_ROWS, ATC_SHIFTS } from '@/lib/atcConstants';
+import { DEPARTMENTS, POSITION_ROWS, ATC_SHIFTS, ALL_NIGHT_DEPARTMENTS } from '@/lib/atcConstants';
+import { NightDutyGrid } from '@/components/NightDutyGrid';
 import {
   useDutyRoster,
   useRosterAssignments,
@@ -21,6 +22,9 @@ import { useATCAssignments } from '@/hooks/useATCAssignments';
 export default function EmployeeATCDuties() {
   const [date, setDate] = useState<Date>(new Date());
   const [shift, setShift] = useState('Morning');
+  const [positionLabels, setPositionLabels] = useState<Record<string, string>>({});
+
+  const isNight = shift === 'Night';
 
   const dateStr = format(date, 'yyyy-MM-dd');
   const { isLoading: edgeLoading, refetch: refetchEdge } = useATCAssignments(dateStr, shift || undefined);
@@ -31,20 +35,29 @@ export default function EmployeeATCDuties() {
   const { data: extraDuties = [] } = useGridExtraDuties(roster?.id);
 
   const sections = useMemo(() => {
+    const rows = isNight
+      ? POSITION_ROWS
+      : POSITION_ROWS.filter((r) => !r.nightOnly);
+
     const grouped: { label: string; color: string; rows: typeof POSITION_ROWS }[] = [];
     let cs = '';
-    POSITION_ROWS.forEach((row) => {
+    rows.forEach((row) => {
       if (row.sectionLabel !== cs) { cs = row.sectionLabel; grouped.push({ label: cs, color: row.sectionColor, rows: [] }); }
       grouped[grouped.length - 1].rows.push(row);
     });
     return grouped;
-  }, []);
+  }, [isNight]);
 
   const getAssignment = (positionKey: string, department: string) =>
     assignments.find((a) => a.position_name === positionKey && a.department === department);
 
+  const activeDepts = isNight ? ALL_NIGHT_DEPARTMENTS : DEPARTMENTS;
+  const activeRows = isNight ? POSITION_ROWS : POSITION_ROWS.filter((r) => !r.nightOnly);
   const markedCount = assignments.filter((a) => a.employee_id).length;
-  const totalPositions = POSITION_ROWS.length * DEPARTMENTS.length;
+  const totalPositions = activeRows.length * activeDepts.length;
+
+  // Stub handleAssign for read-only NightDutyGrid
+  const handleAssign = () => { };
 
   return (
     <DashboardLayout role="employee">
@@ -86,61 +99,73 @@ export default function EmployeeATCDuties() {
 
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted">
-                    <th className="px-3 py-2 text-left font-semibold w-[180px] border-r">Position</th>
-                    {DEPARTMENTS.map((dept) => (
-                      <th key={dept} colSpan={2} className="px-3 py-2 text-center font-semibold border-r last:border-r-0">{dept}</th>
-                    ))}
-                  </tr>
-                  <tr className="border-b bg-muted/50">
-                    <th className="border-r" />
-                    {DEPARTMENTS.map((dept) => (
-                      <React.Fragment key={dept}>
-                        <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground">Name</th>
-                        <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground border-r last:border-r-0">Remark</th>
+            {isNight ? (
+              <NightDutyGrid
+                sections={sections}
+                canEdit={false}
+                positionLabels={positionLabels}
+                setPositionLabels={setPositionLabels}
+                getAssignment={getAssignment}
+                getAvailableEmployees={() => []}
+                handleAssign={handleAssign}
+              />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted">
+                      <th className="px-3 py-2 text-left font-semibold w-[180px] border-r">Position</th>
+                      {DEPARTMENTS.map((dept) => (
+                        <th key={dept} colSpan={2} className="px-3 py-2 text-center font-semibold border-r last:border-r-0">{dept}</th>
+                      ))}
+                    </tr>
+                    <tr className="border-b bg-muted/50">
+                      <th className="border-r" />
+                      {DEPARTMENTS.map((dept) => (
+                        <React.Fragment key={dept}>
+                          <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground">Name</th>
+                          <th className="px-2 py-1 text-center text-xs font-medium text-muted-foreground border-r last:border-r-0">Remark</th>
+                        </React.Fragment>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sections.map((section) => (
+                      <React.Fragment key={section.label}>
+                        <tr>
+                          <td colSpan={1 + DEPARTMENTS.length * 2} className="px-3 py-1.5 font-semibold text-xs uppercase tracking-wide text-white" style={{ backgroundColor: section.color }}>
+                            {section.label}
+                          </td>
+                        </tr>
+                        {section.rows.map((row) => (
+                          <tr key={row.key} className="border-b hover:bg-accent/30">
+                            <td className="px-3 py-1.5 border-r font-medium">{row.label}</td>
+                            {DEPARTMENTS.slice(0, row.deptCount || 3).map((dept) => {
+                              const assignment = getAssignment(row.key, dept);
+                              return (
+                                <React.Fragment key={dept}>
+                                  <td className="px-2 py-1.5">
+                                    <span className="text-xs">{assignment?.profiles?.full_name || '—'}</span>
+                                  </td>
+                                  <td className="px-2 py-1.5 border-r last:border-r-0">
+                                    <span className="text-xs text-muted-foreground">
+                                      {row.hasReliever ? (assignment?.remark ? `↔ ${assignment.remark}` : '—') : (assignment?.remark || '')}
+                                    </span>
+                                  </td>
+                                </React.Fragment>
+                              );
+                            })}
+                            {(row.deptCount && row.deptCount < 3) && (
+                              <td colSpan={(3 - row.deptCount) * 2} className="bg-muted/20 border-r last:border-r-0" />
+                            )}
+                          </tr>
+                        ))}
                       </React.Fragment>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sections.map((section) => (
-                    <React.Fragment key={section.label}>
-                      <tr>
-                        <td colSpan={1 + DEPARTMENTS.length * 2} className="px-3 py-1.5 font-semibold text-xs uppercase tracking-wide text-white" style={{ backgroundColor: section.color }}>
-                          {section.label}
-                        </td>
-                      </tr>
-                      {section.rows.map((row) => (
-                        <tr key={row.key} className="border-b hover:bg-accent/30">
-                          <td className="px-3 py-1.5 border-r font-medium">{row.label}</td>
-                          {DEPARTMENTS.slice(0, row.deptCount || 3).map((dept) => {
-                            const assignment = getAssignment(row.key, dept);
-                            return (
-                              <React.Fragment key={dept}>
-                                <td className="px-2 py-1.5">
-                                  <span className="text-xs">{assignment?.profiles?.full_name || '—'}</span>
-                                </td>
-                                <td className="px-2 py-1.5 border-r last:border-r-0">
-                                  <span className="text-xs text-muted-foreground">
-                                    {row.hasReliever ? (assignment?.remark ? `↔ ${assignment.remark}` : '—') : (assignment?.remark || '')}
-                                  </span>
-                                </td>
-                              </React.Fragment>
-                            );
-                          })}
-                          {(row.deptCount && row.deptCount < 3) && (
-                            <td colSpan={(3 - row.deptCount) * 2} className="bg-muted/20 border-r last:border-r-0" />
-                          )}
-                        </tr>
-                      ))}
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
 

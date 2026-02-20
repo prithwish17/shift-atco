@@ -7,13 +7,15 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { UserPlus, Search, MoreHorizontal, Edit, Eye, Upload } from "lucide-react";
+import { UserPlus, Search, MoreHorizontal, Edit, Eye, Upload, FileUp } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useUsers } from "@/hooks/useUsers";
 import { useLicenses } from "@/hooks/useLicenses";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LicenseCSVImport } from "@/components/LicenseCSVImport";
+import { EmployeeCSVImport } from "@/components/EmployeeCSVImport";
+import { AddEmployeeDialog } from "@/components/AddEmployeeDialog";
 
 const LICENSE_LABELS: { [key: string]: string } = {
   rdr: "RDR",
@@ -30,7 +32,9 @@ export default function EmployeeManagement() {
   const [licenseFilter, setLicenseFilter] = useState("all");
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null);
   const [csvImportOpen, setCsvImportOpen] = useState(false);
-  
+  const [empCsvImportOpen, setEmpCsvImportOpen] = useState(false);
+  const [addEmpOpen, setAddEmpOpen] = useState(false);
+
   const { users, isLoading } = useUsers();
   const { licenses } = useLicenses();
 
@@ -41,17 +45,17 @@ export default function EmployeeManagement() {
 
   const filteredEmployees = useMemo(() => {
     return employees.filter(emp => {
-      const matchesSearch = 
+      const matchesSearch =
         emp.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         emp.employee_id.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesShift = shiftFilter === "all" || emp.current_shift === shiftFilter;
-      
+
       if (licenseFilter !== "all") {
         const empLicenses = licenses?.filter(l => l.user_id === emp.id) || [];
         const hasLicense = empLicenses.some(l => l.license_type === licenseFilter);
         return matchesSearch && matchesShift && hasLicense;
       }
-      
+
       return matchesSearch && matchesShift;
     });
   }, [employees, licenses, searchQuery, shiftFilter, licenseFilter]);
@@ -73,11 +77,15 @@ export default function EmployeeManagement() {
             <p className="text-muted-foreground">Manage employee information and assignments</p>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setEmpCsvImportOpen(true)}>
+              <FileUp className="mr-2 h-4 w-4" />
+              Import Employees
+            </Button>
             <Button variant="outline" onClick={() => setCsvImportOpen(true)}>
               <Upload className="mr-2 h-4 w-4" />
               Import Licenses
             </Button>
-            <Button>
+            <Button onClick={() => setAddEmpOpen(true)}>
               <UserPlus className="mr-2 h-4 w-4" />
               Add Employee
             </Button>
@@ -100,7 +108,7 @@ export default function EmployeeManagement() {
                   className="pl-9"
                 />
               </div>
-              
+
               <Select value={shiftFilter} onValueChange={setShiftFilter}>
                 <SelectTrigger>
                   <SelectValue placeholder="Filter by shift" />
@@ -276,6 +284,8 @@ export default function EmployeeManagement() {
       </div>
 
       <LicenseCSVImport open={csvImportOpen} onOpenChange={setCsvImportOpen} />
+      <EmployeeCSVImport open={empCsvImportOpen} onOpenChange={setEmpCsvImportOpen} />
+      <AddEmployeeDialog open={addEmpOpen} onOpenChange={setAddEmpOpen} />
     </DashboardLayout>
   );
 }

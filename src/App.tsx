@@ -14,6 +14,7 @@ import Register from "./pages/Register";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import UserManagement from "./pages/admin/UserManagement";
 import ChangePassword from "./pages/admin/ChangePassword";
+import AdminSettings from "./pages/admin/AdminSettings";
 import SetupAdmin from "./pages/admin/SetupAdmin";
 import SupervisorDashboard from "./pages/supervisor/SupervisorDashboard";
 import SupervisorAttendance from "./pages/supervisor/SupervisorAttendance";
@@ -70,6 +71,7 @@ const App = () => (
                 <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
                 <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin']}><UserManagement /></ProtectedRoute>} />
                 <Route path="/admin/change-password" element={<ProtectedRoute allowedRoles={['admin']}><ChangePassword /></ProtectedRoute>} />
+                <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={['admin']}><AdminSettings /></ProtectedRoute>} />
 
                 {/* Supervisor Routes */}
                 <Route path="/supervisor" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDashboard /></ProtectedRoute>} />

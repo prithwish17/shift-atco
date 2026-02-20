@@ -53,20 +53,24 @@ Deno.serve(async (req) => {
 
     const userId = claimsData.claims.sub as string;
 
-    // Check admin role
+    // Check admin or supervisor role
     const { data: isAdmin } = await anonClient.rpc("has_role", {
       _user_id: userId,
       _role: "admin",
     });
+    const { data: isSupervisor } = await anonClient.rpc("has_role", {
+      _user_id: userId,
+      _role: "supervisor",
+    });
 
-    if (!isAdmin) {
-      return new Response(JSON.stringify({ error: "Admin access required" }), {
+    if (!isAdmin && !isSupervisor) {
+      return new Response(JSON.stringify({ error: "Admin or Supervisor access required" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const { employees } = (await req.json()) as { employees: EmployeeRecord[] };
+    const { employees, update_duplicates } = (await req.json()) as { employees: EmployeeRecord[]; update_duplicates?: boolean };
 
     if (!employees || !Array.isArray(employees) || employees.length === 0) {
       return new Response(
@@ -81,8 +85,28 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const results: { created: string[]; skipped: { employee_id: string; reason: string }[]; failed: { employee_id: string; error: string }[] } = {
+    // Normalize shift values: "A", "Shift A", "GENERAL" → lowercase enum value
+    const VALID_SHIFTS = new Set(["general", "a", "b", "c", "d", "e"]);
+    function normalizeShift(raw: string | undefined | null): string {
+      if (!raw) return "general";
+      // strip "shift " prefix, trim, lowercase
+      const cleaned = raw.trim().toLowerCase().replace(/^shift\s+/i, "");
+      return VALID_SHIFTS.has(cleaned) ? cleaned : "general";
+    }
+
+    // Wait for trigger-created profile to appear (max 3 attempts, 500ms apart)
+    async function waitForProfile(uid: string, maxRetries = 3): Promise<boolean> {
+      for (let i = 0; i < maxRetries; i++) {
+        const { data } = await adminClient.from("profiles").select("id").eq("id", uid).single();
+        if (data) return true;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      return false;
+    }
+
+    const results: { created: string[]; updated: string[]; skipped: { employee_id: string; reason: string }[]; failed: { employee_id: string; error: string }[] } = {
       created: [],
+      updated: [],
       skipped: [],
       failed: [],
     };
@@ -97,14 +121,44 @@ Deno.serve(async (req) => {
           .limit(1);
 
         if (existing && existing.length > 0) {
-          results.skipped.push({
-            employee_id: emp.employee_id,
-            reason: `Already exists (${existing[0].employee_id === emp.employee_id ? "same Employee ID" : "same email"})`,
-          });
+          if (update_duplicates) {
+            // Update the existing profile with new data
+            const shiftValue = normalizeShift(emp.current_shift);
+            const { error: updateError } = await adminClient
+              .from("profiles")
+              .update({
+                full_name: emp.full_name,
+                employee_id: emp.employee_id,
+                email: emp.email,
+                designation: emp.designation || null,
+                mobile: emp.mobile || null,
+                current_shift: shiftValue,
+                initials: emp.initials || null,
+                stream: emp.stream || null,
+                gender: emp.gender || null,
+                alternate_email: emp.alternate_email || null,
+                address: emp.address || null,
+              })
+              .eq("id", existing[0].id);
+
+            if (updateError) {
+              results.failed.push({
+                employee_id: emp.employee_id,
+                error: `Update failed: ${updateError.message}`,
+              });
+            } else {
+              results.updated.push(emp.employee_id);
+            }
+          } else {
+            results.skipped.push({
+              employee_id: emp.employee_id,
+              reason: `Already exists (${existing[0].employee_id === emp.employee_id ? "same Employee ID" : "same email"})`,
+            });
+          }
           continue;
         }
 
-        const password = `ShiftAtco@${emp.employee_id}`;
+        const password = `ShiftPlan@${emp.employee_id}`;
 
         // Create auth user
         const { data: authUser, error: authError } = await adminClient.auth.admin.createUser({
@@ -127,13 +181,25 @@ Deno.serve(async (req) => {
 
         const newUserId = authUser.user.id;
 
-        // Update profile with additional fields (profile is auto-created by trigger)
+        // Wait for the handle_new_user trigger to create the profile row
+        const profileExists = await waitForProfile(newUserId);
+        if (!profileExists) {
+          console.error(`Profile not created by trigger for user ${newUserId}, attempting direct update anyway`);
+        }
+
+        // Normalize the shift value for the enum
+        const shiftValue = normalizeShift(emp.current_shift);
+
+        // Update profile with ALL fields (profile is auto-created by trigger)
         const { error: profileError } = await adminClient
           .from("profiles")
           .update({
+            full_name: emp.full_name,
+            employee_id: emp.employee_id,
+            email: emp.email,
             designation: emp.designation || null,
             mobile: emp.mobile || null,
-            current_shift: emp.current_shift || "general",
+            current_shift: shiftValue,
             initials: emp.initials || null,
             stream: emp.stream || null,
             gender: emp.gender || null,
@@ -143,7 +209,12 @@ Deno.serve(async (req) => {
           .eq("id", newUserId);
 
         if (profileError) {
-          console.error("Profile update error:", profileError);
+          console.error("Profile update error for", emp.employee_id, ":", JSON.stringify(profileError));
+          results.failed.push({
+            employee_id: emp.employee_id,
+            error: `User created but profile update failed: ${profileError.message}`,
+          });
+          // Don't continue — still create role so user can at least log in
         }
 
         // Create user_roles entry
@@ -159,7 +230,9 @@ Deno.serve(async (req) => {
           console.error("Role insert error:", roleError);
         }
 
-        results.created.push(emp.employee_id);
+        if (!profileError) {
+          results.created.push(emp.employee_id);
+        }
       } catch (err) {
         results.failed.push({
           employee_id: emp.employee_id,
