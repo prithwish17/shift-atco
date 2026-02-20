@@ -115,14 +115,45 @@ export function useAttendance(date?: string, shiftType?: string) {
     },
   });
 
+  const bulkUpsertAttendance = useMutation({
+    mutationFn: async (records: AttendanceInsert[]) => {
+      const user = await supabase.auth.getUser();
+      const recordsWithMarker = records.map((r) => ({
+        ...r,
+        marked_by: user.data.user?.id || "",
+      }));
+
+      const { error } = await supabase
+        .from("attendance")
+        .upsert(recordsWithMarker, { onConflict: "user_id,attendance_date" });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["attendance"] });
+      toast({
+        title: "Attendance saved",
+        description: "Attendance records have been saved successfully.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error saving attendance",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   return {
     attendance,
     isLoading,
     markAttendance: markAttendance.mutate,
     updateAttendance: updateAttendance.mutate,
     bulkMarkAttendance: bulkMarkAttendance.mutate,
+    bulkUpsertAttendance: bulkUpsertAttendance.mutate,
     isMarking: markAttendance.isPending,
     isUpdating: updateAttendance.isPending,
     isBulkMarking: bulkMarkAttendance.isPending,
+    isBulkUpserting: bulkUpsertAttendance.isPending,
   };
 }
