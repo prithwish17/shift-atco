@@ -98,13 +98,21 @@ export default function SupervisorAttendance() {
     return Array.from(teams).sort((a, b) => a.localeCompare(b));
   }, [scheduleEntries]);
 
-  const normalizeDutyShift = (code: string) => {
-    const s = (code || "").trim().toUpperCase();
-    if (s === "GENERAL" || s === "G") return "G";
-    if (s === "M" || s === "MORNING") return "M";
-    if (s === "A" || s === "AFTERNOON") return "A";
-    if (s === "N" || s === "NIGHT") return "N";
+  /** Normalize a single token */
+  const normalizeToken = (t: string) => {
+    const s = t.trim().toUpperCase();
+    if (s === "GENERAL") return "G";
+    if (s === "MORNING") return "M";
+    if (s === "AFTERNOON") return "A";
+    if (s === "NIGHT") return "N";
     return s;
+  };
+
+  /** Split compound duty codes into individual shift tokens.
+   *  e.g. "M+A" → ["M", "A"], "NO+N" → ["NO", "N"] */
+  const getDutyShiftTokens = (code: string): string[] => {
+    if (!code) return [];
+    return code.split("+").map(normalizeToken).filter(Boolean);
   };
 
   // Compute counts for each shift category
@@ -115,13 +123,14 @@ export default function SupervisorAttendance() {
 
   const shiftCounts = useMemo(() => {
     const matched = scheduleEntries.filter((e) => !!e.user);
-    return {
-      G: matched.filter((e) => normalizeDutyShift(e.schedule.duty_code) === "G").length,
-      M: matched.filter((e) => normalizeDutyShift(e.schedule.duty_code) === "M").length,
-      A: matched.filter((e) => normalizeDutyShift(e.schedule.duty_code) === "A").length,
-      N: matched.filter((e) => normalizeDutyShift(e.schedule.duty_code) === "N").length,
-      unmatched: allUnmatched.length,
-    };
+    const counts = { G: 0, M: 0, A: 0, N: 0, unmatched: allUnmatched.length };
+    matched.forEach((e) => {
+      const tokens = getDutyShiftTokens(e.schedule.duty_code);
+      tokens.forEach((t) => {
+        if (t in counts) (counts as any)[t]++;
+      });
+    });
+    return counts;
   }, [scheduleEntries, allUnmatched]);
 
   // Filter by team (from profile) and shift category
@@ -135,9 +144,10 @@ export default function SupervisorAttendance() {
     }
 
     if (selectedShiftCategory !== "all") {
-      entries = entries.filter(
-        (e) => normalizeDutyShift(e.schedule.duty_code) === selectedShiftCategory
-      );
+      entries = entries.filter((e) => {
+        const tokens = getDutyShiftTokens(e.schedule.duty_code);
+        return tokens.includes(selectedShiftCategory);
+      });
     }
 
     return entries;
@@ -409,6 +419,15 @@ export default function SupervisorAttendance() {
                     >
                       Mark All Absent
                     </Button>
+                    <Button
+                      onClick={handleSave}
+                      size="sm"
+                      disabled={
+                        isBulkUpserting || attendanceRows.length === 0
+                      }
+                    >
+                      {isBulkUpserting ? "Saving..." : "Save Attendance"}
+                    </Button>
                   </div>
                 </div>
 
@@ -460,7 +479,7 @@ export default function SupervisorAttendance() {
                               <td className="p-3 font-semibold">{(emp.team || "").toUpperCase()}</td>
                               <td className="p-3">
                                 <div className="text-sm font-medium">
-                                  {normalizeDutyShift(emp.shift)}
+                                  {emp.shift}
                                 </div>
                                 {emp.position && (
                                   <div className="text-xs text-muted-foreground">
@@ -513,17 +532,7 @@ export default function SupervisorAttendance() {
                   </div>
                 )}
 
-                <div className="flex justify-end">
-                  <Button
-                    onClick={handleSave}
-                    size="lg"
-                    disabled={
-                      isBulkUpserting || attendanceRows.length === 0
-                    }
-                  >
-                    {isBulkUpserting ? "Saving..." : "Save Attendance"}
-                  </Button>
-                </div>
+
               </div>
             </CardContent>
           </Card>

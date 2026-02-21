@@ -32,6 +32,7 @@ import EmployeeRoster from "./pages/employee/EmployeeRoster";
 import LeaveApprovals from "./pages/supervisor/LeaveApprovals";
 import DutyExchangeApprovals from "./pages/supervisor/DutyExchangeApprovals";
 import HolidayManagement from "./pages/supervisor/HolidayManagement";
+import OPEAssignments from "./pages/supervisor/OPEAssignments";
 import ATCDutyGrid from "./pages/atc/ATCDutyGrid";
 import EmployeeATCDuties from "./pages/atc/EmployeeATCDuties";
 import WSOATCView from "./pages/atc/WSOATCView";
@@ -80,6 +81,7 @@ const App = () => (
                 <Route path="/supervisor/leaves" element={<ProtectedRoute allowedRoles={['supervisor', 'wso']}><LeaveApprovals /></ProtectedRoute>} />
                 <Route path="/supervisor/duty-exchanges" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyExchangeApprovals /></ProtectedRoute>} />
                 <Route path="/supervisor/holidays" element={<ProtectedRoute allowedRoles={['supervisor']}><HolidayManagement /></ProtectedRoute>} />
+                <Route path="/supervisor/ope-assignments" element={<ProtectedRoute allowedRoles={['supervisor']}><OPEAssignments /></ProtectedRoute>} />
 
                 {/* WSO Routes */}
                 <Route path="/wso" element={<ProtectedRoute allowedRoles={['wso']}><WSODashboard /></ProtectedRoute>} />

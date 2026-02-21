@@ -6,15 +6,16 @@ interface StatCardProps {
   value: string | number;
   icon: LucideIcon;
   description?: string;
+  className?: string;
   trend?: {
     value: number;
     isPositive: boolean;
   };
 }
 
-export function StatCard({ title, value, icon: Icon, description, trend }: StatCardProps) {
+export function StatCard({ title, value, icon: Icon, description, trend, className }: StatCardProps) {
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
           {title}
