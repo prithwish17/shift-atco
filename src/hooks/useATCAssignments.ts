@@ -95,10 +95,11 @@ async function fetchAssignments(date?: string, shift?: string): Promise<{
   return res.json();
 }
 
-export function useATCAssignments(date?: string, shift?: string) {
+export function useATCAssignments(date?: string, shift?: string, enabled = true) {
   const query = useQuery({
     queryKey: ["atc-assignments", date, shift],
     queryFn: () => fetchAssignments(date, shift),
+    enabled,
     staleTime: 60_000,
     retry: 1,
   });

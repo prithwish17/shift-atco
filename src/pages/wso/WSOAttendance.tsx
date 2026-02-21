@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,19 +7,105 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarIcon, Download, CheckCircle, XCircle } from "lucide-react";
-import { format } from "date-fns";
+import { differenceInCalendarDays, format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile, useUsers } from "@/hooks/useUsers";
 import { useAttendance } from "@/hooks/useAttendance";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 interface EmployeeAttendance {
   userId: string;
   name: string;
   empId: string;
   status: "present" | "absent";
+  dutyCode: string;
   timeIn: string;
   timeOut: string;
+}
+
+const DUTY_CYCLE: Array<"M" | "A" | "N" | "NO" | "CO"> = ["M", "A", "N", "NO", "CO"];
+const TODAY_TEAM_DUTY_BASE: Record<string, "M" | "A" | "N" | "NO" | "CO"> = {
+  A: "A",
+  B: "M",
+  C: "CO",
+  D: "NO",
+  E: "N",
+  G: "M",
+};
+const HOLIDAY_CODES = new Set(["NO", "CO", "SAT", "SUN", "CH", "NH", "NA", "SL", "GO", "TR"]);
+const SPECIAL_DUTY_MATCH: Record<string, Array<"M" | "A" | "N" | "NO" | "CO">> = {
+  "M+A": ["M", "A"],
+  "NO+N": ["N"],
+  "SAT+NO": ["NO"],
+  "SUN+N": ["N"],
+  "SUN+M": ["M"],
+  "SUN+A": ["A"],
+  "SUN+NO": ["NO"],
+  "SAT+N": ["N"],
+  "CO+N": ["N"],
+  "CO+A": ["A"],
+  "CO+M": ["M"],
+  "A+M": ["A", "M"],
+  "SL": ["CO"], // clear off
+  "TR": ["CO"], // off day
+  "GO": ["CO"], // gazette off
+};
+
+function normalizeTeamKey(value?: string | null) {
+  if (!value) return "G";
+  const v = value.toUpperCase();
+  return v === "GENERAL" ? "G" : v;
+}
+
+function getTeamDutyForDate(teamKey: string, date: Date) {
+  const base = TODAY_TEAM_DUTY_BASE[teamKey] || "M";
+  const baseIndex = DUTY_CYCLE.indexOf(base);
+  const offset = differenceInCalendarDays(date, new Date());
+  const idx = (baseIndex + (offset % DUTY_CYCLE.length) + DUTY_CYCLE.length) % DUTY_CYCLE.length;
+  return DUTY_CYCLE[idx];
+}
+
+function parseDutyTokens(dutyCode?: string | null) {
+  if (!dutyCode) return [];
+  return dutyCode
+    .toUpperCase()
+    .split("+")
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+function getDutyShiftMatches(dutyCode: string | null | undefined) {
+  if (!dutyCode) return [] as Array<"M" | "A" | "N" | "NO" | "CO">;
+  const normalized = dutyCode.toUpperCase().trim();
+  const explicit = SPECIAL_DUTY_MATCH[normalized];
+  if (explicit) return explicit;
+
+  const tokens = parseDutyTokens(normalized);
+  const matches = tokens.filter((t): t is "M" | "A" | "N" | "NO" | "CO" =>
+    t === "M" || t === "A" || t === "N" || t === "NO" || t === "CO"
+  );
+  return matches;
+}
+
+function isEligibleDutyForAttendance(dutyCode: string | null | undefined, teamDuty: "M" | "A" | "N" | "NO" | "CO") {
+  // NO and CO team-duty days are treated as off/holiday attendance days.
+  if (teamDuty === "NO" || teamDuty === "CO") return false;
+
+  const matches = getDutyShiftMatches(dutyCode);
+  if (matches.length === 0) return false;
+  if (!matches.includes(teamDuty)) return false;
+
+  const tokens = parseDutyTokens(dutyCode);
+  if (tokens.every((t) => HOLIDAY_CODES.has(t))) return false;
+  return true;
+}
+
+function isHolidayOrOffDuty(dutyCode: string | null | undefined) {
+  const tokens = parseDutyTokens(dutyCode);
+  if (tokens.length === 0) return false;
+  return tokens.every((t) => HOLIDAY_CODES.has(t));
 }
 
 export default function WSOAttendance() {
@@ -31,11 +117,58 @@ export default function WSOAttendance() {
   const { profile } = useUserProfile(user?.id);
   const { users, isLoading: usersLoading } = useUsers();
   const dateStr = format(selectedDate, "yyyy-MM-dd");
-  const { attendance, isLoading: attendanceLoading, bulkMarkAttendance, isBulkMarking } = useAttendance(dateStr);
+  const { attendance, isLoading: attendanceLoading, bulkUpsertAttendance, isBulkUpserting } = useAttendance(dateStr);
 
-  // Get employees matching the WSO's shift
+  // Team-aware duty cycle + schedule-driven attendance source.
   const wsoShift = profile?.current_shift || "general";
-  const shiftEmployees = users?.filter(u => u.approved && u.current_shift === wsoShift) || [];
+  const wsoTeamKey = normalizeTeamKey(wsoShift);
+  const teamDutyToday = getTeamDutyForDate(wsoTeamKey, selectedDate);
+
+  const teamUsers = useMemo(
+    () => (users || []).filter((u) => u.approved && normalizeTeamKey(u.current_shift) === wsoTeamKey),
+    [users, wsoTeamKey]
+  );
+  const teamEmployeeCodes = useMemo(
+    () => [...new Set(teamUsers.map((u) => u.employee_id).filter(Boolean))],
+    [teamUsers]
+  );
+
+  const { data: daySchedules = [], isLoading: schedulesLoading } = useQuery({
+    queryKey: ["wso-attendance-day-schedules", dateStr, wsoTeamKey],
+    queryFn: async () => {
+      if (teamEmployeeCodes.length === 0) return [];
+      const { data, error } = await supabase
+        .from("employee_schedules" as any)
+        .select("employee_code, duty_code")
+        .eq("duty_date", dateStr)
+        .in("employee_code", teamEmployeeCodes as string[]);
+      if (error) throw error;
+      return (data || []) as Array<{ employee_code: string; duty_code: string }>;
+    },
+    enabled: teamEmployeeCodes.length > 0,
+    staleTime: 60 * 1000,
+  });
+
+  const dutyByEmployeeCode = useMemo(() => {
+    const map = new Map<string, string>();
+    daySchedules.forEach((s) => {
+      map.set(s.employee_code, s.duty_code);
+    });
+    return map;
+  }, [daySchedules]);
+
+  const shiftEmployees = useMemo(
+    () =>
+      teamUsers.filter((u) =>
+        isEligibleDutyForAttendance(dutyByEmployeeCode.get(u.employee_id), teamDutyToday)
+      ),
+    [teamUsers, dutyByEmployeeCode, teamDutyToday]
+  );
+
+  const holidayOffEmployees = useMemo(
+    () => teamUsers.filter((u) => isHolidayOrOffDuty(dutyByEmployeeCode.get(u.employee_id))),
+    [teamUsers, dutyByEmployeeCode]
+  );
 
   // Initialize attendance state from real data
   useEffect(() => {
@@ -47,15 +180,23 @@ export default function WSOAttendance() {
         name: emp.full_name,
         empId: emp.employee_id,
         status: existing ? (existing.status as "present" | "absent") : "present",
+        dutyCode: dutyByEmployeeCode.get(emp.employee_id) || "",
         timeIn: existing?.time_in ? format(new Date(existing.time_in), "HH:mm") : "",
         timeOut: existing?.time_out ? format(new Date(existing.time_out), "HH:mm") : "",
       };
     });
     setAttendanceState(state);
-  }, [shiftEmployees.length, attendance]);
+  }, [shiftEmployees, attendance, dutyByEmployeeCode]);
+
+  const allEmployees = Object.values(attendanceState);
+  const stats = {
+    present: allEmployees.filter((e) => e.status === "present").length,
+    absent: allEmployees.filter((e) => e.status === "absent").length,
+    total: allEmployees.length,
+  };
 
   const toggleStatus = (empId: string) => {
-    setAttendanceState(prev => ({
+    setAttendanceState((prev) => ({
       ...prev,
       [empId]: {
         ...prev[empId],
@@ -64,32 +205,34 @@ export default function WSOAttendance() {
     }));
   };
 
-  const allEmployees = Object.values(attendanceState);
-  const stats = {
-    present: allEmployees.filter(e => e.status === "present").length,
-    absent: allEmployees.filter(e => e.status === "absent").length,
-    total: allEmployees.length,
-  };
-
   const handleSave = () => {
-    const existingIds = new Set(attendance?.map(a => a.user_id) || []);
-    const records = allEmployees
-      .filter(r => !existingIds.has(r.userId))
-      .map(r => ({
+    const dutyRecords = allEmployees.map((r) => ({
         user_id: r.userId,
         attendance_date: dateStr,
-        status: r.status as any,
+        status: r.status as "present" | "absent",
+        comments: r.dutyCode || null,
         marked_by: "",
         time_in: r.timeIn ? new Date(`${dateStr}T${r.timeIn}`).toISOString() : null,
         time_out: r.timeOut ? new Date(`${dateStr}T${r.timeOut}`).toISOString() : null,
       }));
 
+    const holidayRecords = holidayOffEmployees.map((u) => ({
+      user_id: u.id,
+      attendance_date: dateStr,
+      status: "on_leave" as const,
+      comments: dutyByEmployeeCode.get(u.employee_id) || "OFF",
+      marked_by: "",
+      time_in: null,
+      time_out: null,
+    }));
+
+    const records = [...dutyRecords, ...holidayRecords];
     if (records.length > 0) {
-      bulkMarkAttendance(records);
+      bulkUpsertAttendance(records as any);
     }
   };
 
-  const isLoading = usersLoading || attendanceLoading;
+  const isLoading = usersLoading || attendanceLoading || schedulesLoading;
 
   const renderEmployeeRow = (emp: EmployeeAttendance) => (
     <div key={emp.userId} className="flex items-center justify-between p-3 border rounded-lg bg-accent/30">
@@ -100,6 +243,7 @@ export default function WSOAttendance() {
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <span className="text-xs font-semibold px-2 py-1 rounded bg-muted">{emp.dutyCode || "—"}</span>
         <Input
           type="time"
           value={emp.timeIn}
@@ -133,7 +277,9 @@ export default function WSOAttendance() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h1 className="text-3xl font-bold">Attendance Marking</h1>
-            <p className="text-muted-foreground">Mark attendance for {wsoShift.toUpperCase()} shift</p>
+            <p className="text-muted-foreground">
+              Mark attendance for Team {wsoTeamKey} ({teamDutyToday}) duty
+            </p>
           </div>
           <div className="flex gap-2">
             <Popover>
@@ -172,7 +318,7 @@ export default function WSOAttendance() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.absent}</div>
-              <p className="text-xs text-muted-foreground">employees absent today</p>
+              <p className="text-xs text-muted-foreground">employees marked absent</p>
             </CardContent>
           </Card>
           <Card>
@@ -188,7 +334,7 @@ export default function WSOAttendance() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Mark Attendance - {wsoShift.toUpperCase()} Shift</CardTitle>
+            <CardTitle>Mark Attendance - Team {wsoTeamKey} ({teamDutyToday})</CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -206,8 +352,8 @@ export default function WSOAttendance() {
             )}
 
             <div className="flex justify-end mt-6">
-              <Button size="lg" onClick={handleSave} disabled={isBulkMarking || allEmployees.length === 0}>
-                {isBulkMarking ? "Saving..." : "Save Attendance"}
+              <Button size="lg" onClick={handleSave} disabled={isBulkUpserting || allEmployees.length === 0}>
+                {isBulkUpserting ? "Saving..." : "Save Attendance"}
               </Button>
             </div>
           </CardContent>

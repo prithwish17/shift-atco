@@ -8,11 +8,12 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
 import { useDutyExchanges } from "@/hooks/useDutyExchanges";
-import { useAttendance } from "@/hooks/useAttendance";
 import { useBaTests } from "@/hooks/useBaTests";
 import { useAllLeaveRequests } from "@/hooks/useLeaveRequests";
-import { getLeaveTypeLabel, getLeaveStatusInfo } from "@/lib/leaveConstants";
+import { getLeaveTypeLabel } from "@/lib/leaveConstants";
 import { format } from "date-fns";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function WSODashboard() {
   const { user } = useAuth();
@@ -27,13 +28,39 @@ export default function WSODashboard() {
     wsoTeam ? { team: wsoTeam, status: 'Pending WSO' } : undefined
   );
   const { data: allExchanges } = useDutyExchanges();
-  const { attendance } = useAttendance(today);
   const { data: baTests } = useBaTests();
+  const { data: onDutyCount = 0, isLoading: onDutyLoading } = useQuery({
+    queryKey: ["wso-on-duty-schedule-count", today, wsoTeam],
+    queryFn: async () => {
+      if (!wsoTeam) return 0;
+
+      const { data: shiftProfiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("employee_id, current_shift")
+        .or(`current_shift.eq.${wsoTeam.toLowerCase()},current_shift.eq.${wsoTeam.toUpperCase()}`);
+      if (profilesError) throw profilesError;
+
+      const employeeCodes = [...new Set((shiftProfiles || [])
+        .map((p: any) => p.employee_id)
+        .filter(Boolean))] as string[];
+      if (employeeCodes.length === 0) return 0;
+
+      const { data: schedules, error: schedulesError } = await supabase
+        .from("employee_schedules" as any)
+        .select("employee_code")
+        .eq("duty_date", today)
+        .in("employee_code", employeeCodes);
+      if (schedulesError) throw schedulesError;
+
+      return new Set((schedules || []).map((s: any) => s.employee_code)).size;
+    },
+    enabled: !!wsoTeam,
+    staleTime: 60 * 1000,
+  });
 
   const shiftLabel = profile?.current_shift ? `${profile.current_shift.toUpperCase()} Shift` : "—";
   const pendingExchanges = allExchanges?.filter(e => e.status === "pending_wso") || [];
   const pendingCount = teamLeaveRequests.length + pendingExchanges.length;
-  const onDutyCount = attendance?.filter(a => a.status === "present").length || 0;
   const latestBaTest = baTests?.[0];
 
   const positions = ["RDR", "APP", "PLR", "ADC", "ALPHA", "OCC"];
@@ -49,12 +76,14 @@ export default function WSODashboard() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            title="On Duty Today"
-            value={onDutyCount}
-            icon={Users}
-            description={`${shiftLabel} employees`}
-          />
+          <Link to="/employee/schedule" className="block">
+            <StatCard
+              title="On Duty Today"
+              value={onDutyLoading ? "..." : onDutyCount}
+              icon={Users}
+              description={`${shiftLabel} schedule`}
+            />
+          </Link>
           <StatCard
             title="Pending Requests"
             value={pendingCount}

@@ -45,7 +45,7 @@ export default function ATCDutyGrid() {
 
   // Hybrid: fetch from edge function for display
   const dateStr = format(date, 'yyyy-MM-dd');
-  const { gridData: edgeFuncData, isLoading: edgeLoading, refetch: refetchEdge } = useATCAssignments(dateStr, shift || undefined);
+  const { isLoading: edgeLoading, refetch: refetchEdge } = useATCAssignments(dateStr, shift || undefined, false);
 
   // Supabase CRUD hooks
   const { data: employees = [] } = useGridEmployees();
@@ -61,8 +61,14 @@ export default function ATCDutyGrid() {
 
   // Fetch roster entries with DUTY CHANGE / EXTRA DUTY from Google Sheets
   const { data: statusEntries = [] } = useRosterStatusEntries(date, shift, team);
-  const dutyChangeEntries = statusEntries.filter(e => e.unit?.toUpperCase() === 'DUTY CHANGE');
-  const extraDutyEntries = statusEntries.filter(e => e.unit?.toUpperCase() === 'EXTRA DUTY');
+  const dutyChangeEntries = useMemo(
+    () => statusEntries.filter((e) => e.unit?.toUpperCase() === 'DUTY CHANGE'),
+    [statusEntries]
+  );
+  const extraDutyEntries = useMemo(
+    () => statusEntries.filter((e) => e.unit?.toUpperCase() === 'EXTRA DUTY'),
+    [statusEntries]
+  );
 
   // Ensure roster exists when date/shift changes — only after query confirms none exists
   useEffect(() => {
@@ -87,24 +93,51 @@ export default function ATCDutyGrid() {
     return ids;
   }, [leaveRecords]);
 
-  const getAvailableEmployees = useCallback((currentEmployeeId?: string | null): GridEmployee[] => {
-    return employees.filter((e) => {
-      if (unavailableIds.has(e.id)) return false;
-      if (e.id === currentEmployeeId) return true;
-      if (assignedEmployeeIds.has(e.id)) return false;
-      return true;
+  const baseAvailableEmployees = useMemo(
+    () => employees.filter((e) => !unavailableIds.has(e.id) && !assignedEmployeeIds.has(e.id)),
+    [employees, unavailableIds, assignedEmployeeIds]
+  );
+
+  const availableEmployeesByCurrentId = useMemo(() => {
+    const currentIds = new Set<string>();
+    assignments.forEach((a) => { if (a.employee_id) currentIds.add(a.employee_id); });
+    extraDuties.forEach((d) => { if (d.employee_id) currentIds.add(d.employee_id); });
+
+    const map = new Map<string, GridEmployee[]>();
+    currentIds.forEach((currentId) => {
+      map.set(
+        currentId,
+        employees.filter((e) => {
+          if (unavailableIds.has(e.id)) return false;
+          if (e.id === currentId) return true;
+          if (assignedEmployeeIds.has(e.id)) return false;
+          return true;
+        })
+      );
     });
-  }, [employees, unavailableIds, assignedEmployeeIds]);
+    return map;
+  }, [employees, unavailableIds, assignedEmployeeIds, assignments, extraDuties]);
+
+  const getAvailableEmployees = useCallback((currentEmployeeId?: string | null): GridEmployee[] => {
+    if (!currentEmployeeId) return baseAvailableEmployees;
+    return availableEmployeesByCurrentId.get(currentEmployeeId) || baseAvailableEmployees;
+  }, [availableEmployeesByCurrentId, baseAvailableEmployees]);
+
+  const assignmentMap = useMemo(() => {
+    const map = new Map<string, (typeof assignments)[number]>();
+    for (const a of assignments) {
+      map.set(`${a.position_name}::${a.department}`, a);
+    }
+    return map;
+  }, [assignments]);
 
   const getAssignment = useCallback((positionKey: string, department: string) => {
-    return assignments.find(
-      (a) => a.position_name === positionKey && a.department === department
-    );
-  }, [assignments]);
+    return assignmentMap.get(`${positionKey}::${department}`);
+  }, [assignmentMap]);
 
   const handleAssign = useCallback((positionKey: string, department: string, employeeId: string | null, remark?: string) => {
     if (!roster) return;
-    const existing = assignments.find((a) => a.position_name === positionKey && a.department === department);
+    const existing = assignmentMap.get(`${positionKey}::${department}`);
     upsertAssignment.mutate({
       id: existing?.id,
       roster_id: roster.id,
@@ -115,11 +148,11 @@ export default function ATCDutyGrid() {
       remark: remark ?? existing?.remark,
       section_type: POSITION_ROWS.find((p) => p.key === positionKey)?.sectionType || 'sector',
     });
-  }, [roster, assignments, positionLabels, upsertAssignment]);
+  }, [roster, assignmentMap, positionLabels, upsertAssignment]);
 
   const handleRemarkChange = useCallback((positionKey: string, department: string, remark: string) => {
     if (!roster) return;
-    const existing = assignments.find((a) => a.position_name === positionKey && a.department === department);
+    const existing = assignmentMap.get(`${positionKey}::${department}`);
     if (existing) {
       upsertAssignment.mutate({
         id: existing.id,
@@ -131,7 +164,7 @@ export default function ATCDutyGrid() {
         section_type: existing.section_type,
       });
     }
-  }, [roster, assignments, upsertAssignment]);
+  }, [roster, assignmentMap, upsertAssignment]);
 
   const sections = useMemo(() => {
     let rows = isNight

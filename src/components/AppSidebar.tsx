@@ -49,11 +49,11 @@ const menuItems = {
   ],
   wso: [
     { title: "Dashboard", url: "/wso", icon: LayoutDashboard },
-    { title: "Roster Management", url: "/wso/roster", icon: Calendar },
     { title: "Attendance", url: "/wso/attendance", icon: ClipboardList },
-    { title: "ATC Duty Grid", url: "/wso/atc-grid", icon: Radio },
+    { title: "Shift Duty Roster", url: "/wso/atc-grid", icon: Table2 },
     { title: "BA Test Management", url: "/wso/ba-test", icon: Shield },
     { title: "Leave Requests", url: "/wso/leaves", icon: FileText },
+    { title: "Roster Data", url: "/wso/roster", icon: Calendar },
     { title: "Profile Settings", url: "/wso/profile", icon: UserCog },
   ],
   employee: [
