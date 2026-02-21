@@ -11,13 +11,21 @@ CREATE TABLE IF NOT EXISTS public.leave_requests (
   end_date DATE NOT NULL,
   total_days INTEGER NOT NULL DEFAULT 1,
   reason TEXT,
-  status TEXT NOT NULL DEFAULT 'Pending',
+  status TEXT NOT NULL DEFAULT 'Pending WSO',
   applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   reviewed_by UUID REFERENCES auth.users(id),
   reviewed_at TIMESTAMPTZ,
   remarks TEXT,
+  wso_approved_by UUID REFERENCES auth.users(id),
+  wso_approved_at TIMESTAMPTZ,
+  wso_comments TEXT,
+  supervisor_approved_by UUID REFERENCES auth.users(id),
+  supervisor_approved_at TIMESTAMPTZ,
+  supervisor_comments TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT leave_requests_status_check
+    CHECK (status IN ('Pending WSO', 'Pending Supervisor', 'Approved', 'Rejected', 'Cancelled'))
 );
 
 -- Index for common queries
@@ -41,7 +49,7 @@ CREATE POLICY "Employees insert own leave requests"
 -- Employees can update their own pending requests (for cancel/edit)
 CREATE POLICY "Employees update own pending requests"
   ON public.leave_requests FOR UPDATE
-  USING (auth.uid() = employee_id AND status = 'Pending');
+  USING (auth.uid() = employee_id AND status IN ('Pending WSO', 'Pending Supervisor'));
 
 -- WSO and Supervisors can view all requests
 CREATE POLICY "WSO/Supervisors view all leave requests"

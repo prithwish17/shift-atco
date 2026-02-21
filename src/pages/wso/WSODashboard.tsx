@@ -22,9 +22,9 @@ export default function WSODashboard() {
   // WSO's team from profile (e.g. "a", "b", "c")
   const wsoTeam = profile?.current_shift?.toUpperCase() || '';
 
-  // Fetch leave requests filtered by WSO's team + Pending status
+  // Fetch leave requests filtered by WSO's team + Pending WSO status
   const { data: teamLeaveRequests = [] } = useAllLeaveRequests(
-    wsoTeam ? { team: wsoTeam, status: 'Pending' } : undefined
+    wsoTeam ? { team: wsoTeam, status: 'Pending WSO' } : undefined
   );
   const { data: allExchanges } = useDutyExchanges();
   const { attendance } = useAttendance(today);

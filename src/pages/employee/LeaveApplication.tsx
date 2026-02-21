@@ -112,7 +112,7 @@ export default function LeaveApplication() {
 
   // Summary counts
   const approvedCount = myRequests.filter(r => r.status === 'Approved').length;
-  const pendingCount = myRequests.filter(r => r.status === 'Pending').length;
+  const pendingCount = myRequests.filter(r => r.status === 'Pending WSO' || r.status === 'Pending Supervisor').length;
 
   if (isLoading) {
     return (
@@ -281,10 +281,12 @@ export default function LeaveApplication() {
                           </Badge>
                         </td>
                         <td className="px-4 py-3 text-muted-foreground text-xs max-w-[200px] truncate">
-                          {req.remarks || '—'}
+                          {req.status === 'Pending Supervisor'
+                            ? 'Approved by WSO, awaiting supervisor final approval'
+                            : req.remarks || '—'}
                         </td>
                         <td className="px-4 py-3 text-center">
-                          {req.status === 'Pending' && (
+                          {(req.status === 'Pending WSO' || req.status === 'Pending Supervisor') && (
                             <Button
                               size="sm"
                               variant="ghost"

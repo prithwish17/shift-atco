@@ -18,10 +18,18 @@ export type LeaveRequest = {
     reviewed_by: string | null;
     reviewed_at: string | null;
     remarks: string | null;
+    wso_approved_by: string | null;
+    wso_approved_at: string | null;
+    wso_comments: string | null;
+    supervisor_approved_by: string | null;
+    supervisor_approved_at: string | null;
+    supervisor_comments: string | null;
     created_at: string;
     updated_at: string;
     // Joined fields
     reviewer_profile?: { full_name: string } | null;
+    wso_approver_profile?: { full_name: string } | null;
+    supervisor_approver_profile?: { full_name: string } | null;
 };
 
 export type LeaveRequestInsert = {
@@ -92,7 +100,13 @@ export function useAllLeaveRequests(filters?: LeaveRequestFilters) {
             const requests = (data || []) as LeaveRequest[];
 
             // Enrich with reviewer profile
-            const reviewerIds = [...new Set(requests.filter(r => r.reviewed_by).map(r => r.reviewed_by!))];
+            const reviewerIds = [
+                ...new Set(
+                    requests
+                        .flatMap((r) => [r.reviewed_by, r.wso_approved_by, r.supervisor_approved_by])
+                        .filter(Boolean) as string[]
+                ),
+            ];
             if (reviewerIds.length > 0) {
                 const { data: profiles } = await supabase
                     .from('profiles')
@@ -101,6 +115,8 @@ export function useAllLeaveRequests(filters?: LeaveRequestFilters) {
                 const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
                 for (const req of requests) {
                     req.reviewer_profile = req.reviewed_by ? (profileMap.get(req.reviewed_by) as any) || null : null;
+                    req.wso_approver_profile = req.wso_approved_by ? (profileMap.get(req.wso_approved_by) as any) || null : null;
+                    req.supervisor_approver_profile = req.supervisor_approved_by ? (profileMap.get(req.supervisor_approved_by) as any) || null : null;
                 }
             }
 
@@ -120,7 +136,7 @@ export function useCreateLeaveRequest() {
                 .from('leave_requests' as any)
                 .select('id, start_date, end_date, status')
                 .eq('employee_id', request.employee_id)
-                .in('status', ['Pending', 'Approved'])
+                .in('status', ['Pending WSO', 'Pending Supervisor', 'Approved'])
                 .or(`and(start_date.lte.${request.end_date},end_date.gte.${request.start_date})`);
 
             if (existing && (existing as any[]).length > 0) {
@@ -150,7 +166,55 @@ export function useCancelLeaveRequest() {
                 .from('leave_requests' as any)
                 .update({ status: 'Cancelled' } as any)
                 .eq('id', id)
-                .eq('status', 'Pending')
+                .in('status', ['Pending WSO', 'Pending Supervisor'])
+                .select()
+                .single();
+            if (error) throw error;
+            return data;
+        },
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ['leave-requests'] });
+        },
+    });
+}
+
+/** Cancel an approved leave request (for supervisor / WSO) */
+export function useCancelApprovedLeaveRequest() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async ({
+            id,
+            reviewed_by,
+            actor_role,
+            remarks,
+        }: {
+            id: string;
+            reviewed_by: string;
+            actor_role: 'wso' | 'supervisor';
+            remarks?: string;
+        }) => {
+            const updateData: Record<string, any> = {
+                status: 'Cancelled',
+                reviewed_by,
+                reviewed_at: new Date().toISOString(),
+                remarks: remarks || null,
+            };
+
+            if (actor_role === 'wso') {
+                updateData.wso_approved_by = reviewed_by;
+                updateData.wso_approved_at = new Date().toISOString();
+                updateData.wso_comments = remarks || null;
+            } else {
+                updateData.supervisor_approved_by = reviewed_by;
+                updateData.supervisor_approved_at = new Date().toISOString();
+                updateData.supervisor_comments = remarks || null;
+            }
+
+            const { data, error } = await supabase
+                .from('leave_requests' as any)
+                .update(updateData as any)
+                .eq('id', id)
+                .eq('status', 'Approved')
                 .select()
                 .single();
             if (error) throw error;
@@ -168,27 +232,50 @@ export function useReviewLeaveRequest() {
     return useMutation({
         mutationFn: async ({
             id,
-            status,
-            reviewed_by,
+            action,
+            actor_role,
+            actor_id,
             remarks,
         }: {
             id: string;
-            status: 'Approved' | 'Rejected';
-            reviewed_by: string;
+            action: 'approve' | 'reject';
+            actor_role: 'wso' | 'supervisor';
+            actor_id: string;
             remarks?: string;
         }) => {
+            const now = new Date().toISOString();
+            const isApprove = action === 'approve';
+            const updateData: Record<string, any> = {
+                reviewed_by: actor_id,
+                reviewed_at: now,
+                remarks: remarks || null,
+            };
+
+            let expectedStatus = '';
+
+            if (actor_role === 'wso') {
+                expectedStatus = 'Pending WSO';
+                updateData.status = isApprove ? 'Pending Supervisor' : 'Rejected';
+                updateData.wso_approved_by = actor_id;
+                updateData.wso_approved_at = now;
+                updateData.wso_comments = remarks || null;
+            } else {
+                expectedStatus = 'Pending Supervisor';
+                updateData.status = isApprove ? 'Approved' : 'Rejected';
+                updateData.supervisor_approved_by = actor_id;
+                updateData.supervisor_approved_at = now;
+                updateData.supervisor_comments = remarks || null;
+            }
+
             const { data, error } = await supabase
                 .from('leave_requests' as any)
-                .update({
-                    status,
-                    reviewed_by,
-                    reviewed_at: new Date().toISOString(),
-                    remarks: remarks || null,
-                } as any)
+                .update(updateData as any)
                 .eq('id', id)
+                .eq('status', expectedStatus)
                 .select()
                 .single();
             if (error) throw error;
+            if (!data) throw new Error('Request is no longer in a reviewable state.');
             return data;
         },
         onSuccess: () => {
