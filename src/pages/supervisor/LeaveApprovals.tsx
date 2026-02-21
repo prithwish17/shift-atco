@@ -62,6 +62,7 @@ export default function LeaveApprovals() {
 
   const handleReview = async () => {
     if (!reviewTarget || !user) return;
+    const isDirectSupervisorApproval = !isWSO && reviewAction === 'approve' && reviewTarget.status === 'Pending WSO';
     try {
       await reviewRequest.mutateAsync({
         id: reviewTarget.id,
@@ -69,6 +70,7 @@ export default function LeaveApprovals() {
         actor_role: isWSO ? 'wso' : 'supervisor',
         actor_id: user.id,
         remarks: reviewRemarks || undefined,
+        direct_approval: isDirectSupervisorApproval,
       });
 
       const successText = isWSO
@@ -76,7 +78,9 @@ export default function LeaveApprovals() {
           ? 'WSO approved. Sent to supervisor for final approval.'
           : 'Leave rejected by WSO'
         : reviewAction === 'approve'
-          ? 'Leave approved by supervisor'
+          ? isDirectSupervisorApproval
+            ? 'Leave directly approved by supervisor'
+            : 'Leave approved by supervisor'
           : 'Leave rejected by supervisor';
 
       toast.success(successText);
@@ -257,7 +261,10 @@ export default function LeaveApprovals() {
                 <tbody>
                   {allRequests.map((req) => {
                     const statusInfo = getLeaveStatusInfo(req.status);
-                    const canReview = isWSO ? req.status === 'Pending WSO' : req.status === 'Pending Supervisor';
+                    const canReview = isWSO
+                      ? req.status === 'Pending WSO'
+                      : req.status === 'Pending Supervisor' || req.status === 'Pending WSO';
+                    const isDirectSupervisorCandidate = !isWSO && req.status === 'Pending WSO';
 
                     return (
                       <tr key={req.id} className="border-b hover:bg-muted/30 transition-colors">
@@ -290,9 +297,10 @@ export default function LeaveApprovals() {
                                 Approved by WSO{req.wso_approver_profile?.full_name ? `: ${req.wso_approver_profile.full_name}` : ''}
                               </div>
                             )}
-                            {req.supervisor_approved_at && (
+                            {req.status === 'Approved' && req.supervisor_approved_at && (
                               <div className="text-[11px] text-green-700">
-                                Final approved by Supervisor{req.supervisor_approver_profile?.full_name ? `: ${req.supervisor_approver_profile.full_name}` : ''}
+                                {req.direct_supervisor_approved ? 'Directly approved by Supervisor' : 'Final approved by Supervisor'}
+                                {req.supervisor_approver_profile?.full_name ? `: ${req.supervisor_approver_profile.full_name}` : ''}
                               </div>
                             )}
                             {req.wso_comments && <div className="text-[11px]">WSO remarks: {req.wso_comments}</div>}
@@ -309,17 +317,19 @@ export default function LeaveApprovals() {
                                 onClick={() => openReview(req, 'approve')}
                               >
                                 <CheckCircle className="h-3 w-3 mr-1" />
-                                {isWSO ? 'Approve & Forward' : 'Final Approve'}
+                                {isWSO ? 'Approve & Forward' : isDirectSupervisorCandidate ? 'Direct Approve' : 'Final Approve'}
                               </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                className="h-7 text-xs px-2"
-                                onClick={() => openReview(req, 'reject')}
-                              >
-                                <XCircle className="h-3 w-3 mr-1" />
-                                Reject
-                              </Button>
+                              {!isDirectSupervisorCandidate && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-7 text-xs px-2"
+                                  onClick={() => openReview(req, 'reject')}
+                                >
+                                  <XCircle className="h-3 w-3 mr-1" />
+                                  Reject
+                                </Button>
+                              )}
                             </div>
                           ) : req.status === 'Approved' ? (
                             <Button
@@ -361,7 +371,11 @@ export default function LeaveApprovals() {
             <DialogHeader>
               <DialogTitle>
                 {reviewAction === 'approve'
-                  ? (isWSO ? 'Approve & Forward to Supervisor' : 'Final Approve')
+                  ? (isWSO
+                    ? 'Approve & Forward to Supervisor'
+                    : reviewTarget?.status === 'Pending WSO'
+                      ? 'Direct Approve'
+                      : 'Final Approve')
                   : 'Reject'} Leave Request
               </DialogTitle>
               <DialogDescription>
@@ -395,7 +409,11 @@ export default function LeaveApprovals() {
                   {reviewRequest.isPending
                     ? 'Processing...'
                     : reviewAction === 'approve'
-                      ? (isWSO ? 'Approve & Forward' : 'Final Approve')
+                      ? (isWSO
+                        ? 'Approve & Forward'
+                        : reviewTarget?.status === 'Pending WSO'
+                          ? 'Direct Approve'
+                          : 'Final Approve')
                       : 'Reject'}
                 </Button>
               </div>

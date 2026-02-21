@@ -24,6 +24,10 @@ export type LeaveRequest = {
     supervisor_approved_by: string | null;
     supervisor_approved_at: string | null;
     supervisor_comments: string | null;
+    direct_supervisor_approved?: boolean;
+    direct_supervisor_approved_by?: string | null;
+    direct_supervisor_approved_at?: string | null;
+    direct_supervisor_comments?: string | null;
     created_at: string;
     updated_at: string;
     // Joined fields
@@ -236,12 +240,14 @@ export function useReviewLeaveRequest() {
             actor_role,
             actor_id,
             remarks,
+            direct_approval,
         }: {
             id: string;
             action: 'approve' | 'reject';
             actor_role: 'wso' | 'supervisor';
             actor_id: string;
             remarks?: string;
+            direct_approval?: boolean;
         }) => {
             const now = new Date().toISOString();
             const isApprove = action === 'approve';
@@ -256,15 +262,40 @@ export function useReviewLeaveRequest() {
             if (actor_role === 'wso') {
                 expectedStatus = 'Pending WSO';
                 updateData.status = isApprove ? 'Pending Supervisor' : 'Rejected';
-                updateData.wso_approved_by = actor_id;
-                updateData.wso_approved_at = now;
                 updateData.wso_comments = remarks || null;
+                if (isApprove) {
+                    updateData.wso_approved_by = actor_id;
+                    updateData.wso_approved_at = now;
+                } else {
+                    updateData.wso_approved_by = null;
+                    updateData.wso_approved_at = null;
+                }
             } else {
-                expectedStatus = 'Pending Supervisor';
+                expectedStatus = direct_approval ? 'Pending WSO' : 'Pending Supervisor';
                 updateData.status = isApprove ? 'Approved' : 'Rejected';
-                updateData.supervisor_approved_by = actor_id;
-                updateData.supervisor_approved_at = now;
                 updateData.supervisor_comments = remarks || null;
+                if (isApprove) {
+                    updateData.supervisor_approved_by = actor_id;
+                    updateData.supervisor_approved_at = now;
+                    if (direct_approval) {
+                        updateData.direct_supervisor_approved = true;
+                        updateData.direct_supervisor_approved_by = actor_id;
+                        updateData.direct_supervisor_approved_at = now;
+                        updateData.direct_supervisor_comments = remarks || null;
+                    } else {
+                        updateData.direct_supervisor_approved = false;
+                        updateData.direct_supervisor_approved_by = null;
+                        updateData.direct_supervisor_approved_at = null;
+                        updateData.direct_supervisor_comments = null;
+                    }
+                } else {
+                    updateData.supervisor_approved_by = null;
+                    updateData.supervisor_approved_at = null;
+                    updateData.direct_supervisor_approved = false;
+                    updateData.direct_supervisor_approved_by = null;
+                    updateData.direct_supervisor_approved_at = null;
+                    updateData.direct_supervisor_comments = null;
+                }
             }
 
             const { data, error } = await supabase
