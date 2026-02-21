@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { eachDayOfInterval, format, isAfter, isBefore, parseISO } from 'date-fns';
 
 // Duty code legend from Google Sheet
 export const DUTY_CODES = [
@@ -54,6 +55,13 @@ export interface EmployeeSchedule {
     updated_at: string;
 }
 
+type ApprovedLeaveRange = {
+    id: string;
+    start_date: string;
+    end_date: string;
+    leave_type: string;
+};
+
 // Query schedules with optional filters
 export function useEmployeeSchedules(
     employeeCode?: string,
@@ -74,7 +82,87 @@ export function useEmployeeSchedules(
 
             const { data, error } = await query;
             if (error) throw error;
-            return (data || []) as unknown as EmployeeSchedule[];
+            const schedules = (data || []) as unknown as EmployeeSchedule[];
+
+            // Resolve auth user id from employee code so leave_requests can be joined.
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('id, full_name')
+                .eq('employee_id', employeeCode)
+                .maybeSingle();
+
+            if (!profile?.id) {
+                return schedules;
+            }
+
+            // Keep leave query bounded to the same date window as schedule query.
+            let leaveStart = startDate || null;
+            let leaveEnd = endDate || null;
+            if (!leaveStart && schedules.length > 0) leaveStart = schedules[0].duty_date;
+            if (!leaveEnd && schedules.length > 0) leaveEnd = schedules[schedules.length - 1].duty_date;
+
+            let leaveQuery = supabase
+                .from('leave_requests' as any)
+                .select('id, start_date, end_date, leave_type')
+                .eq('employee_id', profile.id)
+                .eq('status', 'Approved')
+                .order('start_date', { ascending: true });
+
+            if (leaveStart) leaveQuery = leaveQuery.lte('start_date', leaveEnd || leaveStart);
+            if (leaveEnd) leaveQuery = leaveQuery.gte('end_date', leaveStart || leaveEnd);
+
+            const { data: leaves, error: leavesError } = await leaveQuery;
+            if (leavesError) throw leavesError;
+
+            const approvedLeaves = (leaves || []) as ApprovedLeaveRange[];
+            if (approvedLeaves.length === 0) {
+                return schedules;
+            }
+
+            const scheduleByDate = new Map<string, EmployeeSchedule>(
+                schedules.map((s) => [s.duty_date, s])
+            );
+
+            for (const leave of approvedLeaves) {
+                const leaveFrom = parseISO(leave.start_date);
+                const leaveTo = parseISO(leave.end_date);
+                if (isAfter(leaveFrom, leaveTo)) continue;
+
+                let from = leaveFrom;
+                let to = leaveTo;
+
+                if (leaveStart) {
+                    const boundedFrom = parseISO(leaveStart);
+                    if (isBefore(from, boundedFrom)) from = boundedFrom;
+                }
+                if (leaveEnd) {
+                    const boundedTo = parseISO(leaveEnd);
+                    if (isAfter(to, boundedTo)) to = boundedTo;
+                }
+                if (isAfter(from, to)) continue;
+
+                const leaveDays = eachDayOfInterval({ start: from, end: to });
+                for (const day of leaveDays) {
+                    const dutyDate = format(day, 'yyyy-MM-dd');
+                    const existing = scheduleByDate.get(dutyDate);
+                    scheduleByDate.set(dutyDate, {
+                        id: existing?.id || `leave-${leave.id}-${dutyDate}`,
+                        employee_code: existing?.employee_code || employeeCode,
+                        employee_name: existing?.employee_name || profile.full_name || '',
+                        duty_date: dutyDate,
+                        duty_code: 'LEAVE',
+                        duty_description: leave.leave_type
+                            ? `Approved Leave (${leave.leave_type})`
+                            : 'Approved Leave',
+                        created_at: existing?.created_at || '',
+                        updated_at: existing?.updated_at || '',
+                    });
+                }
+            }
+
+            return Array.from(scheduleByDate.values()).sort((a, b) =>
+                a.duty_date.localeCompare(b.duty_date)
+            );
         },
         enabled: !!employeeCode,
     });

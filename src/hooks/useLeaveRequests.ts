@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { eachDayOfInterval, format, isValid, parseISO } from 'date-fns';
 
 // ---------- Types ----------
 
@@ -53,6 +54,164 @@ export type LeaveRequestFilters = {
     startDate?: string;
     endDate?: string;
 };
+
+type EmployeeScheduleRow = {
+    id: string;
+    employee_code: string;
+    employee_name: string;
+    duty_date: string;
+    duty_code: string;
+    duty_description: string;
+};
+
+async function resolveScheduleIdentity(employeeAuthId: string, fallbackName?: string | null) {
+    const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('employee_id, full_name')
+        .eq('id', employeeAuthId)
+        .maybeSingle();
+    if (error) throw error;
+    if (!profile?.employee_id) {
+        throw new Error('Employee profile is missing employee_id required for schedule sync.');
+    }
+    return {
+        employee_code: profile.employee_id as string,
+        employee_name: (profile.full_name as string) || fallbackName || '',
+    };
+}
+
+async function applyApprovedLeaveToSchedule(request: LeaveRequest) {
+    const { employee_code, employee_name } = await resolveScheduleIdentity(request.employee_id, request.employee_name);
+    const start = parseISO(request.start_date);
+    const end = parseISO(request.end_date);
+    if (!isValid(start) || !isValid(end)) {
+        throw new Error('Invalid leave date range for schedule sync.');
+    }
+    const leaveDays = eachDayOfInterval({ start, end });
+
+    for (const day of leaveDays) {
+        const dutyDate = format(day, 'yyyy-MM-dd');
+
+        const { data: existingSchedule, error: existingError } = await supabase
+            .from('employee_schedules' as any)
+            .select('id, employee_code, employee_name, duty_date, duty_code, duty_description')
+            .eq('employee_code', employee_code)
+            .eq('duty_date', dutyDate)
+            .maybeSingle();
+        if (existingError) throw existingError;
+
+        const existing = (existingSchedule as EmployeeScheduleRow | null) || null;
+        const snapshotPayload = {
+            leave_request_id: request.id,
+            employee_id: request.employee_id,
+            duty_date: dutyDate,
+            had_schedule: !!existing,
+            original_employee_code: existing?.employee_code || employee_code,
+            original_employee_name: existing?.employee_name || employee_name,
+            original_duty_code: existing?.duty_code || null,
+            original_duty_description: existing?.duty_description || null,
+        };
+
+        const { error: snapshotError } = await supabase
+            .from('leave_schedule_snapshots' as any)
+            .upsert(snapshotPayload as any, { onConflict: 'leave_request_id,duty_date' });
+        if (snapshotError) throw snapshotError;
+
+        const { error: scheduleUpsertError } = await supabase
+            .from('employee_schedules' as any)
+            .upsert(
+                {
+                    employee_code,
+                    employee_name,
+                    duty_date: dutyDate,
+                    duty_code: 'LEAVE',
+                    duty_description: request.leave_type
+                        ? `Approved Leave (${request.leave_type})`
+                        : 'Approved Leave',
+                } as any,
+                { onConflict: 'employee_code,duty_date' }
+            );
+        if (scheduleUpsertError) throw scheduleUpsertError;
+    }
+}
+
+async function hasOtherApprovedLeaveOnDate(employeeId: string, leaveRequestId: string, dutyDate: string) {
+    const { data, error } = await supabase
+        .from('leave_requests' as any)
+        .select('id')
+        .eq('employee_id', employeeId)
+        .eq('status', 'Approved')
+        .neq('id', leaveRequestId)
+        .lte('start_date', dutyDate)
+        .gte('end_date', dutyDate)
+        .limit(1);
+    if (error) throw error;
+    return (data || []).length > 0;
+}
+
+async function restoreScheduleAfterLeaveCancellation(request: LeaveRequest) {
+    const { data: snapshots, error: snapshotsError } = await supabase
+        .from('leave_schedule_snapshots' as any)
+        .select('*')
+        .eq('leave_request_id', request.id)
+        .order('duty_date', { ascending: true });
+    if (snapshotsError) throw snapshotsError;
+
+    for (const snapshot of (snapshots || []) as any[]) {
+        const dutyDate = snapshot.duty_date as string;
+        const keepAsLeave = await hasOtherApprovedLeaveOnDate(request.employee_id, request.id, dutyDate);
+        if (keepAsLeave) continue;
+
+        if (snapshot.had_schedule) {
+            const { error: restoreError } = await supabase
+                .from('employee_schedules' as any)
+                .upsert(
+                    {
+                        employee_code: snapshot.original_employee_code,
+                        employee_name: snapshot.original_employee_name || request.employee_name || '',
+                        duty_date: dutyDate,
+                        duty_code: snapshot.original_duty_code || '',
+                        duty_description: snapshot.original_duty_description || '',
+                    } as any,
+                    { onConflict: 'employee_code,duty_date' }
+                );
+            if (restoreError) throw restoreError;
+        } else {
+            const employeeCode = snapshot.original_employee_code || (await resolveScheduleIdentity(request.employee_id, request.employee_name)).employee_code;
+            const { error: deleteError } = await supabase
+                .from('employee_schedules' as any)
+                .delete()
+                .eq('employee_code', employeeCode)
+                .eq('duty_date', dutyDate);
+            if (deleteError) throw deleteError;
+        }
+    }
+
+    const { error: markRestoredError } = await supabase
+        .from('leave_schedule_snapshots' as any)
+        .update({ restored_at: new Date().toISOString() } as any)
+        .eq('leave_request_id', request.id)
+        .is('restored_at', null);
+    if (markRestoredError) throw markRestoredError;
+}
+
+async function safeApplyApprovedLeaveToSchedule(request: LeaveRequest) {
+    try {
+        await applyApprovedLeaveToSchedule(request);
+    } catch (err) {
+        // Do not block approval status transition if schedule sync fails.
+        console.error('leave schedule sync failed after approval', err);
+    }
+}
+
+async function safeRestoreScheduleAfterLeaveCancellation(request: LeaveRequest) {
+    try {
+        await restoreScheduleAfterLeaveCancellation(request);
+    } catch (err) {
+        // Do not block cancellation status transition if schedule restore fails.
+        console.error('leave schedule restore failed after cancellation', err);
+    }
+}
 
 // ---------- Hooks ----------
 
@@ -222,10 +381,12 @@ export function useCancelApprovedLeaveRequest() {
                 .select()
                 .single();
             if (error) throw error;
+            await safeRestoreScheduleAfterLeaveCancellation(data as LeaveRequest);
             return data;
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['leave-requests'] });
+            qc.invalidateQueries({ queryKey: ['employee-schedules'] });
         },
     });
 }
@@ -307,10 +468,14 @@ export function useReviewLeaveRequest() {
                 .single();
             if (error) throw error;
             if (!data) throw new Error('Request is no longer in a reviewable state.');
+            if ((data as LeaveRequest).status === 'Approved') {
+                await safeApplyApprovedLeaveToSchedule(data as LeaveRequest);
+            }
             return data;
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['leave-requests'] });
+            qc.invalidateQueries({ queryKey: ['employee-schedules'] });
         },
     });
 }

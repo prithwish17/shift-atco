@@ -11,11 +11,12 @@ import { useFetchSchedule } from "@/hooks/useEmployeeSchedules";
 import { Users, FileText, Calendar as CalendarIcon, ClipboardList, Clock, Search, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useState } from "react";
-import { useLeaves } from "@/hooks/useLeaves";
 import { useDutyExchanges } from "@/hooks/useDutyExchanges";
 import { useAttendance } from "@/hooks/useAttendance";
 import { useRosters } from "@/hooks/useRosters";
 import { format } from "date-fns";
+import { useAllLeaveRequests } from "@/hooks/useLeaveRequests";
+import { getLeaveTypeLabel } from "@/lib/leaveConstants";
 
 export default function SupervisorDashboard() {
   const [date, setDate] = useState<Date | undefined>(new Date());
@@ -23,13 +24,16 @@ export default function SupervisorDashboard() {
   const [rosterSearch, setRosterSearch] = useState("");
   const { toast } = useToast();
 
-  const { data: allLeaves, isLoading: leavesLoading } = useLeaves();
+  const { data: allLeaveRequests = [], isLoading: leavesLoading } = useAllLeaveRequests();
   const { data: allExchanges, isLoading: exchangesLoading } = useDutyExchanges();
   const { attendance, isLoading: attendanceLoading } = useAttendance(today);
   const { data: rosterResults = [] } = useRosters({ search: rosterSearch || undefined });
   const fetchSchedule = useFetchSchedule();
 
-  const pendingLeaves = allLeaves?.filter(l => l.status === "pending_supervisor" || l.status === "pending_wso") || [];
+  // Supervisors can final-approve Pending Supervisor and direct-approve Pending WSO.
+  const pendingLeaves = allLeaveRequests.filter(
+    (l) => l.status === "Pending Supervisor" || l.status === "Pending WSO"
+  );
   const pendingExchanges = allExchanges?.filter(e => e.status === "pending_supervisor") || [];
   const onDutyCount = attendance?.filter(a => a.status === "present").length || 0;
 
@@ -118,13 +122,16 @@ export default function SupervisorDashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {pendingLeaves.slice(0, 5).map((leave) => (
-                  <div key={leave.id} className="flex items-center justify-between border-b pb-3 last:border-0">
+                {pendingLeaves.slice(0, 5).map((leaveReq) => (
+                  <div key={leaveReq.id} className="flex items-center justify-between border-b pb-3 last:border-0">
                     <div>
-                      <p className="font-medium">{(leave as any).user?.full_name || "Unknown"}</p>
+                      <p className="font-medium">{leaveReq.employee_name || "Unknown"}</p>
                       <p className="text-sm text-muted-foreground">
-                        {leave.leave_type.toUpperCase()} - {leave.start_date} to {leave.end_date}
+                        {getLeaveTypeLabel(leaveReq.leave_type)} - {leaveReq.start_date} to {leaveReq.end_date}
                       </p>
+                      <Badge variant={leaveReq.status === "Pending WSO" ? "outline" : "secondary"} className="mt-1">
+                        {leaveReq.status}
+                      </Badge>
                     </div>
                     <Link to="/supervisor/leaves">
                       <Button size="sm" variant="outline">Review</Button>
