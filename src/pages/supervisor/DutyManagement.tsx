@@ -123,6 +123,7 @@ export default function DutyManagement() {
                     .gte("duty_date", startDate)
                     .lte("duty_date", endDate)
                     .order("duty_date")
+                    .order("id")
                     .range(from, from + PAGE_SIZE - 1);
                 if (error) throw error;
                 const rows = (data || []) as unknown as ScheduleEntry[];
@@ -137,7 +138,7 @@ export default function DutyManagement() {
     });
 
     /* ── Build employee list and schedule map ── */
-    const employees = useMemo(() => (users || []).filter((u) => u.approved), [users]);
+    const employees = useMemo(() => (users || []), [users]);
 
     const profileMap = useMemo(() => {
         const map = new Map<string, (typeof employees)[number]>();
@@ -158,19 +159,32 @@ export default function DutyManagement() {
 
     const employeeRows = useMemo(() => {
         const codesMap = new Map<string, { code: string; name: string; team: string }>();
+
+        // 1. Add all employees from the profiles table
+        for (const u of employees) {
+            if (!u.employee_id) continue;
+            const code = u.employee_id.trim().toUpperCase();
+            codesMap.set(code, {
+                code,
+                name: u.full_name || code,
+                team: u.current_shift?.toUpperCase() || "—",
+            });
+        }
+
+        // 2. Add anyone in schedules who wasn't in profiles
         for (const s of schedules) {
             const code = (s.employee_code || "").trim().toUpperCase();
             if (!codesMap.has(code)) {
-                const profile = profileMap.get(code);
                 codesMap.set(code, {
                     code,
-                    name: profile?.full_name || s.employee_name || code,
-                    team: profile?.current_shift?.toUpperCase() || "—",
+                    name: s.employee_name || code,
+                    team: "—",
                 });
             }
         }
+
         return Array.from(codesMap.values());
-    }, [schedules, profileMap]);
+    }, [schedules, employees]);
 
     /* ── Filtering and sorting ── */
     const filteredEmployees = useMemo(() => {
@@ -425,6 +439,11 @@ export default function DutyManagement() {
                                                         onChange={(e) => handleDutyChange(emp.code, date.key, e.target.value)}
                                                         className={`w-full h-8 text-[11px] font-semibold border-[1.5px] rounded-md px-1 outline-none focus:ring-2 focus:ring-ring focus:border-input shadow-sm appearance-none cursor-pointer ${getDutyColor(duty)} hover:opacity-90 transition-all text-center`}
                                                     >
+                                                        {duty && !(DUTY_CODES as readonly string[]).includes(duty) && (
+                                                            <option value={duty} className="text-gray-900 bg-white">
+                                                                {duty}
+                                                            </option>
+                                                        )}
                                                         {DUTY_CODES.map((code) => (
                                                             <option key={code} value={code} className="text-gray-900 bg-white">
                                                                 {code}

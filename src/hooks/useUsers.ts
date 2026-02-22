@@ -23,20 +23,46 @@ export function useUsers() {
   const { data: users, isLoading, error } = useQuery({
     queryKey: ["users"],
     queryFn: async () => {
-      const { data: profiles, error: profilesError } = await supabase
-        .from("profiles")
-        .select("*")
-        .order("full_name");
+      const PAGE_SIZE = 1000;
+      let allProfiles: any[] = [];
+      let from = 0;
+      let hasMore = true;
 
-      if (profilesError) throw profilesError;
+      while (hasMore) {
+        const { data: pageData, error: profilesError } = await supabase
+          .from("profiles")
+          .select("*")
+          .order("full_name")
+          .range(from, from + PAGE_SIZE - 1);
+
+        if (profilesError) throw profilesError;
+
+        const rows = pageData || [];
+        allProfiles = allProfiles.concat(rows);
+        hasMore = rows.length === PAGE_SIZE;
+        from += PAGE_SIZE;
+      }
+
+      const profiles = allProfiles;
 
       const userIds = profiles.map(p => p.id);
-      const { data: roles, error: rolesError } = await supabase
-        .from("user_roles")
-        .select("*")
-        .in("user_id", userIds);
+      let allRoles: any[] = [];
+      const CHUNK_SIZE = 500;
 
-      if (rolesError) throw rolesError;
+      for (let i = 0; i < userIds.length; i += CHUNK_SIZE) {
+        const chunk = userIds.slice(i, i + CHUNK_SIZE);
+        const { data: rolesChunk, error: rolesError } = await supabase
+          .from("user_roles")
+          .select("*")
+          .in("user_id", chunk);
+
+        if (rolesError) throw rolesError;
+        if (rolesChunk) {
+          allRoles = allRoles.concat(rolesChunk);
+        }
+      }
+
+      const roles = allRoles;
 
       return profiles.map(profile => {
         const userRole = roles?.find(r => r.user_id === profile.id);
@@ -56,10 +82,10 @@ export function useUsers() {
     mutationFn: async (userId: string) => {
       const { error } = await supabase
         .from("user_roles")
-        .update({ 
-          approved: true, 
+        .update({
+          approved: true,
           approved_at: new Date().toISOString(),
-          approved_by: (await supabase.auth.getUser()).data.user?.id 
+          approved_by: (await supabase.auth.getUser()).data.user?.id
         })
         .eq("user_id", userId);
 
@@ -111,7 +137,7 @@ export function useUsers() {
       const currentUser = (await supabase.auth.getUser()).data.user;
       const { error } = await supabase
         .from("user_roles")
-        .update({ 
+        .update({
           role: newRole as any,
           approved: true,
           approved_at: new Date().toISOString(),
