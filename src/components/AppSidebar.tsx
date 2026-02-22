@@ -42,7 +42,7 @@ const menuItems = {
     { title: "Leave Management", url: "/supervisor/leaves", icon: FileText },
     { title: "Duty Exchange", url: "/supervisor/duty-exchange", icon: Calendar },
     { title: "ATC Duty Grid", url: "/supervisor/atc-grid", icon: Radio },
-    { title: "Roster Management", url: "/supervisor/roster-management", icon: CalendarDays },
+    { title: "Roster Management", url: "/supervisor/duty-management", icon: CalendarDays },
     { title: "Daily Roster", url: "/roster", icon: ClipboardList },
     { title: "Holidays", url: "/supervisor/holidays", icon: Calendar },
     { title: "Profile Settings", url: "/supervisor/profile", icon: UserCog },
