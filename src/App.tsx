@@ -19,6 +19,7 @@ import SetupAdmin from "./pages/admin/SetupAdmin";
 import SupervisorDashboard from "./pages/supervisor/SupervisorDashboard";
 import SupervisorAttendance from "./pages/supervisor/SupervisorAttendance";
 import EmployeeManagement from "./pages/supervisor/EmployeeManagement";
+import SupervisorDailyRoster from "./pages/supervisor/SupervisorDailyRoster";
 import WSODashboard from "./pages/wso/WSODashboard";
 import WsoRosterManagement from "./pages/wso/WsoRosterManagement";
 import WSOAttendance from "./pages/wso/WSOAttendance";
@@ -84,6 +85,7 @@ const App = () => (
                 <Route path="/supervisor/holidays" element={<ProtectedRoute allowedRoles={['supervisor']}><HolidayManagement /></ProtectedRoute>} />
                 <Route path="/supervisor/ope-assignments" element={<ProtectedRoute allowedRoles={['supervisor']}><OPEAssignments /></ProtectedRoute>} />
                 <Route path="/supervisor/duty-management" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyManagement /></ProtectedRoute>} />
+                <Route path="/supervisor/roster" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDailyRoster /></ProtectedRoute>} />
 
                 {/* WSO Routes */}
                 <Route path="/wso" element={<ProtectedRoute allowedRoles={['wso']}><WSODashboard /></ProtectedRoute>} />
@@ -107,7 +109,7 @@ const App = () => (
                 <Route path="/supervisor/atc-grid" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorATCView /></ProtectedRoute>} />
 
                 {/* Shared Roster Route — redirects to employee roster view */}
-                <Route path="/roster" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeRoster /></ProtectedRoute>} />
+                <Route path="/roster" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'wso']}><EmployeeRoster /></ProtectedRoute>} />
 
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />

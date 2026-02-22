@@ -18,9 +18,8 @@ import {
 } from "@/components/ui/popover";
 import { Search, Filter, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { format } from "date-fns";
-import { useUsers } from "@/hooks/useUsers";
-import { useUpdateSchedule, DUTY_CODES, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
-import { useQuery } from "@tanstack/react-query";
+import { DUTY_CODES, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -34,9 +33,23 @@ interface ScheduleEntry {
     duty_description: string;
 }
 
+interface ProfileLite {
+    id: string;
+    employee_id: string | null;
+    full_name: string | null;
+    current_shift: string | null;
+}
+
 /* ── Constants ── */
-const TEAMS = ["A", "B", "C", "D", "E", "G"];
+const DEFAULT_TEAMS = ["A", "B", "C", "D", "E", "G"];
 const ROW_H = "h-[44px]"; // consistent row height for alignment
+const ROW_PX = 44;
+const ROW_OVERSCAN = 10;
+const normalizeTeam = (value: string | null | undefined): string => {
+    const normalized = (value || "").trim().toUpperCase();
+    if (!normalized || normalized === "GENERAL") return "G";
+    return normalized;
+};
 
 /* ── Duty cell color mapping (from Figma) ── */
 const getDutyColor = (duty: string) => {
@@ -86,9 +99,14 @@ export default function DutyManagement() {
     const [currentYear, setCurrentYear] = useState(now.getFullYear());
     const [currentMonth, setCurrentMonth] = useState(now.getMonth());
     const [searchQuery, setSearchQuery] = useState("");
-    const [selectedTeams, setSelectedTeams] = useState<string[]>(TEAMS);
+    const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
     const [sortBy, setSortBy] = useState<"name" | "empId" | "team">("name");
+    const [savingCellKey, setSavingCellKey] = useState<string | null>(null);
+    const [gridScrollTop, setGridScrollTop] = useState(0);
+    const [gridViewportHeight, setGridViewportHeight] = useState(0);
+    const scrollRafRef = useRef<number | null>(null);
     const { toast } = useToast();
+    const queryClient = useQueryClient();
 
     const dates = generateDates(currentYear, currentMonth);
     const startDate = dates[0]?.key;
@@ -102,12 +120,70 @@ export default function DutyManagement() {
     const onGridScroll = useCallback(() => {
         if (namesRef.current && gridRef.current) {
             namesRef.current.scrollTop = gridRef.current.scrollTop;
+            if (scrollRafRef.current !== null) return;
+            scrollRafRef.current = requestAnimationFrame(() => {
+                if (gridRef.current) {
+                    setGridScrollTop(gridRef.current.scrollTop);
+                }
+                scrollRafRef.current = null;
+            });
         }
     }, []);
 
     /* ── Data fetching ── */
-    const { users, isLoading: usersLoading } = useUsers();
-    const updateSchedule = useUpdateSchedule();
+    const { data: profiles = [], isLoading: profilesLoading } = useQuery({
+        queryKey: ["duty-management-profiles"],
+        queryFn: async () => {
+            const PAGE_SIZE = 1000;
+            let allRows: ProfileLite[] = [];
+            let from = 0;
+            let hasMore = true;
+            while (hasMore) {
+                const { data, error } = await supabase
+                    .from("profiles")
+                    .select("id, employee_id, full_name, current_shift")
+                    .order("full_name")
+                    .range(from, from + PAGE_SIZE - 1);
+                if (error) throw error;
+                const rows = (data || []) as unknown as ProfileLite[];
+                allRows = allRows.concat(rows);
+                hasMore = rows.length === PAGE_SIZE;
+                from += PAGE_SIZE;
+            }
+            return allRows;
+        },
+        staleTime: 5 * 60 * 1000,
+    });
+    const upsertSchedule = useMutation({
+        mutationFn: async ({
+            employeeCode,
+            employeeName,
+            dutyDate,
+            dutyCode,
+        }: {
+            employeeCode: string;
+            employeeName: string;
+            dutyDate: string;
+            dutyCode: string;
+        }) => {
+            const payload = {
+                employee_code: employeeCode,
+                employee_name: employeeName,
+                duty_date: dutyDate,
+                duty_code: dutyCode,
+                duty_description: DUTY_DESCRIPTIONS[dutyCode] || dutyCode,
+            };
+
+            const { error } = await supabase
+                .from("employee_schedules" as any)
+                .upsert(payload as any, { onConflict: "employee_code,duty_date" });
+            if (error) throw error;
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["duty-management-schedules"] });
+            queryClient.invalidateQueries({ queryKey: ["employee-schedules"] });
+        },
+    });
 
     const { data: schedules = [], isLoading: schedulesLoading } = useQuery({
         queryKey: ["duty-management-schedules", startDate, endDate],
@@ -138,15 +214,7 @@ export default function DutyManagement() {
     });
 
     /* ── Build employee list and schedule map ── */
-    const employees = useMemo(() => (users || []), [users]);
-
-    const profileMap = useMemo(() => {
-        const map = new Map<string, (typeof employees)[number]>();
-        for (const u of employees) {
-            if (u.employee_id) map.set(u.employee_id.trim().toUpperCase(), u);
-        }
-        return map;
-    }, [employees]);
+    const employees = useMemo(() => profiles, [profiles]);
 
     const scheduleMap = useMemo(() => {
         const map = new Map<string, ScheduleEntry>();
@@ -167,7 +235,7 @@ export default function DutyManagement() {
             codesMap.set(code, {
                 code,
                 name: u.full_name || code,
-                team: u.current_shift?.toUpperCase() || "—",
+                team: normalizeTeam(u.current_shift),
             });
         }
 
@@ -186,6 +254,23 @@ export default function DutyManagement() {
         return Array.from(codesMap.values());
     }, [schedules, employees]);
 
+    const teamOptions = useMemo(() => {
+        const discovered = new Set(
+            employeeRows.map((emp) => emp.team).filter((team) => team && team !== "—")
+        );
+        const merged = new Set<string>([...DEFAULT_TEAMS, ...Array.from(discovered)]);
+        return Array.from(merged).sort((a, b) => a.localeCompare(b));
+    }, [employeeRows]);
+
+    useEffect(() => {
+        setSelectedTeams((prev) => {
+            if (teamOptions.length === 0) return [];
+            if (prev.length === 0) return teamOptions;
+            const filtered = prev.filter((t) => teamOptions.includes(t));
+            return filtered.length > 0 ? filtered : teamOptions;
+        });
+    }, [teamOptions]);
+
     /* ── Filtering and sorting ── */
     const filteredEmployees = useMemo(() => {
         const query = searchQuery.toLowerCase().trim();
@@ -195,8 +280,7 @@ export default function DutyManagement() {
                     !query ||
                     emp.name.toLowerCase().includes(query) ||
                     emp.code.toLowerCase().includes(query);
-                const normalizedTeam = emp.team === "GENERAL" ? "G" : emp.team;
-                const matchesTeam = selectedTeams.includes(normalizedTeam) || emp.team === "—";
+                const matchesTeam = selectedTeams.includes(emp.team) || emp.team === "—";
                 return matchesSearch && matchesTeam;
             })
             .sort((a, b) => {
@@ -218,27 +302,74 @@ export default function DutyManagement() {
         setCurrentYear(y);
     };
 
-    const handleDutyChange = (empCode: string, dateKey: string, newCode: string) => {
-        const entry = scheduleMap.get(`${empCode}|${dateKey}`);
-        if (!entry) return;
-        updateSchedule.mutate(
-            { id: entry.id, duty_code: newCode, duty_description: DUTY_DESCRIPTIONS[newCode] || newCode },
-            {
-                onSuccess: () => toast({ title: "Updated", description: `Duty changed to ${newCode}` }),
-                onError: (err: any) => toast({ title: "Update failed", description: err?.message || "Error", variant: "destructive" }),
-            }
-        );
+    const handleDutyChange = async (
+        emp: { code: string; name: string },
+        dateKey: string,
+        newCode: string
+    ) => {
+        if (!newCode) return;
+        const key = `${emp.code}|${dateKey}`;
+        setSavingCellKey(key);
+        try {
+            await upsertSchedule.mutateAsync({
+                employeeCode: emp.code,
+                employeeName: emp.name,
+                dutyDate: dateKey,
+                dutyCode: newCode,
+            });
+            toast({ title: "Updated", description: `Duty changed to ${newCode}` });
+        } catch (err: any) {
+            toast({
+                title: "Update failed",
+                description: err?.message || "Error",
+                variant: "destructive",
+            });
+        } finally {
+            setSavingCellKey((current) => (current === key ? null : current));
+        }
     };
 
     const toggleTeam = (team: string) => {
         setSelectedTeams((prev) => prev.includes(team) ? prev.filter((t) => t !== team) : [...prev, team]);
     };
     const toggleAllTeams = () => {
-        setSelectedTeams((prev) => prev.length === TEAMS.length ? [] : [...TEAMS]);
+        setSelectedTeams((prev) => prev.length === teamOptions.length ? [] : [...teamOptions]);
     };
     const monthLabel = new Date(currentYear, currentMonth).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
-    const isLoading = usersLoading || schedulesLoading;
+    const isLoading = profilesLoading || schedulesLoading;
+
+    const totalRows = filteredEmployees.length;
+    const visibleCount = Math.max(1, Math.ceil(gridViewportHeight / ROW_PX) + ROW_OVERSCAN * 2);
+    const startIndex = Math.max(0, Math.floor(gridScrollTop / ROW_PX) - ROW_OVERSCAN);
+    const endIndex = Math.min(totalRows, startIndex + visibleCount);
+    const visibleEmployees = filteredEmployees.slice(startIndex, endIndex);
+    const topSpacerHeight = startIndex * ROW_PX;
+    const bottomSpacerHeight = Math.max(0, (totalRows - endIndex) * ROW_PX);
+
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+        const updateHeight = () => setGridViewportHeight(grid.clientHeight);
+        updateHeight();
+        const observer = new ResizeObserver(updateHeight);
+        observer.observe(grid);
+        return () => observer.disconnect();
+    }, [isLoading]);
+
+    useEffect(() => {
+        return () => {
+            if (scrollRafRef.current !== null) {
+                cancelAnimationFrame(scrollRafRef.current);
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        setGridScrollTop(0);
+        if (gridRef.current) gridRef.current.scrollTop = 0;
+        if (namesRef.current) namesRef.current.scrollTop = 0;
+    }, [currentMonth, currentYear, searchQuery, selectedTeams, sortBy]);
 
     /* ═══════════════════════════════════════════════════════════════
      * LAYOUT
@@ -280,7 +411,7 @@ export default function DutyManagement() {
                                 <Button variant="outline" size="sm" className="gap-2">
                                     <Filter className="h-4 w-4" />
                                     Team Filter
-                                    {selectedTeams.length < TEAMS.length && (
+                                    {selectedTeams.length < teamOptions.length && (
                                         <span className="ml-1 px-1.5 py-0.5 bg-primary text-primary-foreground text-xs rounded-full">
                                             {selectedTeams.length}
                                         </span>
@@ -291,10 +422,10 @@ export default function DutyManagement() {
                                 <div className="space-y-3">
                                     <div className="font-semibold text-sm">Filter by Team</div>
                                     <div className="flex items-center space-x-2 pb-2 border-b">
-                                        <Checkbox id="dm-all" checked={selectedTeams.length === TEAMS.length} onCheckedChange={toggleAllTeams} />
+                                        <Checkbox id="dm-all" checked={selectedTeams.length === teamOptions.length} onCheckedChange={toggleAllTeams} />
                                         <label htmlFor="dm-all" className="text-sm font-medium cursor-pointer">Select All</label>
                                     </div>
-                                    {TEAMS.map((t) => (
+                                    {teamOptions.map((t) => (
                                         <div key={t} className="flex items-center space-x-2">
                                             <Checkbox id={`dm-t-${t}`} checked={selectedTeams.includes(t)} onCheckedChange={() => toggleTeam(t)} />
                                             <label htmlFor={`dm-t-${t}`} className="text-sm font-medium cursor-pointer">Team {t}</label>
@@ -318,10 +449,10 @@ export default function DutyManagement() {
                             </Select>
                         </div>
 
-                        {updateSchedule.isPending && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                        {upsertSchedule.isPending && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                     </div>
 
-                    {(searchQuery || selectedTeams.length < TEAMS.length) && (
+                    {(searchQuery || selectedTeams.length < teamOptions.length) && (
                         <p className="text-xs text-muted-foreground mt-2">
                             Showing {filteredEmployees.length} of {employeeRows.length} employees
                         </p>
@@ -372,25 +503,32 @@ export default function DutyManagement() {
                                         No employees found
                                     </div>
                                 ) : (
-                                    filteredEmployees.map((emp, i) => (
-                                        <div
-                                            key={emp.code}
-                                            className={`flex ${ROW_H} border-b border-gray-200 ${i % 2 === 0 ? "bg-background" : "bg-muted/20"
-                                                }`}
-                                        >
-                                            <div className="w-32 px-3 flex items-center border-r border-gray-200">
-                                                <span className="text-xs font-mono font-medium truncate">{emp.code}</span>
-                                            </div>
-                                            <div className="w-16 px-2 flex items-center justify-center border-r border-gray-200">
-                                                <span className="inline-flex items-center justify-center w-7 h-7 rounded bg-gray-700 text-white text-[10px] font-semibold shadow-sm">
-                                                    {emp.team === "GENERAL" ? "G" : emp.team}
-                                                </span>
-                                            </div>
-                                            <div className="w-52 px-3 flex items-center">
-                                                <span className="text-xs font-semibold truncate">{emp.name}</span>
-                                            </div>
-                                        </div>
-                                    ))
+                                    <>
+                                        {topSpacerHeight > 0 && <div style={{ height: topSpacerHeight }} />}
+                                        {visibleEmployees.map((emp, i) => {
+                                            const rowIndex = startIndex + i;
+                                            return (
+                                                <div
+                                                    key={emp.code}
+                                                    className={`flex ${ROW_H} border-b border-gray-200 ${rowIndex % 2 === 0 ? "bg-background" : "bg-muted/20"
+                                                        }`}
+                                                >
+                                                    <div className="w-32 px-3 flex items-center border-r border-gray-200">
+                                                        <span className="text-xs font-mono font-medium truncate">{emp.code}</span>
+                                                    </div>
+                                                    <div className="w-16 px-2 flex items-center justify-center border-r border-gray-200">
+                                                        <span className="inline-flex items-center justify-center w-7 h-7 rounded bg-gray-700 text-white text-[10px] font-semibold shadow-sm">
+                                                            {emp.team === "GENERAL" ? "G" : emp.team}
+                                                        </span>
+                                                    </div>
+                                                    <div className="w-52 px-3 flex items-center">
+                                                        <span className="text-xs font-semibold truncate">{emp.name}</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                        {bottomSpacerHeight > 0 && <div style={{ height: bottomSpacerHeight }} />}
+                                    </>
                                 )}
                             </div>
                         </div>
@@ -418,27 +556,33 @@ export default function DutyManagement() {
                             </div>
 
                             {/* Duty cells body */}
-                            {filteredEmployees.map((emp, i) => (
-                                <div
-                                    key={emp.code}
-                                    className={`flex ${ROW_H} border-b border-gray-200 ${i % 2 === 0 ? "bg-background" : "bg-muted/20"
-                                        }`}
-                                >
-                                    {dates.map((date) => {
-                                        const entry = scheduleMap.get(`${emp.code}|${date.key}`);
-                                        const duty = entry?.duty_code || "";
-                                        return (
-                                            <div
-                                                key={date.key}
-                                                className={`w-28 flex-shrink-0 px-1 flex items-center justify-center border-r border-gray-200 ${date.isWeekend ? "bg-muted/20" : ""
-                                                    }`}
-                                            >
-                                                {entry ? (
+                            {topSpacerHeight > 0 && <div style={{ height: topSpacerHeight }} />}
+                            {visibleEmployees.map((emp, i) => {
+                                const rowIndex = startIndex + i;
+                                return (
+                                    <div
+                                        key={emp.code}
+                                        className={`flex ${ROW_H} border-b border-gray-200 ${rowIndex % 2 === 0 ? "bg-background" : "bg-muted/20"
+                                            }`}
+                                    >
+                                        {dates.map((date) => {
+                                            const entry = scheduleMap.get(`${emp.code}|${date.key}`);
+                                            const duty = entry?.duty_code || "";
+                                            const cellKey = `${emp.code}|${date.key}`;
+                                            const isSaving = savingCellKey === cellKey;
+                                            return (
+                                                <div
+                                                    key={date.key}
+                                                    className={`w-28 flex-shrink-0 px-1 flex items-center justify-center border-r border-gray-200 ${date.isWeekend ? "bg-muted/20" : ""
+                                                        }`}
+                                                >
                                                     <select
                                                         value={duty}
-                                                        onChange={(e) => handleDutyChange(emp.code, date.key, e.target.value)}
-                                                        className={`w-full h-8 text-[11px] font-semibold border-[1.5px] rounded-md px-1 outline-none focus:ring-2 focus:ring-ring focus:border-input shadow-sm appearance-none cursor-pointer ${getDutyColor(duty)} hover:opacity-90 transition-all text-center`}
+                                                        disabled={isSaving}
+                                                        onChange={(e) => handleDutyChange(emp, date.key, e.target.value)}
+                                                        className={`w-full h-8 text-[11px] font-semibold border-[1.5px] rounded-md px-1 outline-none focus:ring-2 focus:ring-ring focus:border-input shadow-sm appearance-none cursor-pointer ${getDutyColor(duty)} hover:opacity-90 transition-all text-center ${isSaving ? "opacity-60 cursor-wait" : ""}`}
                                                     >
+                                                        <option value="" className="text-gray-900 bg-white">—</option>
                                                         {duty && !(DUTY_CODES as readonly string[]).includes(duty) && (
                                                             <option value={duty} className="text-gray-900 bg-white">
                                                                 {duty}
@@ -450,14 +594,13 @@ export default function DutyManagement() {
                                                             </option>
                                                         ))}
                                                     </select>
-                                                ) : (
-                                                    <span className="text-[10px] text-muted-foreground">—</span>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            ))}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })}
+                            {bottomSpacerHeight > 0 && <div style={{ height: bottomSpacerHeight }} />}
                         </div>
                     </div>
                 )}

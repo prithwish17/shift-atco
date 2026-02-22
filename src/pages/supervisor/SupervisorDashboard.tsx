@@ -13,7 +13,6 @@ import { Link } from "react-router-dom";
 import { useState, useMemo } from "react";
 import { useDutyExchanges } from "@/hooks/useDutyExchanges";
 import { useAttendance } from "@/hooks/useAttendance";
-import { useRosters } from "@/hooks/useRosters";
 import { format, differenceInCalendarDays } from "date-fns";
 import { useAllLeaveRequests } from "@/hooks/useLeaveRequests";
 import { getLeaveTypeLabel } from "@/lib/leaveConstants";
@@ -70,8 +69,32 @@ export default function SupervisorDashboard() {
   const { data: allLeaveRequests = [], isLoading: leavesLoading } = useAllLeaveRequests();
   const { data: allExchanges, isLoading: exchangesLoading } = useDutyExchanges();
   const { attendance, isLoading: attendanceLoading } = useAttendance(today);
-  const { data: rosterResults = [] } = useRosters({ search: rosterSearch || undefined });
   const fetchSchedule = useFetchSchedule();
+
+  const { data: rosterResults = [] } = useQuery({
+    queryKey: ["supervisor-schedule-lookup", rosterSearch],
+    enabled: rosterSearch.trim().length >= 2,
+    queryFn: async () => {
+      const search = rosterSearch.trim();
+      const { data, error } = await supabase
+        .from("employee_schedules" as any)
+        .select("id, duty_date, employee_code, employee_name, duty_code, duty_description")
+        .or(
+          `employee_name.ilike.%${search}%,employee_code.ilike.%${search}%`
+        )
+        .order("duty_date", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return (data || []) as Array<{
+        id: string;
+        duty_date: string;
+        employee_code: string;
+        employee_name: string;
+        duty_code: string;
+        duty_description: string;
+      }>;
+    },
+  });
 
   // Fetch today's employee schedules to compute on-duty count
   const { data: todaySchedules = [], isLoading: schedulesLoading } = useQuery({
@@ -195,15 +218,15 @@ export default function SupervisorDashboard() {
                   <div key={i} className="flex items-center justify-between border-b pb-2 last:border-0 text-sm">
                     <div>
                       <p className="font-medium">{r.employee_name}</p>
-                      <p className="text-muted-foreground">{r.date} — {r.unit}</p>
+                      <p className="text-muted-foreground">{r.duty_date} — {r.employee_code}</p>
                     </div>
                     <div className="flex gap-2">
-                      <Badge variant="outline">{r.shift}</Badge>
-                      <Badge>{r.position}</Badge>
+                      <Badge variant="outline">{r.duty_code}</Badge>
+                      <Badge>{r.duty_description || "-"}</Badge>
                     </div>
                   </div>
                 )) : (
-                  <p className="text-sm text-muted-foreground text-center py-4">No roster records found</p>
+                  <p className="text-sm text-muted-foreground text-center py-4">No schedule records found</p>
                 )}
               </div>
             )}
@@ -328,7 +351,7 @@ export default function SupervisorDashboard() {
             <CardTitle>Quick Actions</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-5">
+            <div className="grid gap-4 md:grid-cols-6">
               <Link to="/supervisor/attendance">
                 <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
                   <ClipboardList className="h-6 w-6" />
@@ -360,10 +383,16 @@ export default function SupervisorDashboard() {
                 )}
                 Fetch Schedule
               </Button>
-              <Link to="/roster">
+              <Link to="/supervisor/roster">
                 <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
                   <CalendarIcon className="h-6 w-6" />
                   Daily Roster
+                </Button>
+              </Link>
+              <Link to="/supervisor/duty-management">
+                <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
+                  <CalendarIcon className="h-6 w-6" />
+                  Roster Data
                 </Button>
               </Link>
             </div>
