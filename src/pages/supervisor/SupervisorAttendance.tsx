@@ -38,6 +38,8 @@ interface ScheduleEntry {
   duty_description: string;
 }
 
+const normalizeName = (name: string) => name.trim().toUpperCase().replace(/\s+/g, " ");
+
 export default function SupervisorAttendance() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedTeam, setSelectedTeam] = useState("all");
@@ -69,7 +71,7 @@ export default function SupervisorAttendance() {
   const employees = useMemo(() => users || [], [users]);
 
   // Build a map of employee_id → user profile for fast lookup
-  const employeeMap = useMemo(() => {
+  const employeeMapByCode = useMemo(() => {
     const map = new Map<string, (typeof employees)[number]>();
     for (const u of employees) {
       if (u.employee_id) {
@@ -79,13 +81,50 @@ export default function SupervisorAttendance() {
     return map;
   }, [employees]);
 
-  // Join schedules with profiles via employee_code → employee_id
+  // Fallback map by normalized full name (for schedule rows where code does not match).
+  const employeeMapByName = useMemo(() => {
+    const map = new Map<string, (typeof employees)>();
+    for (const u of employees) {
+      const key = normalizeName(u.full_name || "");
+      if (!key) continue;
+      const existing = map.get(key) || [];
+      existing.push(u);
+      map.set(key, existing);
+    }
+    return map;
+  }, [employees]);
+
+  // Join schedules with profiles via employee_code → employee_id.
+  // Fallback: if code lookup fails, try unique full_name match.
   const scheduleEntries = useMemo(() => {
     return schedules.map((s) => ({
       schedule: s,
-      user: employeeMap.get((s.employee_code || "").trim().toUpperCase()) || null,
+      user: (() => {
+        const byCode = employeeMapByCode.get((s.employee_code || "").trim().toUpperCase()) || null;
+        if (byCode) return byCode;
+        const nameCandidates = employeeMapByName.get(normalizeName(s.employee_name || "")) || [];
+        return nameCandidates.length === 1 ? nameCandidates[0] : null;
+      })(),
     }));
-  }, [schedules, employeeMap]);
+  }, [schedules, employeeMapByCode, employeeMapByName]);
+
+  // Warning report: duplicate and missing employee_id records in profiles.
+  const missingEmployeeIdRecords = useMemo(
+    () => employees.filter((u) => !u.employee_id || !u.employee_id.trim()),
+    [employees]
+  );
+
+  const duplicateEmployeeIdGroups = useMemo(() => {
+    const grouped = new Map<string, (typeof employees)>();
+    for (const u of employees) {
+      const key = (u.employee_id || "").trim().toUpperCase();
+      if (!key) continue;
+      const arr = grouped.get(key) || [];
+      arr.push(u);
+      grouped.set(key, arr);
+    }
+    return Array.from(grouped.entries()).filter(([, arr]) => arr.length > 1);
+  }, [employees]);
 
   // Derive team options from matched profiles' current_shift
   const teamOptions = useMemo(() => {
@@ -307,6 +346,46 @@ export default function SupervisorAttendance() {
             </CardContent>
           </Card>
         </div>
+
+        {(missingEmployeeIdRecords.length > 0 || duplicateEmployeeIdGroups.length > 0) && (
+          <Card className="border-amber-300">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-amber-700">
+                <AlertTriangle className="h-5 w-5" />
+                Data Warnings
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              {missingEmployeeIdRecords.length > 0 && (
+                <div>
+                  <p className="font-medium text-amber-700">
+                    Missing employee_id: {missingEmployeeIdRecords.length}
+                  </p>
+                  <p className="text-muted-foreground">
+                    These profiles cannot be code-matched against schedule entries.
+                  </p>
+                </div>
+              )}
+              {duplicateEmployeeIdGroups.length > 0 && (
+                <div>
+                  <p className="font-medium text-amber-700">
+                    Duplicate employee_id groups: {duplicateEmployeeIdGroups.length}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Duplicate IDs can produce ambiguous attendance matching.
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {duplicateEmployeeIdGroups.slice(0, 6).map(([empId, rows]) => (
+                      <p key={empId} className="text-xs text-muted-foreground">
+                        {empId}: {rows.map((r) => r.full_name).join(", ")}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* NOT MATCHED view */}
         {selectedShiftCategory === "unmatched" ? (

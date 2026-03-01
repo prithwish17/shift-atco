@@ -109,6 +109,10 @@ export function useUsers() {
 
   const deleteUser = useMutation({
     mutationFn: async (userId: string) => {
+      // TODO: This only deletes the profile (cascades to user_roles).
+      // The auth.users entry persists — user can still log in.
+      // Create a Supabase Edge Function that calls
+      // adminClient.auth.admin.deleteUser(userId) for complete deletion.
       const { error } = await supabase
         .from("profiles")
         .delete()

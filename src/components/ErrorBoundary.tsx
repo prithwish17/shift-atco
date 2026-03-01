@@ -47,8 +47,8 @@ export class ErrorBoundary extends Component<Props, State> {
                 An unexpected error occurred. Please try refreshing the page.
               </AlertDescription>
             </Alert>
-            
-            {this.state.error && (
+
+            {this.state.error && import.meta.env.DEV && (
               <details className="bg-muted p-4 rounded-md text-xs">
                 <summary className="cursor-pointer font-semibold mb-2">
                   Error Details
@@ -60,9 +60,9 @@ export class ErrorBoundary extends Component<Props, State> {
                 </pre>
               </details>
             )}
-            
-            <Button 
-              onClick={this.handleReset} 
+
+            <Button
+              onClick={this.handleReset}
               className="w-full"
             >
               <RefreshCw className="mr-2 h-4 w-4" />

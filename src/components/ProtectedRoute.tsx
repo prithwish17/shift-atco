@@ -15,14 +15,16 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     if (!loading) {
       if (!user) {
         navigate("/login");
-      } else if (allowedRoles && userRole && !allowedRoles.includes(userRole)) {
-        // Always redirect to employee dashboard as home base
+      } else if (userRole && allowedRoles && !allowedRoles.includes(userRole)) {
+        // Role loaded but not authorized — redirect to employee dashboard
         navigate('/employee');
       }
+      // If user exists but userRole is still null, wait — don't redirect yet
     }
   }, [user, userRole, loading, allowedRoles, navigate]);
 
-  if (loading) {
+  // Show spinner while auth state or role is loading
+  if (loading || (user && !userRole)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -30,7 +32,8 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     );
   }
 
-  if (!user || (allowedRoles && userRole && !allowedRoles.includes(userRole))) {
+  // Block rendering if not authenticated or not authorized
+  if (!user || !userRole || (allowedRoles && !allowedRoles.includes(userRole))) {
     return null;
   }
 

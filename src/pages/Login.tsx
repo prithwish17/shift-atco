@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -21,7 +20,7 @@ export default function Login() {
   const [formData, setFormData] = useState<LoginInput>({ email: "", password: "" });
   const [errors, setErrors] = useState<Partial<Record<keyof LoginInput, string>>>({});
   const [authError, setAuthError] = useState<string>("");
-  const [rememberMe, setRememberMe] = useState(false);
+
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -49,7 +48,7 @@ export default function Login() {
         // Use generic error message to prevent account enumeration
         setAuthError("Login failed. Please check your credentials and try again.");
         // Log detailed error for debugging (server-side in production)
-        console.error("Login error:", error);
+        if (import.meta.env.DEV) console.error("Login error:", error);
       } else {
         toast({
           title: "Login successful",
@@ -157,21 +156,7 @@ export default function Login() {
                 {errors.password && <p className="text-sm text-destructive">{errors.password}</p>}
               </div>
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="remember"
-                    checked={rememberMe}
-                    onCheckedChange={(checked) => setRememberMe(checked as boolean)}
-                    disabled={isLoading}
-                  />
-                  <Label
-                    htmlFor="remember"
-                    className="text-sm font-normal cursor-pointer"
-                  >
-                    Remember Me
-                  </Label>
-                </div>
+              <div className="flex items-center justify-end">
                 <Link
                   to="/forgot-password"
                   className="text-sm text-primary hover:underline"

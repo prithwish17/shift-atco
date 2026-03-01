@@ -182,7 +182,7 @@ export function useFetchSchedule() {
             if (!session) throw new Error('Not authenticated');
 
             const res = await fetch(
-                `https://ilkrqlxrqaelflslbdnx.supabase.co/functions/v1/fetch-schedule`,
+                `${import.meta.env.VITE_PUBLIC_SUPABASE_URL}/functions/v1/fetch-schedule`,
                 {
                     method: 'POST',
                     headers: {

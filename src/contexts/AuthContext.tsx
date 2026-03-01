@@ -62,11 +62,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data, error } = await supabase
         .rpc('get_user_role', { _user_id: userId });
-      
+
       if (error) throw error;
       setUserRole(data);
     } catch (error) {
-      console.error("Error fetching user role:", error);
+      if (import.meta.env.DEV) console.error("Error fetching user role:", error);
       setUserRole(null);
     }
   };
@@ -83,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Fetch user role after successful login
       if (data.user) {
         await fetchUserRole(data.user.id);
-        
+
         // Always redirect to employee dashboard
         navigate('/employee');
       }
@@ -97,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (email: string, password: string, userData: any) => {
     try {
       const redirectUrl = `${window.location.origin}/`;
-      
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -109,29 +109,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) return { error };
 
-      // Create profile entry
+      // Profile is auto-created by the handle_new_user DB trigger.
+      // Update it with the additional fields provided during registration.
       if (data.user) {
         const { error: profileError } = await supabase
           .from('profiles')
-          .insert({
-            id: data.user.id,
+          .update({
             full_name: userData.full_name,
             employee_id: userData.employee_id,
-            email: email,
             mobile: userData.mobile,
             designation: userData.designation,
             current_shift: userData.current_shift,
-          });
+          })
+          .eq('id', data.user.id);
 
         if (profileError) return { error: profileError };
 
-        // Create user role entry - all signups are employees, auto-approved
+        // Create user role entry — NOT auto-approved; requires admin review
         const { error: roleError } = await supabase
           .from('user_roles')
           .insert({
             user_id: data.user.id,
             role: 'employee',
-            approved: true,
+            approved: false,
           });
 
         if (roleError) return { error: roleError };
@@ -168,7 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const resetPassword = async (email: string) => {
     try {
       const redirectUrl = `${window.location.origin}/reset-password`;
-      
+
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: redirectUrl,
       });

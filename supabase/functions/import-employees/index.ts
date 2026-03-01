@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": Deno.env.get("ALLOWED_ORIGIN") || "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
@@ -158,7 +158,10 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const password = `ShiftPlan@${emp.employee_id}`;
+        // Generate a cryptographically random password — user will never see this.
+        // They must use the "Forgot Password" flow to set their own.
+        const randomBytes = crypto.getRandomValues(new Uint8Array(16));
+        const password = Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
         // Create auth user
         const { data: authUser, error: authError } = await adminClient.auth.admin.createUser({

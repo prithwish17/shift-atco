@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.79.0'
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get("ALLOWED_ORIGIN") || '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
@@ -12,6 +12,16 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Verify pre-shared secret — this function must NOT be publicly callable
+    const authHeader = req.headers.get("Authorization");
+    const expectedSecret = Deno.env.get("SETUP_ADMIN_SECRET");
+    if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden — valid SETUP_ADMIN_SECRET required" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Create Supabase admin client with service role
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -47,14 +57,14 @@ Deno.serve(async (req) => {
     if (existingProfile) {
       console.log('Admin account already exists');
       return new Response(
-        JSON.stringify({ 
-          success: true, 
+        JSON.stringify({
+          success: true,
           message: 'Admin account already exists',
-          admin_email: ADMIN_EMAIL 
+          admin_email: ADMIN_EMAIL
         }),
-        { 
+        {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200 
+          status: 200
         }
       );
     }
@@ -115,15 +125,15 @@ Deno.serve(async (req) => {
     console.log('Admin role assigned successfully');
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         message: 'Admin account created successfully',
         admin_email: ADMIN_EMAIL,
         admin_id: authData.user.id
       }),
-      { 
+      {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200 
+        status: 200
       }
     );
 
@@ -131,13 +141,13 @@ Deno.serve(async (req) => {
     console.error('Error in setup-admin function:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: errorMessage 
+      JSON.stringify({
+        success: false,
+        error: errorMessage
       }),
-      { 
+      {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400 
+        status: 400
       }
     );
   }

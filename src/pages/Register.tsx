@@ -81,7 +81,7 @@ export default function Register() {
         // Use generic error messages to prevent account enumeration
         setAuthError("Registration failed. Please verify your information and try again.");
         // Log detailed error for debugging (server-side in production)
-        console.error("Registration error:", error);
+        if (import.meta.env.DEV) console.error("Registration error:", error);
       } else {
         toast({
           title: "Registration Successful",
