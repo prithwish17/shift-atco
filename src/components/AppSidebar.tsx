@@ -37,15 +37,15 @@ const menuItems = {
   ],
   supervisor: [
     { title: "Dashboard", url: "/supervisor", icon: LayoutDashboard },
-    { title: "Employee Management", url: "/supervisor/employees", icon: Users },
-    { title: "Attendance", url: "/supervisor/attendance", icon: ClipboardList },
+    { title: "Schedule Management", url: "/supervisor/duty-management", icon: CalendarDays },
     { title: "Leave Management", url: "/supervisor/leaves", icon: FileText },
+    { title: "Employee Management", url: "/supervisor/employees", icon: Users },
+    { title: "License Management", url: "/supervisor/licenses", icon: Shield },
+    { title: "Mark Attendance", url: "/supervisor/attendance", icon: ClipboardList },
     { title: "Duty Exchange", url: "/supervisor/duty-exchange", icon: Calendar },
     { title: "Shift Duty Grid", url: "/supervisor/atc-grid", icon: Radio },
-    { title: "Schedule Management", url: "/supervisor/duty-management", icon: CalendarDays },
     { title: "Shift Roster Data", url: "/supervisor/roster", icon: ClipboardList },
     { title: "Holidays", url: "/supervisor/holidays", icon: Calendar },
-    { title: "Licenses", url: "/supervisor/licenses", icon: Shield },
     { title: "Profile Settings", url: "/supervisor/profile", icon: UserCog },
   ],
   wso: [
@@ -94,7 +94,7 @@ export function AppSidebar({ role }: SidebarProps) {
 
   const isActive = (url: string) => {
     if (url === `/${role}`) return currentPath === url;
-    return currentPath.startsWith(url);
+    return currentPath === url || currentPath.startsWith(url + '/');
   };
 
   const handleLogout = async () => {
@@ -125,7 +125,7 @@ export function AppSidebar({ role }: SidebarProps) {
       {/* Sidebar */}
       <div className={`
         fixed lg:static inset-y-0 left-0 z-50
-        w-52 bg-slate-900 text-white flex flex-col
+        w-58 bg-slate-900 text-white flex flex-col
         transform transition-transform duration-300 lg:transform-none
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>

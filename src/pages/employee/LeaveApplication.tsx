@@ -259,8 +259,8 @@ export default function LeaveApplication() {
                     <div
                       key={i}
                       className={`flex items-start gap-2 text-xs p-2 rounded-md ${conflict.type === 'block'
-                          ? 'bg-red-50 text-red-700 border border-red-200'
-                          : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        ? 'bg-red-50 text-red-700 border border-red-200'
+                        : 'bg-amber-50 text-amber-700 border border-amber-200'
                         }`}
                     >
                       <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
@@ -287,6 +287,7 @@ export default function LeaveApplication() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
+                    <th className="px-4 py-2 text-left font-medium">Applied On</th>
                     <th className="px-4 py-2 text-left font-medium">Date Range</th>
                     <th className="px-4 py-2 text-left font-medium">Leave Type</th>
                     <th className="px-4 py-2 text-center font-medium">Days</th>
@@ -300,6 +301,9 @@ export default function LeaveApplication() {
                     const statusInfo = getLeaveStatusInfo(req.status);
                     return (
                       <tr key={req.id} className="border-b hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3 text-xs text-muted-foreground">
+                          {format(new Date(req.applied_at), 'dd MMM yyyy')}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5">
                             <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
@@ -343,7 +347,7 @@ export default function LeaveApplication() {
                   })}
                   {myRequests.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-muted-foreground">
+                      <td colSpan={7} className="py-12 text-center text-muted-foreground">
                         <AlertCircle className="h-10 w-10 mx-auto mb-2 opacity-40" />
                         No leave applications found
                       </td>
