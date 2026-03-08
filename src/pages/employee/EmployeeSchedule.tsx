@@ -325,7 +325,8 @@ export default function EmployeeSchedule() {
                     </div>
                     {schedule ? (
                       <div className={`text-[10px] sm:text-xs font-semibold px-1.5 py-0.5 rounded ${dutyColor(schedule.duty_code)} inline-block`}>
-                        {schedule.duty_code}
+                        <span className="sm:hidden">{schedule.duty_code.toUpperCase() === 'LEAVE' ? 'L' : schedule.duty_code}</span>
+                        <span className="hidden sm:inline">{schedule.duty_code}</span>
                       </div>
                     ) : null}
                   </div>
