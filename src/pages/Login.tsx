@@ -73,7 +73,8 @@ export default function Login() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
-        <div className="flex flex-col items-center space-y-2">
+        <div className="flex flex-col items-center space-y-3">
+          <img src="/logo.png" alt="ShiftAtco" className="h-16 w-auto" />
           <div className="flex items-center justify-between w-full">
             <div className="flex-1" />
             <h1 className="text-3xl font-bold text-primary">ShiftAtco</h1>

@@ -22,7 +22,10 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto flex items-center justify-between px-4 py-4">
-          <h1 className="text-2xl font-bold text-primary">ShiftAtco</h1>
+          <div className="flex items-center gap-2">
+            <img src="/logo.png" alt="ShiftAtco" className="h-9 w-auto" />
+            <h1 className="text-2xl font-bold text-primary">ShiftAtco</h1>
+          </div>
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -45,6 +48,7 @@ const Index = () => {
 
       <main className="container mx-auto px-4 py-12">
         <div className="text-center space-y-4 mb-12">
+          <img src="/logo.png" alt="ShiftAtco" className="h-20 w-auto mx-auto mb-2" />
           <h2 className="text-4xl font-bold tracking-tight">
             Comprehensive Shift Management System
           </h2>

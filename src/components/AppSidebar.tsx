@@ -132,7 +132,7 @@ export function AppSidebar({ role }: SidebarProps) {
         {/* Logo */}
         <div className="p-4 border-b border-slate-700 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="ShiftAtco" className="size-8 rounded" />
+            <img src="/logo.png" alt="ShiftAtco" className="h-9 w-auto rounded-lg" />
             <div>
               <div className="text-blue-400 font-bold text-base leading-tight">ShiftAtco</div>
               <div className="text-xs text-slate-400 capitalize">{role} Portal</div>
