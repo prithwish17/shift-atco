@@ -1,6 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { POSITION_ROWS, NIGHT_SPAN_POSITIONS, NIGHT_FULL_SPAN_POSITIONS, NIGHT_TRIPLE_FULL_POSITIONS, NIGHT_FULL_DEPARTMENTS } from '@/lib/atcConstants';
-import { format, parse } from 'date-fns';
+import { format, parse, addDays } from 'date-fns';
 
 /**
  * Sync roster management data (flat rows from Google Sheets)
@@ -12,7 +12,7 @@ export async function syncRosterToGrid(
     date: string,        // ISO format: "2026-02-17"
     shift: string,       // UI format: "Morning"
     team: string         // "A" / "B" / "C" / "D" / "E"
-): Promise<{ synced: number; unmatched: string[] }> {
+): Promise<{ synced: number; unmatched: string[]; compOffsGenerated?: number }> {
 
     // Convert ISO date (2026-02-17) to the format stored in rosters table (17-Feb-2026)
     const parsedDate = parse(date, 'yyyy-MM-dd', new Date());
@@ -377,8 +377,55 @@ export async function syncRosterToGrid(
         if (insertErr) throw insertErr;
     }
 
+    // 7. Auto-generate comp-off entries if duty date is a comp-off-eligible holiday
+    let compOffsGenerated = 0;
+    try {
+        const { data: holidayMatch } = await supabase
+            .from('holidays')
+            .select('id, holiday_name, comp_off_eligible')
+            .eq('holiday_date', date)
+            .eq('comp_off_eligible', true)
+            .maybeSingle();
+
+        if (holidayMatch) {
+            // Collect unique employee IDs that were assigned duty
+            const employeeIds = [...new Set(
+                assignments
+                    .filter((a: any) => a.employee_id)
+                    .map((a: any) => a.employee_id as string)
+            )];
+
+            if (employeeIds.length > 0) {
+                const expiryDate = format(addDays(new Date(date), 90), 'yyyy-MM-dd');
+                const compOffEntries = employeeIds.map((empId) => ({
+                    employee_id: empId,
+                    holiday_id: (holidayMatch as any).id,
+                    duty_date: date,
+                    days_granted: 1,
+                    expiry_date: expiryDate,
+                    status: 'available',
+                }));
+
+                const { error: compErr } = await supabase
+                    .from('comp_off_ledger' as any)
+                    .upsert(compOffEntries as any, { onConflict: 'employee_id,holiday_id,duty_date' });
+
+                if (!compErr) {
+                    compOffsGenerated = employeeIds.length;
+                    console.log(`[SyncRoster] Auto-generated ${compOffsGenerated} comp-off entries for ${(holidayMatch as any).holiday_name}`);
+                } else {
+                    console.warn('[SyncRoster] Comp-off generation failed:', compErr.message);
+                }
+            }
+        }
+    } catch (e) {
+        // Non-critical — don't fail the sync if comp-off generation fails
+        console.warn('[SyncRoster] Comp-off check failed:', e);
+    }
+
     return {
         synced: assignments.length,
         unmatched: [...new Set(unmatched)],
+        compOffsGenerated,
     };
 }

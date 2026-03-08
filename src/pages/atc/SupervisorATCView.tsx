@@ -195,7 +195,7 @@ export default function SupervisorATCView() {
                   if (!team) { toast.error('Select a team first'); return; }
                   try {
                     const result = await syncFromRoster.mutateAsync({ date: dateStr, shift, team });
-                    const msg = `Synced ${result.synced} assignments`;
+                    const msg = `Synced ${result.synced} assignments` + (result.compOffsGenerated ? ` • ${result.compOffsGenerated} comp-offs generated` : '');
                     if (result.unmatched.length > 0) {
                       toast.warning(`${msg}. ${result.unmatched.length} names unmatched: ${result.unmatched.join(', ')}`);
                     } else {
