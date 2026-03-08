@@ -16,7 +16,7 @@ export async function syncRosterToGrid(
 
     // Convert ISO date (2026-02-17) to the format stored in rosters table (17-Feb-2026)
     const parsedDate = parse(date, 'yyyy-MM-dd', new Date());
-    const rosterDateStr = format(parsedDate, 'dd-MMM-yyyy'); // "17-Feb-2026"
+    const rosterDateStr = format(parsedDate, 'd-MMM-yyyy'); // "6-Mar-2026"
 
     // Shift is stored as uppercase in rosters table (MORNING, EVENING, NIGHT)
     const rosterShift = shift.toUpperCase();

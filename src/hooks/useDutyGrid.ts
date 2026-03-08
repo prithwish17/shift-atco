@@ -88,16 +88,40 @@ export function useCreateOrGetRoster() {
                 .eq('team', team || '')
                 .maybeSingle();
             if (existing) return existing as DutyRoster;
-            // Upsert to avoid 409 conflict from race conditions or stale auth
+
+            // Try upsert; if constraint mismatch, fall back to insert
+            try {
+                const { data, error } = await supabase
+                    .from('duty_rosters' as any)
+                    .upsert(
+                        { roster_date: date, shift, team } as any,
+                        { onConflict: 'roster_date,shift,team' }
+                    )
+                    .select()
+                    .single();
+                if (!error && data) return data as DutyRoster;
+            } catch { /* fall through */ }
+
+            // Fallback: plain insert, catch conflict and re-fetch
             const { data, error } = await supabase
                 .from('duty_rosters' as any)
-                .upsert(
-                    { roster_date: date, shift, team } as any,
-                    { onConflict: 'roster_date,shift,team' }
-                )
+                .insert({ roster_date: date, shift, team } as any)
                 .select()
                 .single();
-            if (error) throw error;
+            if (error) {
+                // Conflict (409) — row was created by another request, re-fetch
+                if (error.code === '23505' || (error as any).status === 409) {
+                    const { data: refetched } = await supabase
+                        .from('duty_rosters' as any)
+                        .select('*')
+                        .eq('roster_date', date)
+                        .eq('shift', shift)
+                        .eq('team', team || '')
+                        .maybeSingle();
+                    if (refetched) return refetched as DutyRoster;
+                }
+                throw error;
+            }
             return data as DutyRoster;
         },
         onSuccess: () => qc.invalidateQueries({ queryKey: ['duty-roster'] }),
@@ -332,8 +356,8 @@ export type RosterStatusEntry = {
 
 export function useRosterStatusEntries(date: Date, shift: string, team: string) {
     const dateStr = format(date, 'yyyy-MM-dd');
-    // Convert to the format stored in rosters table (dd-MMM-yyyy)
-    const rosterDateStr = format(date, 'dd-MMM-yyyy');
+    // Convert to the format stored in rosters table (d-MMM-yyyy)
+    const rosterDateStr = format(date, 'd-MMM-yyyy');
     const rosterShift = shift.toUpperCase();
 
     return useQuery({
