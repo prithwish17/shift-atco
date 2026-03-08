@@ -42,7 +42,7 @@ export default function SupervisorATCView() {
   const { gridData: edgeFuncData, isLoading: edgeLoading, refetch: refetchEdge } = useATCAssignments(dateStr, shift || undefined);
 
   const { data: employees = [] } = useGridEmployees();
-  const { data: roster, isLoading: rosterLoading } = useDutyRoster(date, shift);
+  const { data: roster, isLoading: rosterLoading } = useDutyRoster(date, shift, team);
   const createOrGetRoster = useCreateOrGetRoster();
   const { data: assignments = [] } = useRosterAssignments(roster?.id);
   const upsertAssignment = useUpsertAssignment();
@@ -59,11 +59,11 @@ export default function SupervisorATCView() {
 
   // Auto-create roster only after query confirms none exists
   useEffect(() => {
-    if (!rosterLoading && !roster && !createOrGetRoster.isPending) {
-      createOrGetRoster.mutate({ date: format(date, 'yyyy-MM-dd'), shift, team: team || undefined });
+    if (!rosterLoading && !roster && team && !createOrGetRoster.isPending) {
+      createOrGetRoster.mutate({ date: format(date, 'yyyy-MM-dd'), shift, team });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateStr, shift, rosterLoading]);
+  }, [dateStr, shift, team, rosterLoading]);
 
   const assignedEmployeeIds = useMemo(() => {
     const ids = new Set<string>();
@@ -148,7 +148,7 @@ export default function SupervisorATCView() {
     <DashboardLayout role="supervisor">
       <div className="space-y-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Supervisor – ATC Duty Grid</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Supervisor – Shift Duty Grid</h1>
           <p className="text-muted-foreground">Manage and assign employees to positions</p>
         </div>
 

@@ -59,6 +59,7 @@ export async function syncRosterToGrid(
         .select('*')
         .eq('roster_date', date)
         .eq('shift', shift)
+        .eq('team', team)
         .maybeSingle();
 
     let rosterId: string;

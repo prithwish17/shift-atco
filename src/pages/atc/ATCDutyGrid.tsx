@@ -49,7 +49,7 @@ export default function ATCDutyGrid() {
 
   // Supabase CRUD hooks
   const { data: employees = [] } = useGridEmployees();
-  const { data: roster, isLoading: rosterLoading } = useDutyRoster(date, shift);
+  const { data: roster, isLoading: rosterLoading } = useDutyRoster(date, shift, team);
   const createOrGetRoster = useCreateOrGetRoster();
   const { data: assignments = [] } = useRosterAssignments(roster?.id);
   const upsertAssignment = useUpsertAssignment();
@@ -70,13 +70,13 @@ export default function ATCDutyGrid() {
     [statusEntries]
   );
 
-  // Ensure roster exists when date/shift changes — only after query confirms none exists
+  // Ensure roster exists when date/shift/team changes — only after query confirms none exists
   useEffect(() => {
-    if (!rosterLoading && !roster && canEdit && !createOrGetRoster.isPending) {
-      createOrGetRoster.mutate({ date: format(date, 'yyyy-MM-dd'), shift, team: team || undefined });
+    if (!rosterLoading && !roster && canEdit && team && !createOrGetRoster.isPending) {
+      createOrGetRoster.mutate({ date: format(date, 'yyyy-MM-dd'), shift, team });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateStr, shift, rosterLoading]);
+  }, [dateStr, shift, team, rosterLoading]);
 
   // Track assigned employees to prevent double-booking
   const assignedEmployeeIds = useMemo(() => {
@@ -213,7 +213,7 @@ export default function ATCDutyGrid() {
       <div className="space-y-4">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">ATC Duty Grid</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Shift Duty Grid</h1>
           <p className="text-muted-foreground">
             Manage position assignments for each shift
           </p>

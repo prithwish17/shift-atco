@@ -54,20 +54,22 @@ export interface GridEmployee {
 
 // ---------- Roster CRUD ----------
 
-export function useDutyRoster(date: Date, shift: string) {
+export function useDutyRoster(date: Date, shift: string, team: string) {
     const dateStr = format(date, 'yyyy-MM-dd');
     return useQuery({
-        queryKey: ['duty-roster', dateStr, shift],
+        queryKey: ['duty-roster', dateStr, shift, team],
         queryFn: async () => {
             const { data, error } = await supabase
                 .from('duty_rosters' as any)
                 .select('*')
                 .eq('roster_date', dateStr)
                 .eq('shift', shift)
+                .eq('team', team)
                 .maybeSingle();
             if (error) throw error;
             return data as DutyRoster | null;
         },
+        enabled: !!team,
         staleTime: 2 * 60 * 1000,
         gcTime: 5 * 60 * 1000,
     });
@@ -83,11 +85,16 @@ export function useCreateOrGetRoster() {
                 .select('*')
                 .eq('roster_date', date)
                 .eq('shift', shift)
+                .eq('team', team || '')
                 .maybeSingle();
             if (existing) return existing as DutyRoster;
+            // Upsert to avoid 409 conflict from race conditions or stale auth
             const { data, error } = await supabase
                 .from('duty_rosters' as any)
-                .insert({ roster_date: date, shift, team } as any)
+                .upsert(
+                    { roster_date: date, shift, team } as any,
+                    { onConflict: 'roster_date,shift,team' }
+                )
                 .select()
                 .single();
             if (error) throw error;

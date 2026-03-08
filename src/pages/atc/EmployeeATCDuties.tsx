@@ -22,6 +22,7 @@ import { useATCAssignments } from '@/hooks/useATCAssignments';
 export default function EmployeeATCDuties() {
   const [date, setDate] = useState<Date>(new Date());
   const [shift, setShift] = useState('Morning');
+  const [team, setTeam] = useState('');
   const [positionLabels, setPositionLabels] = useState<Record<string, string>>({});
 
   const isNight = shift === 'Night';
@@ -29,7 +30,7 @@ export default function EmployeeATCDuties() {
   const dateStr = format(date, 'yyyy-MM-dd');
   const { isLoading: edgeLoading, refetch: refetchEdge } = useATCAssignments(dateStr, shift || undefined);
 
-  const { data: roster } = useDutyRoster(date, shift);
+  const { data: roster } = useDutyRoster(date, shift, team);
   const { data: assignments = [] } = useRosterAssignments(roster?.id);
   const { data: leaveRecords = [] } = useGridLeaveRecords(date);
   const { data: extraDuties = [] } = useGridExtraDuties(roster?.id);
@@ -63,7 +64,7 @@ export default function EmployeeATCDuties() {
     <DashboardLayout role="employee">
       <div className="space-y-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">ATC Duty Grid</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Shift Duty Grid</h1>
           <p className="text-muted-foreground">View position assignments for each shift</p>
         </div>
 
@@ -85,6 +86,14 @@ export default function EmployeeATCDuties() {
                 <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {ATC_SHIFTS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select value={team} onValueChange={setTeam}>
+                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Team" /></SelectTrigger>
+                <SelectContent>
+                  {['A', 'B', 'C', 'D', 'E'].map((t) => (
+                    <SelectItem key={t} value={t}>Team {t}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={() => refetchEdge()} disabled={edgeLoading}>

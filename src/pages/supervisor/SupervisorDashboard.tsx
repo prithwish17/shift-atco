@@ -386,7 +386,7 @@ export default function SupervisorDashboard() {
               <Link to="/supervisor/roster">
                 <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
                   <CalendarIcon className="h-6 w-6" />
-                  Daily Roster
+                  Shift Roster Data
                 </Button>
               </Link>
               <Link to="/supervisor/duty-management">

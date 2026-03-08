@@ -107,7 +107,7 @@ export default function EmployeeRoster() {
             <div className="space-y-6">
                 {/* Header */}
                 <div>
-                    <h1 className="text-3xl font-bold">Daily Roster</h1>
+                    <h1 className="text-3xl font-bold">Shift Roster Data</h1>
                     <p className="text-muted-foreground">
                         View shift roster assignments by date
                     </p>

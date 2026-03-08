@@ -228,7 +228,7 @@ export default function RosterManagement() {
       <div className="w-full min-h-0 flex flex-col rounded-xl border border-slate-200 bg-slate-50 overflow-hidden">
         <header className="bg-gradient-to-r from-slate-600 to-slate-700 px-3 py-4 sm:px-5 sm:py-5 lg:px-6 shadow-sm">
           <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-white tracking-tight">
-            Employee Roster Management
+            Employee Schedule Management
           </h1>
         </header>
 

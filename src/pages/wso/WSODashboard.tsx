@@ -232,7 +232,7 @@ export default function WSODashboard() {
               <Link to="/wso/atc-grid">
                 <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
                   <Clock className="h-6 w-6" />
-                  ATC Duty Grid
+                  Shift Duty Grid
                 </Button>
               </Link>
               <Link to="/wso/leaves">

@@ -39,7 +39,7 @@ export default function WSOATCView() {
   const { refetch: refetchEdge, isLoading: edgeLoading } = useATCAssignments(dateStr, shift || undefined);
 
   const { data: employees = [] } = useGridEmployees();
-  const { data: roster, isLoading: rosterLoading } = useDutyRoster(date, shift);
+  const { data: roster, isLoading: rosterLoading } = useDutyRoster(date, shift, team);
   const createOrGetRoster = useCreateOrGetRoster();
   const { data: assignments = [] } = useRosterAssignments(roster?.id);
   const upsertAssignment = useUpsertAssignment();
@@ -54,11 +54,11 @@ export default function WSOATCView() {
 
   // Auto-create roster only after query confirms none exists
   useEffect(() => {
-    if (!rosterLoading && !roster && !createOrGetRoster.isPending) {
-      createOrGetRoster.mutate({ date: format(date, 'yyyy-MM-dd'), shift, team: team || undefined });
+    if (!rosterLoading && !roster && team && !createOrGetRoster.isPending) {
+      createOrGetRoster.mutate({ date: format(date, 'yyyy-MM-dd'), shift, team });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateStr, shift, rosterLoading]);
+  }, [dateStr, shift, team, rosterLoading]);
 
   const assignedEmployeeIds = useMemo(() => {
     const ids = new Set<string>();
@@ -132,7 +132,7 @@ export default function WSOATCView() {
     <DashboardLayout role="wso">
       <div className="space-y-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">WSO – ATC Duty Grid</h1>
+          <h1 className="text-3xl font-bold tracking-tight">WSO – Shift Duty Grid</h1>
           <p className="text-muted-foreground">Assign employees to positions</p>
         </div>
 
