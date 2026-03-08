@@ -45,20 +45,20 @@ const MONTH_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SE
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
 // ── Color system ──
-const TYPE_DOT: Record<string, string> = { NH: 'bg-red-500', CH: 'bg-blue-500', RH: 'bg-amber-500' };
+const TYPE_DOT: Record<string, string> = { NH: 'bg-red-500', CH: 'bg-emerald-500', RH: 'bg-amber-500' };
 const TYPE_CHIP_BG: Record<string, string> = {
   NH: 'bg-red-100 dark:bg-red-900/30',
-  CH: 'bg-blue-100 dark:bg-blue-900/30',
+  CH: 'bg-emerald-100 dark:bg-emerald-900/30',
   RH: 'bg-amber-100 dark:bg-amber-900/30',
 };
 const TYPE_CHIP_TEXT: Record<string, string> = {
   NH: 'text-red-700 dark:text-red-400',
-  CH: 'text-blue-700 dark:text-blue-400',
+  CH: 'text-emerald-700 dark:text-emerald-400',
   RH: 'text-amber-700 dark:text-amber-400',
 };
 const TYPE_BORDER: Record<string, string> = {
   NH: 'border-red-300 dark:border-red-800',
-  CH: 'border-blue-300 dark:border-blue-800',
+  CH: 'border-emerald-300 dark:border-emerald-800',
   RH: 'border-amber-300 dark:border-amber-800',
 };
 
@@ -186,7 +186,7 @@ export default function HolidayManagement() {
         {isNext && (
           <div className="absolute -top-3 left-3 z-20">
             <span className={`flex items-center gap-1.5 px-3 py-1 text-[9px] font-black uppercase tracking-wider rounded-full leading-none shadow-lg ${holiday.type === 'NH' ? 'bg-red-500 shadow-red-500/40' :
-              holiday.type === 'CH' ? 'bg-blue-500 shadow-blue-500/40' :
+              holiday.type === 'CH' ? 'bg-emerald-500 shadow-emerald-500/40' :
                 'bg-amber-500 shadow-amber-500/40'
               } text-white`}>
               Next Holiday in {nextHoliday?.daysUntil === 0 ? 'Today' : `${nextHoliday?.daysUntil} ${nextHoliday?.daysUntil === 1 ? 'Day' : 'Days'}`}
@@ -363,7 +363,7 @@ export default function HolidayManagement() {
                             ${isToday ? 'bg-indigo-600 text-white font-bold' : ''}
                             ${holiday && !isToday ? 'font-semibold' : ''}
                             ${holiday && !isToday && holiday.type === 'NH' ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400' : ''}
-                            ${holiday && !isToday && holiday.type === 'CH' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400' : ''}
+                            ${holiday && !isToday && holiday.type === 'CH' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' : ''}
                             ${holiday && !isToday && holiday.type === 'RH' ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400' : ''}
                           `}
                           title={holiday ? `${holiday.name} (${holiday.type})` : undefined}
@@ -378,7 +378,7 @@ export default function HolidayManagement() {
                   </div>
                   <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> NH</span>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" /> CH</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> CH</span>
                     <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> RH</span>
                   </div>
                 </CardContent>

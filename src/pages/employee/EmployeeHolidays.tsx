@@ -22,15 +22,15 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 const MONTH_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
-const TYPE_DOT: Record<string, string> = { NH: 'bg-red-500', CH: 'bg-blue-500', RH: 'bg-amber-500' };
+const TYPE_DOT: Record<string, string> = { NH: 'bg-red-500', CH: 'bg-emerald-500', RH: 'bg-amber-500' };
 const TYPE_CHIP_BG: Record<string, string> = {
     NH: 'bg-red-100 dark:bg-red-900/30',
-    CH: 'bg-blue-100 dark:bg-blue-900/30',
+    CH: 'bg-emerald-100 dark:bg-emerald-900/30',
     RH: 'bg-amber-100 dark:bg-amber-900/30',
 };
 const TYPE_CHIP_TEXT: Record<string, string> = {
     NH: 'text-red-700 dark:text-red-400',
-    CH: 'text-blue-700 dark:text-blue-400',
+    CH: 'text-emerald-700 dark:text-emerald-400',
     RH: 'text-amber-700 dark:text-amber-400',
 };
 
@@ -44,7 +44,7 @@ export default function EmployeeHolidays() {
     const currentYear = new Date().getFullYear();
     const [selectedYear, setSelectedYear] = useState(currentYear);
     const [selectedMonth, setSelectedMonth] = useState(getMonth(new Date()));
-    const [tab, setTab] = useState<'calendar' | 'timeline'>('calendar');
+    const [tab, setTab] = useState<'calendar' | 'timeline'>('timeline');
     const [showPast, setShowPast] = useState(false);
     const [showRH, setShowRH] = useState(false);
 
@@ -120,7 +120,7 @@ export default function EmployeeHolidays() {
         const typeColor = TYPE_CHIP_BG[holiday.type] || TYPE_CHIP_BG.NH;
         const typeText = TYPE_CHIP_TEXT[holiday.type] || TYPE_CHIP_TEXT.NH;
         const borderColor = isNext
-            ? (holiday.type === 'NH' ? 'border-red-400 dark:border-red-700' : holiday.type === 'CH' ? 'border-blue-400 dark:border-blue-700' : 'border-amber-400 dark:border-amber-700')
+            ? (holiday.type === 'NH' ? 'border-red-400 dark:border-red-700' : holiday.type === 'CH' ? 'border-emerald-400 dark:border-emerald-700' : 'border-amber-400 dark:border-amber-700')
             : 'border-slate-200 dark:border-neutral-800';
 
         return (
@@ -130,7 +130,7 @@ export default function EmployeeHolidays() {
                 {isNext && (
                     <div className="absolute -top-3 left-3 z-20">
                         <span className={`flex items-center gap-1.5 px-3 py-1 text-[9px] font-black uppercase tracking-wider rounded-full leading-none shadow-lg ${holiday.type === 'NH' ? 'bg-red-500 shadow-red-500/40' :
-                            holiday.type === 'CH' ? 'bg-blue-500 shadow-blue-500/40' :
+                            holiday.type === 'CH' ? 'bg-emerald-500 shadow-emerald-500/40' :
                                 'bg-amber-500 shadow-amber-500/40'
                             } text-white`}>
                             Next Holiday in {nextHoliday?.daysUntil === 0 ? 'Today' : `${nextHoliday?.daysUntil} ${nextHoliday?.daysUntil === 1 ? 'Day' : 'Days'}`}
@@ -256,15 +256,6 @@ export default function EmployeeHolidays() {
                 <div className="flex items-center justify-between">
                     <div className="flex gap-2">
                         <button
-                            onClick={() => setTab('calendar')}
-                            className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-full border transition-all ${tab === 'calendar'
-                                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white'
-                                : 'bg-white dark:bg-neutral-800 text-slate-600 dark:text-neutral-400 border-slate-200 dark:border-neutral-700 hover:bg-slate-100 dark:hover:bg-neutral-700'
-                                }`}
-                        >
-                            <CalendarDays className="h-3.5 w-3.5" /> Calendar
-                        </button>
-                        <button
                             onClick={() => setTab('timeline')}
                             className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-full border transition-all ${tab === 'timeline'
                                 ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white'
@@ -272,6 +263,15 @@ export default function EmployeeHolidays() {
                                 }`}
                         >
                             <LayoutList className="h-3.5 w-3.5" /> Timeline
+                        </button>
+                        <button
+                            onClick={() => setTab('calendar')}
+                            className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-full border transition-all ${tab === 'calendar'
+                                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white'
+                                : 'bg-white dark:bg-neutral-800 text-slate-600 dark:text-neutral-400 border-slate-200 dark:border-neutral-700 hover:bg-slate-100 dark:hover:bg-neutral-700'
+                                }`}
+                        >
+                            <CalendarDays className="h-3.5 w-3.5" /> Calendar
                         </button>
                     </div>
                     {tab === 'timeline' && (
@@ -326,7 +326,7 @@ export default function EmployeeHolidays() {
                                                         ${!day ? '' : 'cursor-default'}
                                                         ${isToday ? 'bg-indigo-600 text-white font-bold' : ''}
                                                         ${holiday && !isToday && holiday.type === 'NH' ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 font-semibold' : ''}
-                                                        ${holiday && !isToday && holiday.type === 'CH' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 font-semibold' : ''}
+                                                        ${holiday && !isToday && holiday.type === 'CH' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 font-semibold' : ''}
                                                         ${holiday && !isToday && holiday.type === 'RH' ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 font-semibold' : ''}
                                                     `}
                                                     title={holiday ? `${holiday.name} (${holiday.type})` : undefined}
@@ -341,7 +341,7 @@ export default function EmployeeHolidays() {
                                     </div>
                                     <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
                                         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> NH</span>
-                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" /> CH</span>
+                                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> CH</span>
                                         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /> RH</span>
                                     </div>
                                 </CardContent>
