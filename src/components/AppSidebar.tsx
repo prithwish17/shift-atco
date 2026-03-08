@@ -45,6 +45,7 @@ const menuItems = {
     { title: "Schedule Management", url: "/supervisor/duty-management", icon: CalendarDays },
     { title: "Shift Roster Data", url: "/supervisor/roster", icon: ClipboardList },
     { title: "Holidays", url: "/supervisor/holidays", icon: Calendar },
+    { title: "Licenses", url: "/supervisor/licenses", icon: Shield },
     { title: "Profile Settings", url: "/supervisor/profile", icon: UserCog },
   ],
   wso: [
@@ -64,6 +65,7 @@ const menuItems = {
     { title: "Duty Exchange", url: "/employee/duty-exchange", icon: ArrowLeftRight },
     { title: "Leave History", url: "/employee/leave-history", icon: History },
     { title: "Holidays", url: "/employee/holidays", icon: CalendarDays },
+    { title: "License Status", url: "/employee/licenses", icon: Shield },
     { title: "Profile Settings", url: "/employee/profile", icon: UserCog },
   ],
 };

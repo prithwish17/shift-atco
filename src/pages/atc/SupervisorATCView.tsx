@@ -198,6 +198,8 @@ export default function SupervisorATCView() {
                     const msg = `Synced ${result.synced} assignments` + (result.compOffsGenerated ? ` • ${result.compOffsGenerated} comp-offs generated` : '');
                     if (result.unmatched.length > 0) {
                       toast.warning(`${msg}. ${result.unmatched.length} names unmatched: ${result.unmatched.join(', ')}`);
+                    } else if (result.qualificationWarnings && result.qualificationWarnings.length > 0) {
+                      toast.warning(`${msg}. ⚠ ${result.qualificationWarnings.length} license warning(s)`);
                     } else {
                       toast.success(msg);
                     }

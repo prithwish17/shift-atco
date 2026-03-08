@@ -12,7 +12,7 @@ export async function syncRosterToGrid(
     date: string,        // ISO format: "2026-02-17"
     shift: string,       // UI format: "Morning"
     team: string         // "A" / "B" / "C" / "D" / "E"
-): Promise<{ synced: number; unmatched: string[]; compOffsGenerated?: number }> {
+): Promise<{ synced: number; unmatched: string[]; compOffsGenerated?: number; qualificationWarnings?: string[] }> {
 
     // Convert ISO date (2026-02-17) to the format stored in rosters table (17-Feb-2026)
     const parsedDate = parse(date, 'yyyy-MM-dd', new Date());
@@ -422,10 +422,39 @@ export async function syncRosterToGrid(
         // Non-critical — don't fail the sync if comp-off generation fails
         console.warn('[SyncRoster] Comp-off check failed:', e);
     }
+    // 8. License qualification check (non-blocking warnings)
+    const qualificationWarnings: string[] = [];
+    try {
+        const { isQualifiedForPosition } = await import('@/lib/licenseValidator');
+        // Get unique employee+position combos
+        const checks = new Map<string, string>(); // employeeId → positionName
+        for (const a of assignments) {
+            if (a.employee_id && a.position_name) {
+                checks.set(a.employee_id, a.position_name);
+            }
+        }
+        for (const [empId, posName] of checks) {
+            const result = await isQualifiedForPosition(empId, posName);
+            if (!result.qualified) {
+                // Find employee name from assignments
+                const empAssignment = assignments.find((a: any) => a.employee_id === empId);
+                qualificationWarnings.push(
+                    `${empAssignment?.position_label || posName}: ${result.reasons.join(', ')}`
+                );
+            }
+        }
+        if (qualificationWarnings.length > 0) {
+            console.warn(`[SyncRoster] ${qualificationWarnings.length} qualification warning(s):`);
+            qualificationWarnings.forEach((w) => console.warn(`  ⚠ ${w}`));
+        }
+    } catch (e) {
+        console.warn('[SyncRoster] License check skipped:', e);
+    }
 
     return {
         synced: assignments.length,
         unmatched: [...new Set(unmatched)],
         compOffsGenerated,
+        qualificationWarnings,
     };
 }

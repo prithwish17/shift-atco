@@ -33,6 +33,7 @@ const DutyExchangeApprovals = lazy(() => import("./pages/supervisor/DutyExchange
 const HolidayManagement = lazy(() => import("./pages/supervisor/HolidayManagement"));
 const OPEAssignments = lazy(() => import("./pages/supervisor/OPEAssignments"));
 const DutyManagement = lazy(() => import("./pages/supervisor/DutyManagement"));
+const LicenseManagement = lazy(() => import("./pages/supervisor/LicenseManagement"));
 
 // WSO
 const WSODashboard = lazy(() => import("./pages/wso/WSODashboard"));
@@ -48,6 +49,7 @@ const LeaveApplication = lazy(() => import("./pages/employee/LeaveApplication"))
 const DutyExchangeRequest = lazy(() => import("./pages/employee/DutyExchangeRequest"));
 const EmployeeRoster = lazy(() => import("./pages/employee/EmployeeRoster"));
 const EmployeeHolidays = lazy(() => import("./pages/employee/EmployeeHolidays"));
+const EmployeeLicenses = lazy(() => import("./pages/employee/EmployeeLicenses"));
 
 // ATC
 const ATCDutyGrid = lazy(() => import("./pages/atc/ATCDutyGrid"));
@@ -108,6 +110,7 @@ const App = () => (
                   <Route path="/supervisor/ope-assignments" element={<ProtectedRoute allowedRoles={['supervisor']}><OPEAssignments /></ProtectedRoute>} />
                   <Route path="/supervisor/duty-management" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyManagement /></ProtectedRoute>} />
                   <Route path="/supervisor/roster" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDailyRoster /></ProtectedRoute>} />
+                  <Route path="/supervisor/licenses" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><LicenseManagement /></ProtectedRoute>} />
 
                   {/* WSO Routes */}
                   <Route path="/wso" element={<ProtectedRoute allowedRoles={['wso']}><WSODashboard /></ProtectedRoute>} />
@@ -125,6 +128,7 @@ const App = () => (
                   <Route path="/employee/atc-duties" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeATCDuties /></ProtectedRoute>} />
                   <Route path="/employee/roster" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeRoster /></ProtectedRoute>} />
                   <Route path="/employee/holidays" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeHolidays /></ProtectedRoute>} />
+                  <Route path="/employee/licenses" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeLicenses /></ProtectedRoute>} />
 
                   {/* ATC Routes */}
                   <Route path="/atc/grid" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><ATCDutyGrid /></ProtectedRoute>} />
