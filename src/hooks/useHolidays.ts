@@ -12,10 +12,7 @@ export function useHolidays() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("holidays")
-        .select(`
-          *,
-          creator:created_by(full_name)
-        `)
+        .select("*")
         .order("holiday_date", { ascending: true });
 
       if (error) throw error;

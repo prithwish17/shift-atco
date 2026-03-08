@@ -7,16 +7,15 @@ import { format, differenceInDays, startOfDay } from 'date-fns';
 
 export interface Holiday {
     id: string;
-    holiday_name: string;
+    name: string;
     holiday_date: string;
-    category: 'closed' | 'reserved' | 'national';
+    type: 'NH' | 'RH' | 'CH';
+    year: number;
+    station: string;
+    selectable: boolean;
     comp_off_eligible: boolean;
-    is_optional?: boolean;
-    year?: number;
-    region?: string;
     created_by: string;
     created_at: string;
-    updated_at: string;
 }
 
 export interface CompOffEntry {
@@ -48,7 +47,7 @@ export function useHolidaysByYear(year: number) {
                 .lte('holiday_date', endDate)
                 .order('holiday_date', { ascending: true });
             if (error) throw error;
-            return (data || []) as Holiday[];
+            return (data || []) as unknown as Holiday[];
         },
         staleTime: 30 * 60 * 1000,
         gcTime: 60 * 60 * 1000,
@@ -60,7 +59,7 @@ export function useNextHoliday(holidays: Holiday[]) {
     return useMemo(() => {
         const today = startOfDay(new Date());
         const upcoming = holidays
-            .filter((h) => new Date(h.holiday_date) >= today)
+            .filter((h) => h.type !== 'RH' && new Date(h.holiday_date) >= today)
             .sort((a, b) => new Date(a.holiday_date).getTime() - new Date(b.holiday_date).getTime());
         if (upcoming.length === 0) return null;
         const next = upcoming[0];
@@ -69,12 +68,12 @@ export function useNextHoliday(holidays: Holiday[]) {
     }, [holidays]);
 }
 
-/** Derived: holidays grouped by category */
-export function useHolidaysByCategory(holidays: Holiday[]) {
+/** Derived: holidays grouped by type (NH/RH/CH) */
+export function useHolidaysByType(holidays: Holiday[]) {
     return useMemo(() => {
-        const national = holidays.filter((h) => h.category === 'national');
-        const closed = holidays.filter((h) => h.category === 'closed');
-        const restricted = holidays.filter((h) => h.category === 'reserved');
+        const national = holidays.filter((h) => h.type === 'NH');
+        const closed = holidays.filter((h) => h.type === 'CH');
+        const restricted = holidays.filter((h) => h.type === 'RH');
         return { national, closed, restricted };
     }, [holidays]);
 }
@@ -122,7 +121,6 @@ export function useCompOffSummary(entries: CompOffEntry[]) {
         const totalAvailable = available.reduce((sum, e) => sum + e.days_granted, 0);
         const totalUsed = used.reduce((sum, e) => sum + e.days_granted, 0);
         const totalExpired = expired.reduce((sum, e) => sum + e.days_granted, 0);
-        // Nearest expiry
         const nearestExpiry = available
             .filter((e) => e.expiry_date)
             .sort((a, b) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime())[0];
@@ -133,7 +131,7 @@ export function useCompOffSummary(entries: CompOffEntry[]) {
 /** Derived: RH usage for the year */
 export function useRHUsage(holidays: Holiday[], leaveBalances: any[] | undefined) {
     return useMemo(() => {
-        const totalRH = holidays.filter((h) => h.category === 'reserved').length;
+        const totalRH = holidays.filter((h) => h.type === 'RH').length;
         const rhBalance = leaveBalances?.find((b: any) => b.leave_type === 'rh');
         const usedRH = rhBalance ? (rhBalance.balance <= 0 ? totalRH : totalRH - rhBalance.balance) : 0;
         return { total: Math.min(totalRH, 2), used: Math.max(0, usedRH), remaining: rhBalance?.balance ?? 2 };

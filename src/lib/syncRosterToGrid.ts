@@ -382,7 +382,7 @@ export async function syncRosterToGrid(
     try {
         const { data: holidayMatch } = await supabase
             .from('holidays')
-            .select('id, holiday_name, comp_off_eligible')
+            .select('id, name, comp_off_eligible')
             .eq('holiday_date', date)
             .eq('comp_off_eligible', true)
             .maybeSingle();
@@ -412,7 +412,7 @@ export async function syncRosterToGrid(
 
                 if (!compErr) {
                     compOffsGenerated = employeeIds.length;
-                    console.log(`[SyncRoster] Auto-generated ${compOffsGenerated} comp-off entries for ${(holidayMatch as any).holiday_name}`);
+                    console.log(`[SyncRoster] Auto-generated ${compOffsGenerated} comp-off entries for ${(holidayMatch as any).name}`);
                 } else {
                     console.warn('[SyncRoster] Comp-off generation failed:', compErr.message);
                 }

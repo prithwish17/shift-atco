@@ -1,10 +1,10 @@
-import { format, eachDayOfInterval, parseISO } from 'date-fns';
+import { format, eachDayOfInterval } from 'date-fns';
 
 export interface HolidayInfo {
     id: string;
-    holiday_name: string;
+    name: string;
     holiday_date: string;
-    category: 'closed' | 'reserved' | 'national';
+    type: 'NH' | 'RH' | 'CH';
     comp_off_eligible: boolean;
 }
 
@@ -25,10 +25,9 @@ export function isHoliday(date: Date, holidays: HolidayInfo[]): HolidayInfo | nu
 
 /**
  * Validate a leave date range against the holiday calendar.
- * Returns a list of conflicts:
- * - National Holiday (NH) → block: "Leave not required"
- * - Closed Holiday (CH) → block: "Office closed"
- * - Restricted Holiday (RH) → warn: counts against RH quota
+ * - NH (National Holiday) → block: leave not required
+ * - CH (Closed Holiday) → block: office closed
+ * - RH (Restricted Holiday) → warn: counts against RH quota
  */
 export function validateLeaveAgainstHolidays(
     startDate: Date,
@@ -44,29 +43,29 @@ export function validateLeaveAgainstHolidays(
 
         const dateStr = format(day, 'yyyy-MM-dd');
 
-        switch (holiday.category) {
-            case 'national':
+        switch (holiday.type) {
+            case 'NH':
                 conflicts.push({
                     date: dateStr,
                     holiday,
                     type: 'block',
-                    message: `${holiday.holiday_name} (${format(day, 'd MMM')}) is a National Holiday — leave not required.`,
+                    message: `${holiday.name} (${format(day, 'd MMM')}) is a National Holiday — leave not required.`,
                 });
                 break;
-            case 'closed':
+            case 'CH':
                 conflicts.push({
                     date: dateStr,
                     holiday,
                     type: 'block',
-                    message: `${holiday.holiday_name} (${format(day, 'd MMM')}) is a Closed Holiday — office is closed.`,
+                    message: `${holiday.name} (${format(day, 'd MMM')}) is a Closed Holiday — office is closed.`,
                 });
                 break;
-            case 'reserved':
+            case 'RH':
                 conflicts.push({
                     date: dateStr,
                     holiday,
                     type: 'warn',
-                    message: `${holiday.holiday_name} (${format(day, 'd MMM')}) is a Restricted Holiday — will be deducted from your RH quota.`,
+                    message: `${holiday.name} (${format(day, 'd MMM')}) is a Restricted Holiday — will be deducted from your RH quota.`,
                 });
                 break;
         }
@@ -89,7 +88,7 @@ export function getEffectiveLeaveDays(
 
     for (const day of days) {
         const holiday = isHoliday(day, holidays);
-        if (holiday && (holiday.category === 'national' || holiday.category === 'closed')) {
+        if (holiday && (holiday.type === 'NH' || holiday.type === 'CH')) {
             holidayDays++;
         }
     }
