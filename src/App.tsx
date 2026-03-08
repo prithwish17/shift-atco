@@ -47,6 +47,7 @@ const EmployeeSchedule = lazy(() => import("./pages/employee/EmployeeSchedule"))
 const LeaveApplication = lazy(() => import("./pages/employee/LeaveApplication"));
 const DutyExchangeRequest = lazy(() => import("./pages/employee/DutyExchangeRequest"));
 const EmployeeRoster = lazy(() => import("./pages/employee/EmployeeRoster"));
+const EmployeeHolidays = lazy(() => import("./pages/employee/EmployeeHolidays"));
 
 // ATC
 const ATCDutyGrid = lazy(() => import("./pages/atc/ATCDutyGrid"));
@@ -123,6 +124,7 @@ const App = () => (
                   <Route path="/employee/duty-exchange" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><DutyExchangeRequest /></ProtectedRoute>} />
                   <Route path="/employee/atc-duties" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeATCDuties /></ProtectedRoute>} />
                   <Route path="/employee/roster" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeRoster /></ProtectedRoute>} />
+                  <Route path="/employee/holidays" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeHolidays /></ProtectedRoute>} />
 
                   {/* ATC Routes */}
                   <Route path="/atc/grid" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><ATCDutyGrid /></ProtectedRoute>} />

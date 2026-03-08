@@ -15,6 +15,8 @@ import { Calendar, Clock, CheckCircle, XCircle, AlertCircle, Send, Ban, Pencil }
 import { format, differenceInDays, isBefore, startOfDay } from 'date-fns';
 import { LEAVE_TYPES, getLeaveTypeLabel, getLeaveStatusInfo } from '@/lib/leaveConstants';
 import { useMyLeaveRequests, useCreateLeaveRequest, useCancelLeaveRequest } from '@/hooks/useLeaveRequests';
+import { useHolidaysByYear } from '@/hooks/useHolidayDashboard';
+import { validateLeaveAgainstHolidays, type HolidayConflict } from '@/lib/holidayRules';
 
 export default function LeaveApplication() {
   const { user } = useAuth();
@@ -57,6 +59,19 @@ export default function LeaveApplication() {
   // Check if it's a half-day leave type
   const isHalfDay = formData.leave_type.startsWith('CL_1ST') || formData.leave_type.startsWith('CL_2ND');
 
+  // Holiday validation
+  const currentYear = new Date().getFullYear();
+  const { data: holidays = [] } = useHolidaysByYear(currentYear);
+  const holidayConflicts = useMemo<HolidayConflict[]>(() => {
+    if (!formData.start_date || !formData.end_date) return [];
+    return validateLeaveAgainstHolidays(
+      new Date(formData.start_date),
+      new Date(formData.end_date),
+      holidays
+    );
+  }, [formData.start_date, formData.end_date, holidays]);
+  const hasBlockingConflict = holidayConflicts.some((c) => c.type === 'block');
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !profile) return;
@@ -76,6 +91,13 @@ export default function LeaveApplication() {
     // Half-day leaves must be single day
     if (isHalfDay && formData.start_date !== formData.end_date) {
       toast.error('Half-day leave must be for a single date');
+      return;
+    }
+
+    // Holiday validation
+    if (hasBlockingConflict) {
+      const blockers = holidayConflicts.filter((c) => c.type === 'block');
+      toast.error(blockers[0].message);
       return;
     }
 
@@ -230,7 +252,25 @@ export default function LeaveApplication() {
                 />
               </div>
 
-              <Button type="submit" disabled={createRequest.isPending || !formData.leave_type || !formData.start_date || !formData.end_date}>
+              {/* Holiday Conflict Warnings */}
+              {holidayConflicts.length > 0 && (
+                <div className="space-y-1.5">
+                  {holidayConflicts.map((conflict, i) => (
+                    <div
+                      key={i}
+                      className={`flex items-start gap-2 text-xs p-2 rounded-md ${conflict.type === 'block'
+                          ? 'bg-red-50 text-red-700 border border-red-200'
+                          : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}
+                    >
+                      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span>{conflict.message}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Button type="submit" disabled={createRequest.isPending || !formData.leave_type || !formData.start_date || !formData.end_date || hasBlockingConflict}>
                 {createRequest.isPending ? 'Submitting...' : 'Submit Request'}
               </Button>
             </form>

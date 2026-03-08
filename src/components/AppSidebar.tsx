@@ -63,6 +63,7 @@ const menuItems = {
     { title: "Apply for Leave", url: "/employee/leave", icon: FileText },
     { title: "Duty Exchange", url: "/employee/duty-exchange", icon: ArrowLeftRight },
     { title: "Leave History", url: "/employee/leave-history", icon: History },
+    { title: "Holidays", url: "/employee/holidays", icon: CalendarDays },
     { title: "Profile Settings", url: "/employee/profile", icon: UserCog },
   ],
 };
