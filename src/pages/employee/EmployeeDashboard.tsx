@@ -60,6 +60,15 @@ export default function EmployeeDashboard() {
   const { data: balances, isLoading: balancesLoading } = useLeaveBalances(user?.id);
   const { shifts, isLoading: shiftsLoading } = useShifts(user?.id, today, weekEnd);
   const { data: myRoster, isLoading: rosterLoading } = useMyRoster(profile?.full_name);
+
+  // DEBUG: trace why useMySchedule might be disabled
+  console.log('[EmployeeDashboard]', {
+    userId: user?.id,
+    profileLoading,
+    employeeId: profile?.employee_id,
+    profileKeys: profile ? Object.keys(profile) : null,
+  });
+
   const { data: mySchedule = [], isLoading: scheduleLoading } = useMySchedule(
     profile?.employee_id,
     today,
