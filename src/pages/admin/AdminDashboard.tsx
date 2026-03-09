@@ -29,8 +29,8 @@ export default function AdminDashboard() {
   const totalUsers = users?.length || 0;
   const recentUsers = users?.slice(0, 5) || [];
 
-  const addLog = useCallback((entry: Omit<LogEntry, "id">) => {
-    setApiLogs(prev => [{ ...entry, id: ++logIdCounter }, ...prev].slice(0, 50));
+  const addLog = useCallback((entry: LogEntry) => {
+    setApiLogs(prev => [entry, ...prev].slice(0, 50));
   }, []);
 
   const updateLog = useCallback((id: number, updates: Partial<LogEntry>) => {
@@ -43,6 +43,7 @@ export default function AdminDashboard() {
     const thisId = ++logIdCounter;
 
     addLog({
+      id: thisId,
       timestamp: ts,
       status: "pending",
       message: "POST /api/functions/fetch-schedule — calling…",
