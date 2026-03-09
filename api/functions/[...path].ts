@@ -2,12 +2,17 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY!;
-const ALLOWED_ORIGINS = ['https://shift-atco.vercel.app'];
+const ALLOWED_ORIGINS = [
+    'https://shift-atco.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:8080',
+    'http://localhost:3000',
+];
 
 function setCorsHeaders(req: VercelRequest, res: VercelResponse) {
     const origin = req.headers.origin || '';
-    if (ALLOWED_ORIGINS.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin || '*');
     }
 }
 
