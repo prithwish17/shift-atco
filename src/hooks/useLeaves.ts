@@ -12,12 +12,7 @@ export function useLeaves(userId?: string) {
     queryFn: async () => {
       let query = supabase
         .from("leaves")
-        .select(`
-          *,
-          user:user_id(full_name, employee_id),
-          wso_approver:wso_approved_by(full_name),
-          supervisor_approver:supervisor_approved_by(full_name)
-        `)
+        .select("*")
         .order("created_at", { ascending: false });
 
       if (userId) {
@@ -26,7 +21,37 @@ export function useLeaves(userId?: string) {
 
       const { data, error } = await query;
       if (error) throw error;
-      return data as Leave[];
+      const leaves = (data || []) as Leave[];
+
+      // Collect unique user IDs to resolve names from profiles
+      const userIds = new Set<string>();
+      for (const leave of leaves) {
+        if (leave.user_id) userIds.add(leave.user_id);
+        if (leave.wso_approved_by) userIds.add(leave.wso_approved_by);
+        if (leave.supervisor_approved_by) userIds.add(leave.supervisor_approved_by);
+      }
+
+      // Fetch profile names for all referenced users in one query
+      let profileMap: Record<string, { full_name: string; employee_id: string }> = {};
+      if (userIds.size > 0) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, full_name, employee_id")
+          .in("id", Array.from(userIds));
+        if (profiles) {
+          for (const p of profiles) {
+            profileMap[p.id] = { full_name: p.full_name, employee_id: p.employee_id };
+          }
+        }
+      }
+
+      // Attach resolved profile data to each leave record
+      return leaves.map((leave) => ({
+        ...leave,
+        user: profileMap[leave.user_id] || null,
+        wso_approver: leave.wso_approved_by ? profileMap[leave.wso_approved_by] || null : null,
+        supervisor_approver: leave.supervisor_approved_by ? profileMap[leave.supervisor_approved_by] || null : null,
+      }));
     },
     staleTime: 3 * 60 * 1000, // 3 minutes
     gcTime: 10 * 60 * 1000, // 10 minutes
