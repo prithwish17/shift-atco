@@ -71,8 +71,6 @@ export function useEmployeeSchedules(
     return useQuery({
         queryKey: ['employee-schedules', employeeCode, startDate, endDate],
         queryFn: async () => {
-            console.log('[useEmployeeSchedules] querying', { employeeCode, startDate, endDate });
-
             let query = supabase
                 .from('employee_schedules' as any)
                 .select('*')
@@ -84,11 +82,9 @@ export function useEmployeeSchedules(
 
             const { data, error } = await query;
             if (error) {
-                console.error('[useEmployeeSchedules] employee_schedules query failed:', error);
                 throw error;
             }
             const schedules = (data || []) as unknown as EmployeeSchedule[];
-            console.log('[useEmployeeSchedules] fetched', schedules.length, 'schedule rows');
 
             // Resolve auth user id from employee code so leave_requests can be joined.
             const { data: profile, error: profileError } = await supabase
@@ -98,11 +94,10 @@ export function useEmployeeSchedules(
                 .maybeSingle();
 
             if (profileError) {
-                console.error('[useEmployeeSchedules] profile lookup failed:', profileError);
+                // Non-fatal: continue without leave overlay
             }
 
             if (!profile?.id) {
-                console.log('[useEmployeeSchedules] no profile found for employee_id:', employeeCode);
                 return schedules;
             }
 
@@ -124,7 +119,6 @@ export function useEmployeeSchedules(
 
             const { data: leaves, error: leavesError } = await leaveQuery;
             if (leavesError) {
-                console.error('[useEmployeeSchedules] leave_requests query failed:', leavesError);
                 // Don't throw — return schedules without leave overlay
                 return schedules;
             }

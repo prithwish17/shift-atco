@@ -60,12 +60,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
     }
 
-    console.log('[Supabase Proxy]', {
-        method: req.method,
-        incomingUrl: rawUrl,
-        subPath,
-        targetUrl: targetUrl.toString(),
-    });
 
     // Build headers to forward
     const headers: Record<string, string> = {
@@ -133,12 +127,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         // Stream the response body
         const body = await response.text();
-        console.log('[Supabase Proxy Response]', {
-            status: response.status,
-            subPath,
-            bodyPreview: body.slice(0, 200),
-            hasAuth: !!req.headers['authorization'],
-        });
         return res.status(response.status).send(body);
     } catch (error: any) {
         console.error('[Supabase Proxy Error]', error);
