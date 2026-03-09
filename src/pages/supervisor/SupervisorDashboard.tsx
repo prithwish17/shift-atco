@@ -10,10 +10,10 @@ import { useFetchSchedule } from "@/hooks/useEmployeeSchedules";
 
 import { Users, FileText, Calendar as CalendarIcon, ClipboardList, Clock, Search, Loader2, Sun, Sunrise, Moon, Briefcase } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useDutyExchanges } from "@/hooks/useDutyExchanges";
 import { useAttendance } from "@/hooks/useAttendance";
-import { format, differenceInCalendarDays } from "date-fns";
+import { format, differenceInCalendarDays, parseISO } from "date-fns";
 import { useAllLeaveRequests } from "@/hooks/useLeaveRequests";
 import { getLeaveTypeLabel } from "@/lib/leaveConstants";
 import { useQuery } from "@tanstack/react-query";
@@ -22,12 +22,15 @@ import { supabase } from "@/integrations/supabase/client";
 /* ── Duty-cycle constants (mirrors WSOAttendance.tsx) ── */
 const DUTY_CYCLE: Array<"M" | "A" | "N" | "NO" | "CO"> = ["M", "A", "N", "NO", "CO"];
 const TODAY_TEAM_DUTY_BASE: Record<string, "M" | "A" | "N" | "NO" | "CO"> = {
-  A: "A",
-  B: "M",
-  C: "CO",
-  D: "NO",
-  E: "N",
+  // Seeded to match current roster rule for "today":
+  // C=M, B=A, A=N, E=NO, D=CO
+  A: "N",
+  B: "A",
+  C: "M",
+  D: "CO",
+  E: "NO",
 };
+const DUTY_ROTATION_ANCHOR_DATE_IST = "2026-03-09"; // IST seed date for the mapping above
 const SHIFT_LABELS: Record<string, string> = {
   M: "Morning",
   A: "Afternoon",
@@ -36,10 +39,30 @@ const SHIFT_LABELS: Record<string, string> = {
   CO: "Clear Off",
 };
 
-function getTeamDutyForDate(teamKey: string, date: Date) {
+function getISTDateKey(now = new Date()): string {
+  const istDate = new Date(now.getTime() + 330 * 60 * 1000);
+  const y = istDate.getUTCFullYear();
+  const m = String(istDate.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(istDate.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function msUntilNextISTMidnight(now = new Date()): number {
+  const istNow = new Date(now.getTime() + 330 * 60 * 1000);
+  const nextIstMidnightUtcMs =
+    Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate() + 1, 0, 0, 0) -
+    330 * 60 * 1000;
+  return Math.max(1000, nextIstMidnightUtcMs - now.getTime());
+}
+
+function getISTDayOfWeek(istDateKey: string): number {
+  return parseISO(istDateKey).getDay(); // 0=Sun .. 6=Sat
+}
+
+function getTeamDutyForISTDate(teamKey: string, istDateKey: string) {
   const base = TODAY_TEAM_DUTY_BASE[teamKey] || "M";
   const baseIndex = DUTY_CYCLE.indexOf(base);
-  const offset = differenceInCalendarDays(date, new Date());
+  const offset = differenceInCalendarDays(parseISO(istDateKey), parseISO(DUTY_ROTATION_ANCHOR_DATE_IST));
   const idx = (baseIndex + (offset % DUTY_CYCLE.length) + DUTY_CYCLE.length) % DUTY_CYCLE.length;
   return DUTY_CYCLE[idx];
 }
@@ -62,7 +85,8 @@ const OPE_CODES = new Set([
 
 export default function SupervisorDashboard() {
 
-  const today = format(new Date(), "yyyy-MM-dd");
+  const [istToday, setIstToday] = useState(() => getISTDateKey());
+  const today = istToday;
   const [rosterSearch, setRosterSearch] = useState("");
   const { toast } = useToast();
 
@@ -139,16 +163,21 @@ export default function SupervisorDashboard() {
     [todaySchedules]
   );
 
-  // Derive today's shift ↔ team mapping from duty cycle logic
-  const todayDate = new Date();
+  // Auto-refresh date context at 00:00 IST every day.
+  useEffect(() => {
+    const timer = setTimeout(() => setIstToday(getISTDateKey()), msUntilNextISTMidnight());
+    return () => clearTimeout(timer);
+  }, [istToday]);
+
+  // Derive today's shift ↔ team mapping from duty cycle logic (IST).
   const shiftTeams: Record<string, string[]> = { M: [], A: [], N: [], NO: [], CO: [] };
   Object.keys(TODAY_TEAM_DUTY_BASE).forEach((teamKey) => {
-    const duty = getTeamDutyForDate(teamKey, todayDate);
+    const duty = getTeamDutyForISTDate(teamKey, istToday);
     shiftTeams[duty].push(`Team ${teamKey}`);
   });
 
-  // Team G (General) works Mon–Fri, except CH/NH holidays
-  const dayOfWeek = todayDate.getDay(); // 0=Sun, 6=Sat
+  // Team G (General) works Mon–Fri, except CH/NH holidays (IST calendar).
+  const dayOfWeek = getISTDayOfWeek(istToday); // 0=Sun, 6=Sat
   const isGeneralOnDuty = dayOfWeek >= 1 && dayOfWeek <= 5; // Mon–Fri
 
   // Supervisors can final-approve Pending Supervisor and direct-approve Pending WSO.
@@ -183,7 +212,7 @@ export default function SupervisorDashboard() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Supervisor Dashboard</h1>
           <p className="text-muted-foreground">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            {format(parseISO(istToday), "EEEE, MMMM d, yyyy")}
           </p>
         </div>
 
@@ -270,7 +299,7 @@ export default function SupervisorDashboard() {
           <Card>
             <CardHeader>
               <CardTitle>Today's Shifts</CardTitle>
-              <CardDescription>Teams on duty — {format(new Date(), "dd MMM yyyy")}</CardDescription>
+              <CardDescription>Teams on duty — {format(parseISO(istToday), "dd MMM yyyy")}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
@@ -281,7 +310,12 @@ export default function SupervisorDashboard() {
                   { key: "NO", label: "Night Off", icon: Moon, color: "text-slate-400", bg: "bg-slate-50 dark:bg-slate-950/40", border: "border-slate-200 dark:border-slate-800/40" },
                   { key: "CO", label: "Clear Off", icon: Clock, color: "text-gray-400", bg: "bg-gray-50 dark:bg-gray-950/40", border: "border-gray-200 dark:border-gray-800/40" },
                 ].map(({ key, label, icon: ShiftIcon, color, bg, border }) => (
-                  <div key={key} className={`flex items-center gap-4 p-3 rounded-lg border ${bg} ${border}`}>
+                  <Link
+                    key={key}
+                    to={`/supervisor/attendance?shift=${encodeURIComponent(key)}&date=${encodeURIComponent(today)}`}
+                    className={`flex items-center gap-4 p-3 rounded-lg border ${bg} ${border} hover:shadow-md transition-shadow`}
+                    title={`Open ${label} attendance list`}
+                  >
                     <ShiftIcon className={`h-5 w-5 flex-shrink-0 ${color}`} />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold tracking-wide uppercase text-muted-foreground">{label}</p>
@@ -294,7 +328,7 @@ export default function SupervisorDashboard() {
                     <Badge variant="secondary" className="text-sm font-bold tabular-nums">
                       {isLoading ? "..." : shiftCounts[key] || 0}
                     </Badge>
-                  </div>
+                  </Link>
                 ))}
 
                 {/* General shift — Team G */}

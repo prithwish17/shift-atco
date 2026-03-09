@@ -242,9 +242,9 @@ export default function EmployeeManagement() {
                   return (
                     <div
                       key={employee.id}
-                      className="p-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] gap-3 lg:gap-4 items-start lg:items-center bg-white hover:bg-slate-50 transition-colors"
+                      className="relative p-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] gap-3 lg:gap-4 items-start lg:items-center bg-white hover:bg-slate-50 transition-colors"
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex items-center gap-3 min-w-0 pr-10 lg:pr-0">
                         <Avatar className="h-12 w-12 shrink-0 ring-2 ring-slate-100">
                           <AvatarImage src={employee.photo_url || undefined} />
                           <AvatarFallback className="bg-blue-100 text-blue-700">{getInitials(employee.full_name)}</AvatarFallback>
@@ -256,15 +256,15 @@ export default function EmployeeManagement() {
                         </div>
                       </div>
 
-                      <div className="min-w-0 space-y-2 w-full">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-500 w-16 shrink-0">Shift</span>
+                      <div className="min-w-0 space-y-2 w-full border-t border-slate-100 pt-2 lg:border-0 lg:pt-0">
+                        <div className="flex items-center justify-between sm:justify-start gap-2">
+                          <span className="text-xs text-slate-500 min-w-[64px] shrink-0">Shift</span>
                           <Badge variant="outline" className="uppercase border-blue-200 text-blue-700 bg-blue-50">
                             {employee.current_shift}
                           </Badge>
                         </div>
-                        <div className="flex items-start gap-2">
-                          <span className="text-xs text-slate-500 w-16 shrink-0 pt-1">Licenses</span>
+                        <div className="flex items-start justify-between sm:justify-start gap-2">
+                          <span className="text-xs text-slate-500 min-w-[64px] shrink-0 pt-1">Licenses</span>
                           <div className="flex flex-wrap gap-1 min-w-0">
                             {empLicenses.length > 0 ? (
                               empLicenses.map((license) => (
@@ -279,7 +279,7 @@ export default function EmployeeManagement() {
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-end w-full lg:w-auto lg:justify-self-end">
+                      <div className="absolute right-2 top-2 lg:static lg:w-auto lg:justify-self-end">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon">

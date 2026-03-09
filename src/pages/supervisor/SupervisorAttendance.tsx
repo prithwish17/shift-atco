@@ -14,6 +14,7 @@ import { useUsers } from "@/hooks/useUsers";
 import { useAttendance } from "@/hooks/useAttendance";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useSearchParams } from "react-router-dom";
 
 interface AttendanceRow {
   userId: string;
@@ -41,9 +42,24 @@ interface ScheduleEntry {
 const normalizeName = (name: string) => name.trim().toUpperCase().replace(/\s+/g, " ");
 
 export default function SupervisorAttendance() {
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [searchParams] = useSearchParams();
+  const initialDateParam = searchParams.get("date");
+  const initialDate = initialDateParam ? new Date(`${initialDateParam}T00:00:00`) : new Date();
+  const [selectedDate, setSelectedDate] = useState<Date>(
+    Number.isNaN(initialDate.getTime()) ? new Date() : initialDate
+  );
   const [selectedTeam, setSelectedTeam] = useState("all");
-  const [selectedShiftCategory, setSelectedShiftCategory] = useState<string>("all");
+  const initialShift = (searchParams.get("shift") || "all").toUpperCase();
+  const allowedShiftFilters = new Set(["ALL", "G", "M", "A", "N", "NO", "CO", "UNMATCHED"]);
+  const [selectedShiftCategory, setSelectedShiftCategory] = useState<string>(
+    !allowedShiftFilters.has(initialShift)
+      ? "all"
+      : initialShift === "ALL"
+        ? "all"
+        : initialShift === "UNMATCHED"
+          ? "unmatched"
+          : initialShift
+  );
   const [attendanceRows, setAttendanceRows] = useState<AttendanceRow[]>([]);
 
   const dateStr = format(selectedDate, "yyyy-MM-dd");
@@ -162,7 +178,7 @@ export default function SupervisorAttendance() {
 
   const shiftCounts = useMemo(() => {
     const matched = scheduleEntries.filter((e) => !!e.user);
-    const counts = { G: 0, M: 0, A: 0, N: 0, unmatched: allUnmatched.length };
+    const counts = { G: 0, M: 0, A: 0, N: 0, NO: 0, CO: 0, unmatched: allUnmatched.length };
     matched.forEach((e) => {
       const tokens = getDutyShiftTokens(e.schedule.duty_code);
       tokens.forEach((t) => {
@@ -290,6 +306,8 @@ export default function SupervisorAttendance() {
             { key: "M", label: "MORNING", count: shiftCounts.M, color: "bg-amber-500 hover:bg-amber-600 text-white" },
             { key: "A", label: "AFTERNOON", count: shiftCounts.A, color: "bg-orange-500 hover:bg-orange-600 text-white" },
             { key: "N", label: "NIGHT", count: shiftCounts.N, color: "bg-indigo-600 hover:bg-indigo-700 text-white" },
+            { key: "NO", label: "NIGHT OFF", count: shiftCounts.NO, color: "bg-slate-500 hover:bg-slate-600 text-white" },
+            { key: "CO", label: "CLEAR OFF", count: shiftCounts.CO, color: "bg-gray-500 hover:bg-gray-600 text-white" },
             { key: "unmatched", label: "NOT MATCHED", count: shiftCounts.unmatched, color: "bg-red-600 hover:bg-red-700 text-white" },
           ].map((cat) => (
             <Button
