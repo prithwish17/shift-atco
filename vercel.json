@@ -1,12 +1,12 @@
 {
   "rewrites": [
     {
-      "source": "/api/supabase/:match*",
-      "destination": "/api/supabase/[...path]"
+      "source": "/api/supabase/(.*)",
+      "destination": "/api/supabase/[...path]?path=$1"
     },
     {
-      "source": "/api/functions/:match*",
-      "destination": "/api/functions/[...path]"
+      "source": "/api/functions/(.*)",
+      "destination": "/api/functions/[...path]?path=$1"
     },
     {
       "source": "/((?!api/).*)",
