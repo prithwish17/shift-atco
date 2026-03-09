@@ -2,12 +2,26 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_PUBLIC_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+if (!SUPABASE_PUBLISHABLE_KEY) {
   throw new Error(
-    "Missing Supabase environment variables. Ensure VITE_PUBLIC_SUPABASE_URL and VITE_PUBLIC_SUPABASE_ANON_KEY are set in .env.local"
+    "Missing Supabase environment variable. Ensure VITE_PUBLIC_SUPABASE_ANON_KEY is set in .env.local"
+  );
+}
+
+// In production (Vercel), route all Supabase traffic through our backend proxy
+// to avoid firewall blocks on *.supabase.co domains.
+// In local dev, use the direct Supabase URL since Vercel serverless functions
+// aren't available from `vite dev`.
+const IS_DEV = import.meta.env.DEV;
+const SUPABASE_URL = IS_DEV
+  ? import.meta.env.VITE_PUBLIC_SUPABASE_URL
+  : `${window.location.origin}/api/supabase`;
+
+if (!SUPABASE_URL) {
+  throw new Error(
+    "Missing VITE_PUBLIC_SUPABASE_URL for local development."
   );
 }
 

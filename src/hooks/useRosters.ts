@@ -21,9 +21,7 @@ export function useFetchRoster() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
 
-      const url = new URL(
-        "https://ilkrqlxrqaelflslbdnx.supabase.co/functions/v1/fetch-roster"
-      );
+      const url = new URL("/api/functions/fetch-roster", window.location.origin);
       if (team) url.searchParams.set("team", team);
       if (shift) url.searchParams.set("shift", shift);
 
