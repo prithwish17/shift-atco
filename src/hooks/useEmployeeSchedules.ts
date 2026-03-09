@@ -129,7 +129,7 @@ export function useEmployeeSchedules(
                 return schedules;
             }
 
-            const approvedLeaves = (leaves || []) as ApprovedLeaveRange[];
+            const approvedLeaves = (leaves || []) as unknown as ApprovedLeaveRange[];
             if (approvedLeaves.length === 0) {
                 return schedules;
             }
