@@ -332,7 +332,14 @@ export default function WsoRosterManagement() {
                       <TableBody>
                         {filteredRosters.map(
                           (entry: RosterEntry, idx: number) => (
-                            <TableRow key={entry.id || idx}>
+                            <TableRow
+                              key={entry.id || idx}
+                              className={`${
+                                idx % 2 === 0
+                                  ? "bg-white dark:bg-slate-900/55"
+                                  : "bg-slate-50/70 dark:bg-slate-800/55"
+                              } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
+                            >
                               <TableCell className="font-mono text-sm">
                                 {entry.date}
                               </TableCell>
@@ -374,4 +381,3 @@ export default function WsoRosterManagement() {
     </DashboardLayout>
   );
 }
-

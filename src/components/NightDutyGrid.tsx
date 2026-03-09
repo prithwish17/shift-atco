@@ -138,12 +138,19 @@ export function NightDutyGrid({
                                     {section.label}
                                 </td>
                             </tr>
-                            {section.rows.map((row) => {
+                            {section.rows.map((row, rowIndex) => {
                                 const isFullSpan = NIGHT_FULL_SPAN_POSITIONS.has(row.key);
                                 const isTripleFull = NIGHT_TRIPLE_FULL_POSITIONS.has(row.key);
                                 const isSpan = NIGHT_SPAN_POSITIONS.has(row.key);
                                 return (
-                                    <tr key={row.key} className="border-b hover:bg-accent/30">
+                                    <tr
+                                        key={row.key}
+                                        className={`border-b transition-colors ${
+                                            rowIndex % 2 === 0
+                                                ? 'bg-white dark:bg-slate-900/55'
+                                                : 'bg-slate-50/70 dark:bg-slate-800/55'
+                                        } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
+                                    >
                                         {/* Position label cell */}
                                         <td className="px-3 py-1.5 border-r font-medium whitespace-nowrap">
                                             {row.editable && canEdit ? (

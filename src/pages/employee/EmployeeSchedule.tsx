@@ -203,7 +203,7 @@ export default function EmployeeSchedule() {
                     <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Duty Status</p>
                     <p className="text-lg font-bold text-rose-700 dark:text-rose-400">{nextDuty.duty_code}</p>
                   </div>
-                  <span className="text-sm text-slate-600 dark:text-slate-400 break-words whitespace-normal leading-snug sm:text-right">
+                  <span className="text-sm text-slate-600 dark:text-slate-400 whitespace-normal break-normal leading-snug sm:text-right">
                     {shiftTime(nextDuty.duty_code) || nextDuty.duty_description || "—"}
                   </span>
                 </div>
@@ -366,7 +366,7 @@ export default function EmployeeSchedule() {
               {upcomingDuties.map((duty) => (
                 <div
                   key={duty.id}
-                  className="flex items-start gap-3 sm:gap-4 p-4 bg-gradient-to-r from-slate-50 to-white dark:from-gray-800/50 dark:to-gray-900 rounded-lg border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow"
+                  className="flex flex-wrap items-start gap-3 sm:gap-4 p-4 bg-gradient-to-r from-slate-50 to-white dark:from-gray-800/50 dark:to-gray-900 rounded-lg border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow"
                 >
                   {/* Date column */}
                   <div className="flex flex-col items-center min-w-[60px]">
@@ -386,14 +386,14 @@ export default function EmployeeSchedule() {
                     <span className={`text-xs font-semibold px-3 py-1.5 rounded-md w-fit ${dutyColor(duty.duty_code)}`}>
                       {duty.duty_code}
                     </span>
-                    <span className="text-sm text-gray-700 dark:text-gray-300 break-words whitespace-normal leading-snug">
+                    <span className="text-sm text-gray-700 dark:text-gray-300 whitespace-normal break-normal leading-snug">
                       {duty.duty_description || DUTY_DESCRIPTIONS[duty.duty_code] || ""}
                     </span>
                   </div>
 
                   {/* Time/Status */}
-                  <div className="text-right min-w-[100px] sm:min-w-[140px]">
-                    <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 break-words whitespace-normal leading-snug">
+                  <div className="basis-full pl-[72px] text-left sm:basis-auto sm:pl-0 sm:text-right min-w-0 sm:min-w-[140px]">
+                    <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 whitespace-normal break-normal leading-snug">
                       {shiftTime(duty.duty_code) || ""}
                     </span>
                   </div>

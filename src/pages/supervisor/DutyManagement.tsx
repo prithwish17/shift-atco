@@ -510,8 +510,11 @@ export default function DutyManagement() {
                                             return (
                                                 <div
                                                     key={emp.code}
-                                                    className={`flex ${ROW_H} border-b border-gray-200 ${rowIndex % 2 === 0 ? "bg-background" : "bg-muted/20"
-                                                        }`}
+                                                    className={`flex ${ROW_H} border-b border-gray-200 dark:border-slate-700 transition-colors ${
+                                                        rowIndex % 2 === 0
+                                                            ? "bg-white dark:bg-slate-900/55"
+                                                            : "bg-slate-50/70 dark:bg-slate-800/55"
+                                                    } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
                                                 >
                                                     <div className="w-32 px-3 flex items-center border-r border-gray-200">
                                                         <span className="text-xs font-mono font-medium truncate">{emp.code}</span>
@@ -562,8 +565,11 @@ export default function DutyManagement() {
                                 return (
                                     <div
                                         key={emp.code}
-                                        className={`flex ${ROW_H} border-b border-gray-200 ${rowIndex % 2 === 0 ? "bg-background" : "bg-muted/20"
-                                            }`}
+                                        className={`flex ${ROW_H} border-b border-gray-200 dark:border-slate-700 transition-colors ${
+                                            rowIndex % 2 === 0
+                                                ? "bg-white dark:bg-slate-900/55"
+                                                : "bg-slate-50/70 dark:bg-slate-800/55"
+                                        } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
                                     >
                                         {dates.map((date) => {
                                             const entry = scheduleMap.get(`${emp.code}|${date.key}`);

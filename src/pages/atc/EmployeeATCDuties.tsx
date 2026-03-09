@@ -146,8 +146,17 @@ export default function EmployeeATCDuties() {
                             {section.label}
                           </td>
                         </tr>
-                        {section.rows.map((row) => (
-                          <tr key={row.key} className="border-b hover:bg-accent/30">
+                        {section.rows.map((row, rowIndex) => (
+                          <tr
+                            key={row.key}
+                            className={cn(
+                              "border-b transition-colors",
+                              rowIndex % 2 === 0
+                                ? "bg-white dark:bg-slate-900/35"
+                                : "bg-slate-100/70 dark:bg-slate-800/45",
+                              "hover:bg-blue-100/60 dark:hover:bg-blue-900/30"
+                            )}
+                          >
                             <td className="px-3 py-1.5 border-r font-medium">{row.label}</td>
                             {DEPARTMENTS.slice(0, row.deptCount || 3).map((dept) => {
                               const assignment = getAssignment(row.key, dept);
