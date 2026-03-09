@@ -187,25 +187,39 @@ export function useFetchSchedule() {
     const qc = useQueryClient();
     return useMutation({
         mutationFn: async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) throw new Error('Not authenticated');
+            const { data, error } = await supabase.functions.invoke('fetch-schedule', { body: {} });
+            if (!error) return data;
 
-            const res = await fetch(
-                `/api/functions/fetch-schedule`,
-                {
+            // In some local networks, direct calls to *.supabase.co Edge Functions fail.
+            // Retry via deployed Vercel proxy in dev as a fallback.
+            if (import.meta.env.DEV) {
+                const { data: { session } } = await supabase.auth.getSession();
+                if (!session) throw error;
+
+                const base =
+                    import.meta.env.VITE_FUNCTIONS_PROXY_BASE_URL ||
+                    'https://shift-atco.vercel.app';
+
+                const res = await fetch(`${base}/api/functions/fetch-schedule`, {
                     method: 'POST',
                     headers: {
                         Authorization: `Bearer ${session.access_token}`,
                         'Content-Type': 'application/json',
                     },
-                }
-            );
+                    body: JSON.stringify({}),
+                });
 
-            if (!res.ok) {
+                if (res.ok) return res.json();
+
                 const errBody = await res.json().catch(() => ({}));
-                throw new Error(errBody.error || `HTTP ${res.status}`);
+                throw new Error(
+                    errBody.error ||
+                    error.message ||
+                    `Edge function failed via proxy: HTTP ${res.status}`
+                );
             }
-            return res.json();
+
+            throw error;
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['employee-schedules'] });

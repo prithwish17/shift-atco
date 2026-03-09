@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatCard } from "@/components/StatCard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +10,7 @@ import { Users, Activity, CheckCircle, Settings, FileText, AlertCircle, RefreshC
 import { Link } from "react-router-dom";
 import { useUsers } from "@/hooks/useUsers";
 import { useFetchSchedule } from "@/hooks/useEmployeeSchedules";
+import { supabase } from "@/integrations/supabase/client";
 
 interface LogEntry {
   id: number;
@@ -24,10 +26,41 @@ export default function AdminDashboard() {
   const { users, isLoading, approveUser, isApproving } = useUsers();
   const fetchSchedule = useFetchSchedule();
   const [apiLogs, setApiLogs] = useState<LogEntry[]>([]);
+  const { data: scheduleHealth, isLoading: scheduleHealthLoading, refetch: refetchScheduleHealth } = useQuery({
+    queryKey: ["admin-schedule-health"],
+    queryFn: async () => {
+      const { data: latestRows, error: latestError, count } = await supabase
+        .from("employee_schedules" as any)
+        .select("updated_at", { count: "exact" })
+        .order("updated_at", { ascending: false })
+        .limit(1);
+
+      if (latestError) throw latestError;
+
+      const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { count: updatedLast24h, error: last24hError } = await supabase
+        .from("employee_schedules" as any)
+        .select("id", { count: "exact", head: true })
+        .gte("updated_at", since24h);
+
+      if (last24hError) throw last24hError;
+
+      const latestUpdatedAt = latestRows?.[0]?.updated_at as string | undefined;
+      return {
+        totalRows: count || 0,
+        latestUpdatedAt: latestUpdatedAt || null,
+        updatedLast24h: updatedLast24h || 0,
+      };
+    },
+    staleTime: 60 * 1000,
+  });
 
   const pendingApprovals = users?.filter(u => !u.approved) || [];
   const totalUsers = users?.length || 0;
   const recentUsers = users?.slice(0, 5) || [];
+  const lastSyncDate = scheduleHealth?.latestUpdatedAt ? new Date(scheduleHealth.latestUpdatedAt) : null;
+  const minutesSinceLastSync = lastSyncDate ? Math.round((Date.now() - lastSyncDate.getTime()) / 60000) : null;
+  const autoFetchHealthy = minutesSinceLastSync !== null && minutesSinceLastSync <= 26 * 60;
 
   const addLog = useCallback((entry: LogEntry) => {
     setApiLogs(prev => [entry, ...prev].slice(0, 50));
@@ -51,13 +84,14 @@ export default function AdminDashboard() {
 
     const start = performance.now();
     try {
-      await fetchSchedule.mutateAsync();
+      const result = await fetchSchedule.mutateAsync() as any;
       const ms = Math.round(performance.now() - start);
       updateLog(thisId, {
         status: "success",
-        message: `POST /api/functions/fetch-schedule — 200 OK (${ms}ms)`,
+        message: `POST /api/functions/fetch-schedule — 200 OK (${ms}ms) employees=${result?.employees ?? "-"} rows=${result?.rows ?? "-"}`,
         durationMs: ms,
       });
+      refetchScheduleHealth();
     } catch (err: any) {
       const ms = Math.round(performance.now() - start);
       updateLog(thisId, {
@@ -66,7 +100,7 @@ export default function AdminDashboard() {
         durationMs: ms,
       });
     }
-  }, [fetchSchedule, addLog, updateLog]);
+  }, [fetchSchedule, addLog, updateLog, refetchScheduleHealth]);
 
   if (isLoading) {
     return (
@@ -212,6 +246,49 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              Automatic Schedule Fetch Status
+              <Badge variant={autoFetchHealthy ? "default" : "destructive"}>
+                {autoFetchHealthy ? "Healthy" : "Needs Check"}
+              </Badge>
+            </CardTitle>
+            <CardDescription>
+              Runtime health view for daily automatic schedule sync
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            {scheduleHealthLoading ? (
+              <Skeleton className="h-20 w-full" />
+            ) : (
+              <>
+                <p>
+                  Last schedule update:{" "}
+                  <span className="font-medium">
+                    {lastSyncDate ? lastSyncDate.toLocaleString() : "No schedule records found"}
+                  </span>
+                </p>
+                <p>
+                  Rows updated in last 24h:{" "}
+                  <span className="font-medium">{scheduleHealth?.updatedLast24h ?? 0}</span>
+                </p>
+                <p>
+                  Total schedule rows:{" "}
+                  <span className="font-medium">{scheduleHealth?.totalRows ?? 0}</span>
+                </p>
+                <p className="text-muted-foreground">
+                  Automatic sync is considered healthy when the latest schedule row update is within the last 26 hours.
+                </p>
+              </>
+            )}
+            <Button variant="outline" onClick={() => refetchScheduleHealth()}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh Status
+            </Button>
+          </CardContent>
+        </Card>
 
         <div className="grid gap-4 md:grid-cols-2">
           <Card>

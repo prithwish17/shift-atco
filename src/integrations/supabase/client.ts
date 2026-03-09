@@ -2,11 +2,13 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_PUBLIC_SUPABASE_ANON_KEY;
+const SUPABASE_PUBLISHABLE_KEY =
+  import.meta.env.VITE_PUBLIC_SUPABASE_ANON_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!SUPABASE_PUBLISHABLE_KEY) {
   throw new Error(
-    "Missing Supabase environment variable. Ensure VITE_PUBLIC_SUPABASE_ANON_KEY is set in .env.local"
+    "Missing Supabase key. Set VITE_PUBLIC_SUPABASE_ANON_KEY (or VITE_SUPABASE_ANON_KEY) in .env.local"
   );
 }
 
@@ -16,12 +18,12 @@ if (!SUPABASE_PUBLISHABLE_KEY) {
 // aren't available from `vite dev`.
 const IS_DEV = import.meta.env.DEV;
 const SUPABASE_URL = IS_DEV
-  ? import.meta.env.VITE_PUBLIC_SUPABASE_URL
+  ? (import.meta.env.VITE_PUBLIC_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL)
   : `${window.location.origin}/api/supabase`;
 
 if (!SUPABASE_URL) {
   throw new Error(
-    "Missing VITE_PUBLIC_SUPABASE_URL for local development."
+    "Missing Supabase URL for local development. Set VITE_PUBLIC_SUPABASE_URL (or VITE_SUPABASE_URL)."
   );
 }
 
