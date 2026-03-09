@@ -13,14 +13,7 @@ export function useAttendance(date?: string, shiftType?: string) {
   const { data: attendance, isLoading } = useQuery({
     queryKey: ["attendance", date, shiftType],
     queryFn: async () => {
-      let query = supabase.from("attendance").select(`
-        *,
-        profiles:user_id (
-          full_name,
-          employee_id,
-          photo_url
-        )
-      `);
+      let query = supabase.from("attendance").select("*");
 
       if (date) {
         query = query.eq("attendance_date", date);
@@ -29,7 +22,31 @@ export function useAttendance(date?: string, shiftType?: string) {
       const { data, error } = await query.order("attendance_date", { ascending: false });
 
       if (error) throw error;
-      return data;
+      const records = data || [];
+
+      // Collect unique user IDs to resolve profile info
+      const userIds = new Set<string>();
+      for (const r of records) {
+        if (r.user_id) userIds.add(r.user_id);
+      }
+
+      let profileMap: Record<string, { full_name: string; employee_id: string; photo_url: string | null }> = {};
+      if (userIds.size > 0) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, full_name, employee_id, photo_url")
+          .in("id", Array.from(userIds));
+        if (profiles) {
+          for (const p of profiles) {
+            profileMap[p.id] = { full_name: p.full_name, employee_id: p.employee_id, photo_url: p.photo_url };
+          }
+        }
+      }
+
+      return records.map((r) => ({
+        ...r,
+        profiles: profileMap[r.user_id] || null,
+      }));
     },
     enabled: !!date,
     staleTime: 1 * 60 * 1000, // 1 minute

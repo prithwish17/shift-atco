@@ -12,15 +12,7 @@ export function useDutyExchanges(userId?: string) {
     queryFn: async () => {
       let query = supabase
         .from("duty_exchanges")
-        .select(`
-          *,
-          requesting_user:requesting_user_id(full_name, employee_id),
-          exchange_partner:exchange_partner_id(full_name, employee_id),
-          requesting_shift:requesting_user_shift_id(*),
-          partner_shift:exchange_partner_shift_id(*),
-          wso_approver:wso_approved_by(full_name),
-          supervisor_approver:supervisor_approved_by(full_name)
-        `)
+        .select("*")
         .order("created_at", { ascending: false });
 
       if (userId) {
@@ -29,7 +21,58 @@ export function useDutyExchanges(userId?: string) {
 
       const { data, error } = await query;
       if (error) throw error;
-      return data as DutyExchange[];
+      const exchanges = (data || []) as DutyExchange[];
+
+      // Collect unique user IDs and shift IDs
+      const userIds = new Set<string>();
+      const shiftIds = new Set<string>();
+      for (const ex of exchanges) {
+        if (ex.requesting_user_id) userIds.add(ex.requesting_user_id);
+        if (ex.exchange_partner_id) userIds.add(ex.exchange_partner_id);
+        if (ex.wso_approved_by) userIds.add(ex.wso_approved_by);
+        if (ex.supervisor_approved_by) userIds.add(ex.supervisor_approved_by);
+        if (ex.requesting_user_shift_id) shiftIds.add(ex.requesting_user_shift_id);
+        if (ex.exchange_partner_shift_id) shiftIds.add(ex.exchange_partner_shift_id);
+      }
+
+      // Fetch profiles
+      let profileMap: Record<string, { full_name: string; employee_id: string }> = {};
+      if (userIds.size > 0) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, full_name, employee_id")
+          .in("id", Array.from(userIds));
+        if (profiles) {
+          for (const p of profiles) {
+            profileMap[p.id] = { full_name: p.full_name, employee_id: p.employee_id };
+          }
+        }
+      }
+
+      // Fetch shifts
+      let shiftMap: Record<string, any> = {};
+      if (shiftIds.size > 0) {
+        const { data: shifts } = await supabase
+          .from("shifts")
+          .select("*")
+          .in("id", Array.from(shiftIds));
+        if (shifts) {
+          for (const s of shifts) {
+            shiftMap[s.id] = s;
+          }
+        }
+      }
+
+      // Attach resolved data
+      return exchanges.map((ex) => ({
+        ...ex,
+        requesting_user: profileMap[ex.requesting_user_id] || null,
+        exchange_partner: profileMap[ex.exchange_partner_id] || null,
+        requesting_shift: ex.requesting_user_shift_id ? shiftMap[ex.requesting_user_shift_id] || null : null,
+        partner_shift: ex.exchange_partner_shift_id ? shiftMap[ex.exchange_partner_shift_id] || null : null,
+        wso_approver: ex.wso_approved_by ? profileMap[ex.wso_approved_by] || null : null,
+        supervisor_approver: ex.supervisor_approved_by ? profileMap[ex.supervisor_approved_by] || null : null,
+      }));
     },
   });
 }

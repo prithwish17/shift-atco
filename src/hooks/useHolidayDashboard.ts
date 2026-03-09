@@ -100,11 +100,35 @@ export function useCompOffBalance(userId?: string) {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from('comp_off_ledger' as any)
-                .select('*, holiday:holiday_id(*)')
+                .select('*')
                 .eq('employee_id', userId!)
                 .order('duty_date', { ascending: false });
             if (error) throw error;
-            return (data || []) as unknown as CompOffEntry[];
+            const entries = (data || []) as unknown as CompOffEntry[];
+
+            // Collect unique holiday IDs to resolve holiday info
+            const holidayIds = new Set<string>();
+            for (const e of entries) {
+                if (e.holiday_id) holidayIds.add(e.holiday_id);
+            }
+
+            let holidayMap: Record<string, Holiday> = {};
+            if (holidayIds.size > 0) {
+                const { data: holidays } = await supabase
+                    .from('holidays')
+                    .select('*')
+                    .in('id', Array.from(holidayIds));
+                if (holidays) {
+                    for (const h of holidays as unknown as Holiday[]) {
+                        holidayMap[h.id] = h;
+                    }
+                }
+            }
+
+            return entries.map((e) => ({
+                ...e,
+                holiday: e.holiday_id ? holidayMap[e.holiday_id] || undefined : undefined,
+            }));
         },
         enabled: !!userId,
         staleTime: 5 * 60 * 1000,

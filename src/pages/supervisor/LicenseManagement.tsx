@@ -54,10 +54,21 @@ function useAllLicenses() {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from('employee_licenses')
-                .select('*, profile:user_id(full_name, employee_id)')
+                .select('*')
                 .order('expiry_date', { ascending: true });
             if (error) throw error;
-            return (data || []) as unknown as LicenseRow[];
+            const licenses = (data || []) as unknown as LicenseRow[];
+
+            const userIds = new Set<string>();
+            for (const l of licenses) { if (l.user_id) userIds.add(l.user_id); }
+
+            let profileMap: Record<string, { full_name: string; employee_id: string }> = {};
+            if (userIds.size > 0) {
+                const { data: profiles } = await supabase.from('profiles').select('id, full_name, employee_id').in('id', Array.from(userIds));
+                if (profiles) { for (const p of profiles) { profileMap[p.id] = { full_name: p.full_name, employee_id: p.employee_id }; } }
+            }
+
+            return licenses.map((l) => ({ ...l, profile: profileMap[l.user_id] || undefined }));
         },
         staleTime: 5 * 60 * 1000,
     });
@@ -69,10 +80,21 @@ function useAllMedicals() {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from('medical_certificates' as any)
-                .select('*, profile:employee_id(full_name, employee_id)')
+                .select('*')
                 .order('expiry_date', { ascending: true });
             if (error) throw error;
-            return (data || []) as unknown as MedicalRow[];
+            const medicals = (data || []) as unknown as MedicalRow[];
+
+            const empIds = new Set<string>();
+            for (const m of medicals) { if (m.employee_id) empIds.add(m.employee_id); }
+
+            let profileMap: Record<string, { full_name: string; employee_id: string }> = {};
+            if (empIds.size > 0) {
+                const { data: profiles } = await supabase.from('profiles').select('id, full_name, employee_id').in('id', Array.from(empIds));
+                if (profiles) { for (const p of profiles) { profileMap[p.id] = { full_name: p.full_name, employee_id: p.employee_id }; } }
+            }
+
+            return medicals.map((m) => ({ ...m, profile: profileMap[m.employee_id] || undefined }));
         },
         staleTime: 5 * 60 * 1000,
     });
@@ -84,10 +106,21 @@ function useAllEndorsements() {
         queryFn: async () => {
             const { data, error } = await supabase
                 .from('unit_endorsements' as any)
-                .select('*, profile:employee_id(full_name, employee_id)')
+                .select('*')
                 .order('expiry_date', { ascending: true });
             if (error) throw error;
-            return (data || []) as unknown as EndorsementRow[];
+            const endorsements = (data || []) as unknown as EndorsementRow[];
+
+            const empIds = new Set<string>();
+            for (const e of endorsements) { if (e.employee_id) empIds.add(e.employee_id); }
+
+            let profileMap: Record<string, { full_name: string; employee_id: string }> = {};
+            if (empIds.size > 0) {
+                const { data: profiles } = await supabase.from('profiles').select('id, full_name, employee_id').in('id', Array.from(empIds));
+                if (profiles) { for (const p of profiles) { profileMap[p.id] = { full_name: p.full_name, employee_id: p.employee_id }; } }
+            }
+
+            return endorsements.map((e) => ({ ...e, profile: profileMap[e.employee_id] || undefined }));
         },
         staleTime: 5 * 60 * 1000,
     });
