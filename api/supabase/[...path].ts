@@ -78,9 +78,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         headers['Authorization'] = req.headers['authorization'] as string;
     }
 
+    // Forward Accept header — CRITICAL for .single() and .maybeSingle().
+    // Without it, PostgREST returns arrays instead of objects.
+    if (req.headers['accept']) {
+        headers['Accept'] = req.headers['accept'] as string;
+    }
+
     // Forward Prefer header (for PostgREST options like count, return=representation)
     if (req.headers['prefer']) {
         headers['Prefer'] = req.headers['prefer'] as string;
+    }
+
+    // Forward Range header (for pagination)
+    if (req.headers['range']) {
+        headers['Range'] = req.headers['range'] as string;
     }
 
     // Forward x-client-info if present

@@ -67,6 +67,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         headers['Authorization'] = req.headers['authorization'] as string;
     }
 
+    // Forward Accept header (critical for .single()/.maybeSingle())
+    if (req.headers['accept']) {
+        headers['Accept'] = req.headers['accept'] as string;
+    }
+
     // Forward x-client-info if present
     if (req.headers['x-client-info']) {
         headers['x-client-info'] = req.headers['x-client-info'] as string;
