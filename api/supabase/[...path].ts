@@ -2,6 +2,14 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY!;
+const ALLOWED_ORIGINS = ['https://shift-atco.vercel.app'];
+
+function setCorsHeaders(req: VercelRequest, res: VercelResponse) {
+    const origin = req.headers.origin || '';
+    if (ALLOWED_ORIGINS.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+}
 
 /**
  * Generic catch-all proxy for all Supabase REST, Auth, and Storage requests.
@@ -10,7 +18,7 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY!;
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     // CORS preflight
     if (req.method === 'OPTIONS') {
-        res.setHeader('Access-Control-Allow-Origin', '*');
+        setCorsHeaders(req, res);
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, x-client-info, prefer');
         res.setHeader('Access-Control-Max-Age', '86400');
@@ -26,16 +34,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const subPath = Array.isArray(pathSegments) ? pathSegments.join('/') : (pathSegments || '');
 
     // Build the target URL
-    const url = new URL(`/${subPath}`, SUPABASE_URL);
+    const targetUrl = new URL(`/${subPath}`, SUPABASE_URL);
 
-    // Forward query parameters (excluding the catch-all "path" param)
-    const queryEntries = Object.entries(req.query).filter(([key]) => key !== 'path');
-    for (const [key, value] of queryEntries) {
-        if (Array.isArray(value)) {
-            value.forEach(v => url.searchParams.append(key, String(v)));
-        } else if (value !== undefined && value !== null) {
-            url.searchParams.append(key, String(value));
-        }
+    // Forward the raw query string from the incoming request to avoid
+    // double-encoding PostgREST operators like commas, colons, and parentheses
+    // (e.g. select=*,user:user_id(full_name) must NOT be re-encoded).
+    const incomingUrl = new URL(req.url!, `http://${req.headers.host}`);
+    incomingUrl.searchParams.delete('path');
+    const rawQs = incomingUrl.search;
+    if (rawQs) {
+        targetUrl.search = rawQs;
     }
 
     // Build headers to forward
@@ -70,10 +78,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
         }
 
-        const response = await fetch(url.toString(), fetchOptions);
+        const response = await fetch(targetUrl.toString(), fetchOptions);
 
         // Set CORS headers on response
-        res.setHeader('Access-Control-Allow-Origin', '*');
+        setCorsHeaders(req, res);
 
         // Forward relevant response headers
         const contentType = response.headers.get('content-type');

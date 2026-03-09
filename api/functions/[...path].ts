@@ -2,6 +2,14 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY!;
+const ALLOWED_ORIGINS = ['https://shift-atco.vercel.app'];
+
+function setCorsHeaders(req: VercelRequest, res: VercelResponse) {
+    const origin = req.headers.origin || '';
+    if (ALLOWED_ORIGINS.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+}
 
 /**
  * Proxy for Supabase Edge Functions.
@@ -10,9 +18,9 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY!;
 export default async function handler(req: VercelRequest, res: VercelResponse) {
     // CORS preflight
     if (req.method === 'OPTIONS') {
-        res.setHeader('Access-Control-Allow-Origin', '*');
+        setCorsHeaders(req, res);
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, apikey, x-client-info');
         res.setHeader('Access-Control-Max-Age', '86400');
         return res.status(204).end();
     }
@@ -26,16 +34,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const subPath = Array.isArray(pathSegments) ? pathSegments.join('/') : (pathSegments || '');
 
     // Build the target URL: SUPABASE_URL/functions/v1/<subPath>
-    const url = new URL(`/functions/v1/${subPath}`, SUPABASE_URL);
+    const targetUrl = new URL(`/functions/v1/${subPath}`, SUPABASE_URL);
 
-    // Forward query parameters (excluding the catch-all "path" param)
-    const queryEntries = Object.entries(req.query).filter(([key]) => key !== 'path');
-    for (const [key, value] of queryEntries) {
-        if (Array.isArray(value)) {
-            value.forEach(v => url.searchParams.append(key, String(v)));
-        } else if (value !== undefined && value !== null) {
-            url.searchParams.append(key, String(value));
-        }
+    // Forward the raw query string to avoid double-encoding
+    const incomingUrl = new URL(req.url!, `http://${req.headers.host}`);
+    incomingUrl.searchParams.delete('path');
+    const rawQs = incomingUrl.search;
+    if (rawQs) {
+        targetUrl.search = rawQs;
     }
 
     // Build headers
@@ -48,6 +54,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         headers['Authorization'] = req.headers['authorization'] as string;
     }
 
+    // Forward x-client-info if present
+    if (req.headers['x-client-info']) {
+        headers['x-client-info'] = req.headers['x-client-info'] as string;
+    }
+
     try {
         const fetchOptions: RequestInit = {
             method: req.method || 'GET',
@@ -58,9 +69,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
         }
 
-        const response = await fetch(url.toString(), fetchOptions);
+        const response = await fetch(targetUrl.toString(), fetchOptions);
 
-        res.setHeader('Access-Control-Allow-Origin', '*');
+        setCorsHeaders(req, res);
 
         const contentType = response.headers.get('content-type');
         if (contentType) {
@@ -77,3 +88,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
     }
 }
+
