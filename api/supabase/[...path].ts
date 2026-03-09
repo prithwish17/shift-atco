@@ -42,13 +42,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const targetUrl = new URL(`/${subPath}`, SUPABASE_URL);
 
     // Forward the raw query string from the incoming request to avoid
-    // double-encoding PostgREST operators like commas, colons, and parentheses
-    // (e.g. select=*,user:user_id(full_name) must NOT be re-encoded).
-    const incomingUrl = new URL(req.url!, `http://${req.headers.host}`);
-    incomingUrl.searchParams.delete('path');
-    const rawQs = incomingUrl.search;
-    if (rawQs) {
-        targetUrl.search = rawQs;
+    // double-encoding PostgREST operators like commas, colons, and parentheses.
+    // IMPORTANT: We must NOT use URLSearchParams.delete('path') because reading
+    // .search afterwards re-encodes all remaining params, causing double-encoding.
+    // Instead, strip `path=...` segments from the raw query string with regex.
+    const rawUrl = req.url || '';
+    const qIdx = rawUrl.indexOf('?');
+    if (qIdx !== -1) {
+        const rawQs = rawUrl.slice(qIdx + 1);
+        // Remove all path=... segments (Vercel injects catch-all segments as path params)
+        const cleaned = rawQs
+            .split('&')
+            .filter(segment => !segment.startsWith('path='))
+            .join('&');
+        if (cleaned) {
+            targetUrl.search = '?' + cleaned;
+        }
     }
 
     // Build headers to forward

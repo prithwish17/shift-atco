@@ -41,12 +41,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Build the target URL: SUPABASE_URL/functions/v1/<subPath>
     const targetUrl = new URL(`/functions/v1/${subPath}`, SUPABASE_URL);
 
-    // Forward the raw query string to avoid double-encoding
-    const incomingUrl = new URL(req.url!, `http://${req.headers.host}`);
-    incomingUrl.searchParams.delete('path');
-    const rawQs = incomingUrl.search;
-    if (rawQs) {
-        targetUrl.search = rawQs;
+    // Forward the raw query string to avoid double-encoding.
+    // Strip `path=...` segments directly from the raw string (not via URLSearchParams
+    // which re-encodes remaining params).
+    const rawUrl = req.url || '';
+    const qIdx = rawUrl.indexOf('?');
+    if (qIdx !== -1) {
+        const rawQs = rawUrl.slice(qIdx + 1);
+        const cleaned = rawQs
+            .split('&')
+            .filter(segment => !segment.startsWith('path='))
+            .join('&');
+        if (cleaned) {
+            targetUrl.search = '?' + cleaned;
+        }
     }
 
     // Build headers
