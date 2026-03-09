@@ -71,6 +71,8 @@ export function useEmployeeSchedules(
     return useQuery({
         queryKey: ['employee-schedules', employeeCode, startDate, endDate],
         queryFn: async () => {
+            console.log('[useEmployeeSchedules] querying', { employeeCode, startDate, endDate });
+
             let query = supabase
                 .from('employee_schedules' as any)
                 .select('*')
@@ -81,17 +83,26 @@ export function useEmployeeSchedules(
             if (endDate) query = query.lte('duty_date', endDate);
 
             const { data, error } = await query;
-            if (error) throw error;
+            if (error) {
+                console.error('[useEmployeeSchedules] employee_schedules query failed:', error);
+                throw error;
+            }
             const schedules = (data || []) as unknown as EmployeeSchedule[];
+            console.log('[useEmployeeSchedules] fetched', schedules.length, 'schedule rows');
 
             // Resolve auth user id from employee code so leave_requests can be joined.
-            const { data: profile } = await supabase
+            const { data: profile, error: profileError } = await supabase
                 .from('profiles')
                 .select('id, full_name')
                 .eq('employee_id', employeeCode)
                 .maybeSingle();
 
+            if (profileError) {
+                console.error('[useEmployeeSchedules] profile lookup failed:', profileError);
+            }
+
             if (!profile?.id) {
+                console.log('[useEmployeeSchedules] no profile found for employee_id:', employeeCode);
                 return schedules;
             }
 
@@ -112,7 +123,11 @@ export function useEmployeeSchedules(
             if (leaveEnd) leaveQuery = leaveQuery.gte('end_date', leaveStart || leaveEnd);
 
             const { data: leaves, error: leavesError } = await leaveQuery;
-            if (leavesError) throw leavesError;
+            if (leavesError) {
+                console.error('[useEmployeeSchedules] leave_requests query failed:', leavesError);
+                // Don't throw — return schedules without leave overlay
+                return schedules;
+            }
 
             const approvedLeaves = (leaves || []) as ApprovedLeaveRange[];
             if (approvedLeaves.length === 0) {
