@@ -18,6 +18,7 @@ import { useAllLeaveRequests } from "@/hooks/useLeaveRequests";
 import { getLeaveTypeLabel } from "@/lib/leaveConstants";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useLeaveApiUrl, useLeaveRefresh } from "@/hooks/useLeaveData";
 
 /* ── Duty-cycle constants (mirrors WSOAttendance.tsx) ── */
 const DUTY_CYCLE: Array<"M" | "A" | "N" | "NO" | "CO"> = ["M", "A", "N", "NO", "CO"];
@@ -94,6 +95,8 @@ export default function SupervisorDashboard() {
   const { data: allExchanges, isLoading: exchangesLoading } = useDutyExchanges();
   const { attendance, isLoading: attendanceLoading } = useAttendance(today);
   const fetchSchedule = useFetchSchedule();
+  const { data: leaveApiUrl = "" } = useLeaveApiUrl();
+  const fetchLeave = useLeaveRefresh();
 
   const { data: rosterResults = [] } = useQuery({
     queryKey: ["supervisor-schedule-lookup", rosterSearch],
@@ -200,6 +203,33 @@ export default function SupervisorDashboard() {
         toast({
           title: "Schedule sync failed",
           description: error?.message || "Unable to fetch schedule right now.",
+          variant: "destructive",
+        });
+      },
+    });
+  };
+
+  const handleFetchLeave = () => {
+    if (!leaveApiUrl) {
+      toast({
+        title: "Leave API not configured",
+        description: "Set leave_webapp_url in Admin Settings first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    fetchLeave.mutate(undefined, {
+      onSuccess: (result: any) => {
+        toast({
+          title: "Leave data fetched",
+          description: `Fetched ${result?.count ?? result?.data?.length ?? 0} leave records.`,
+        });
+      },
+      onError: (error: any) => {
+        toast({
+          title: "Leave fetch failed",
+          description: error?.message || "Unable to fetch leave data right now.",
           variant: "destructive",
         });
       },
@@ -385,7 +415,7 @@ export default function SupervisorDashboard() {
             <CardTitle>Quick Actions</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-6">
+            <div className="grid gap-4 md:grid-cols-7">
               <Link to="/supervisor/attendance">
                 <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
                   <ClipboardList className="h-6 w-6" />
@@ -416,6 +446,19 @@ export default function SupervisorDashboard() {
                   <CalendarIcon className="h-6 w-6" />
                 )}
                 Fetch Schedule
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full h-20 flex flex-col gap-2"
+                onClick={handleFetchLeave}
+                disabled={fetchLeave.isPending}
+              >
+                {fetchLeave.isPending ? (
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                ) : (
+                  <FileText className="h-6 w-6" />
+                )}
+                Fetch Leave
               </Button>
               <Link to="/supervisor/roster">
                 <Button variant="outline" className="w-full h-20 flex flex-col gap-2">

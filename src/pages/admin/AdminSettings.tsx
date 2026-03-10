@@ -21,6 +21,7 @@ export default function AdminSettings() {
     const qc = useQueryClient();
     const [rosterUrl, setRosterUrl] = useState("");
     const [scheduleUrl, setScheduleUrl] = useState("");
+    const [leaveUrl, setLeaveUrl] = useState("");
 
     const { data: settings, isLoading } = useQuery({
         queryKey: ["app-settings"],
@@ -38,8 +39,10 @@ export default function AdminSettings() {
         if (settings) {
             const roster = settings.find((s) => s.key === "roster_webapp_url");
             const schedule = settings.find((s) => s.key === "schedule_webapp_url");
+            const leave = settings.find((s) => s.key === "leave_webapp_url");
             if (roster) setRosterUrl(roster.value);
             if (schedule) setScheduleUrl(schedule.value);
+            if (leave) setLeaveUrl(leave.value);
         }
     }, [settings]);
 
@@ -83,6 +86,18 @@ export default function AdminSettings() {
             key: "schedule_webapp_url",
             value: scheduleUrl.trim(),
             label: "Schedule Sync Webapp URL",
+        });
+    };
+
+    const handleSaveLeaveUrl = () => {
+        if (!leaveUrl.trim()) {
+            toast({ title: "Error", description: "URL cannot be empty", variant: "destructive" });
+            return;
+        }
+        updateSetting.mutate({
+            key: "leave_webapp_url",
+            value: leaveUrl.trim(),
+            label: "Leave Sync Webapp URL",
         });
     };
 
@@ -163,6 +178,43 @@ export default function AdminSettings() {
                         </div>
                         <Button
                             onClick={handleSaveScheduleUrl}
+                            disabled={updateSetting.isPending || isLoading}
+                        >
+                            {updateSetting.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <Save className="h-4 w-4 mr-2" />
+                            )}
+                            Save URL
+                        </Button>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Leave Integration</CardTitle>
+                        <CardDescription>
+                            Configure the Google Apps Script webapp URL used to fetch leave data for dashboards.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="leave-url">Leave Sync Webapp URL</Label>
+                            <Input
+                                id="leave-url"
+                                type="url"
+                                placeholder="https://script.google.com/macros/s/.../exec"
+                                value={leaveUrl}
+                                onChange={(e) => setLeaveUrl(e.target.value)}
+                                className="font-mono text-sm"
+                                disabled={isLoading}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                The full URL of the deployed Google Apps Script web app (ends with /exec)
+                            </p>
+                        </div>
+                        <Button
+                            onClick={handleSaveLeaveUrl}
                             disabled={updateSetting.isPending || isLoading}
                         >
                             {updateSetting.isPending ? (

@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { useUsers } from "@/hooks/useUsers";
 import { useFetchSchedule } from "@/hooks/useEmployeeSchedules";
 import { supabase } from "@/integrations/supabase/client";
+import { useLeaveApiUrl, useLeaveRefresh } from "@/hooks/useLeaveData";
 
 interface LogEntry {
   id: number;
@@ -25,6 +26,7 @@ let logIdCounter = 0;
 export default function AdminDashboard() {
   const { users, isLoading, approveUser, isApproving } = useUsers();
   const fetchSchedule = useFetchSchedule();
+  const { data: leaveApiUrl = "" } = useLeaveApiUrl();
   const [apiLogs, setApiLogs] = useState<LogEntry[]>([]);
   const { data: scheduleHealth, isLoading: scheduleHealthLoading, refetch: refetchScheduleHealth } = useQuery({
     queryKey: ["admin-schedule-health"],
@@ -101,6 +103,39 @@ export default function AdminDashboard() {
       });
     }
   }, [fetchSchedule, addLog, updateLog, refetchScheduleHealth]);
+
+  const fetchLeave = useLeaveRefresh();
+
+  const handleFetchLeave = useCallback(async () => {
+    const now = new Date();
+    const ts = now.toLocaleTimeString("en-IN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const thisId = ++logIdCounter;
+
+    addLog({
+      id: thisId,
+      timestamp: ts,
+      status: "pending",
+      message: "GET leave API — calling…",
+    });
+
+    const start = performance.now();
+    try {
+      const result = await fetchLeave.mutateAsync();
+      const ms = Math.round(performance.now() - start);
+      updateLog(thisId, {
+        status: "success",
+        message: `GET leave API — 200 OK (${ms}ms) records=${result?.count ?? result?.data?.length ?? "-"}`,
+        durationMs: ms,
+      });
+    } catch (err: any) {
+      const ms = Math.round(performance.now() - start);
+      updateLog(thisId, {
+        status: "error",
+        message: `GET leave API — ${err.message || "Failed"} (${ms}ms)`,
+        durationMs: ms,
+      });
+    }
+  }, [fetchLeave, addLog, updateLog]);
 
   if (isLoading) {
     return (
@@ -195,6 +230,55 @@ export default function AdminDashboard() {
               {fetchSchedule.isError && (
                 <p className="text-sm text-red-600 flex items-center gap-1">
                   <AlertCircle className="h-4 w-4" /> {(fetchSchedule.error as Error)?.message || "Failed to fetch schedule"}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-emerald-600" />
+                Fetch Leave API
+              </CardTitle>
+              <CardDescription>
+                Pull the latest leave data from the configured Google Apps Script
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This calls the leave webapp URL configured in system settings.
+              </p>
+              <Button
+                onClick={handleFetchLeave}
+                disabled={!leaveApiUrl || fetchLeave.isPending}
+                className="w-full"
+              >
+                {fetchLeave.isPending ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                    Fetching…
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Fetch Leave Now
+                  </>
+                )}
+              </Button>
+              {!leaveApiUrl && (
+                <p className="text-xs text-amber-600">
+                  Leave API URL not configured. Set `leave_webapp_url` in Admin Settings.
+                </p>
+              )}
+              {fetchLeave.isSuccess && (
+                <p className="text-sm text-green-600 flex items-center gap-1">
+                  <CheckCircle className="h-4 w-4" /> Leave data fetched successfully
+                </p>
+              )}
+              {fetchLeave.isError && (
+                <p className="text-sm text-red-600 flex items-center gap-1">
+                  <AlertCircle className="h-4 w-4" /> {(fetchLeave.error as Error)?.message || "Failed to fetch leave data"}
                 </p>
               )}
             </CardContent>
