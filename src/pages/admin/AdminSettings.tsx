@@ -39,7 +39,7 @@ export default function AdminSettings() {
         if (settings) {
             const roster = settings.find((s) => s.key === "roster_webapp_url");
             const schedule = settings.find((s) => s.key === "schedule_webapp_url");
-            const leave = settings.find((s) => s.key === "leave_webapp_url");
+            const leave = settings.find((s) => s.key === "leave_data_webapp_url");
             if (roster) setRosterUrl(roster.value);
             if (schedule) setScheduleUrl(schedule.value);
             if (leave) setLeaveUrl(leave.value);
@@ -95,7 +95,7 @@ export default function AdminSettings() {
             return;
         }
         updateSetting.mutate({
-            key: "leave_webapp_url",
+            key: "leave_data_webapp_url",
             value: leaveUrl.trim(),
             label: "Leave Sync Webapp URL",
         });

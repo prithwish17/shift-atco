@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatCard } from "@/components/StatCard";
@@ -6,28 +6,32 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Activity, CheckCircle, Settings, FileText, AlertCircle, RefreshCw, CalendarDays, Clock, Terminal } from "lucide-react";
+import { Users, Activity, CheckCircle, Settings, FileText, AlertCircle, RefreshCw, CalendarDays, Clock, Terminal, ClipboardList } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useUsers } from "@/hooks/useUsers";
 import { useFetchSchedule } from "@/hooks/useEmployeeSchedules";
 import { supabase } from "@/integrations/supabase/client";
-import { useLeaveApiUrl, useLeaveRefresh } from "@/hooks/useLeaveData";
+import { useLeaveRefresh, useLeaveApiUrl } from "@/hooks/useLeaveData";
+import { useFetchLeaveData } from "@/hooks/useLeaveRecords";
+import { useUsers } from "@/hooks/useUsers";
 
 interface LogEntry {
-  id: number;
+  id: string | number;
   timestamp: string;
   status: "pending" | "success" | "error";
   message: string;
   durationMs?: number;
+  triggeredBy?: string;
+  isLocal?: boolean; // true = from current button click, false = from DB
 }
-
-let logIdCounter = 0;
 
 export default function AdminDashboard() {
   const { users, isLoading, approveUser, isApproving } = useUsers();
   const fetchSchedule = useFetchSchedule();
-  const { data: leaveApiUrl = "" } = useLeaveApiUrl();
+  const { data: leaveApiUrl } = useLeaveApiUrl(); // Removed `= ""` default as per instruction
+  const fetchLeaveData = useFetchLeaveData(); // Removed duplicate declaration
   const [apiLogs, setApiLogs] = useState<LogEntry[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
+
   const { data: scheduleHealth, isLoading: scheduleHealthLoading, refetch: refetchScheduleHealth } = useQuery({
     queryKey: ["admin-schedule-health"],
     queryFn: async () => {
@@ -68,74 +72,181 @@ export default function AdminDashboard() {
     setApiLogs(prev => [entry, ...prev].slice(0, 50));
   }, []);
 
-  const updateLog = useCallback((id: number, updates: Partial<LogEntry>) => {
+  const updateLog = useCallback((id: string | number, updates: Partial<LogEntry>) => {
     setApiLogs(prev => prev.map(e => (e.id === id ? { ...e, ...updates } : e)));
+  }, []);
+
+  // Load persistent logs from DB on mount
+  useEffect(() => {
+    async function loadLogs() {
+      setLogsLoading(true);
+      try {
+        const { data, error } = await (supabase as any)
+          .from("api_call_logs")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(25);
+
+        if (error) {
+          console.error("Failed to load api_call_logs:", error);
+        } else if (data) {
+          const dbLogs: LogEntry[] = data.map((row: any) => ({
+            id: row.id,
+            timestamp: new Date(row.created_at).toLocaleTimeString("en-IN", {
+              hour12: false,
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            }) + " " + new Date(row.created_at).toLocaleDateString("en-IN", {
+              day: "2-digit",
+              month: "short",
+            }),
+            status: row.status as "success" | "error",
+            message: `${row.method} /api/functions/${row.endpoint} — ${row.message}`,
+            durationMs: row.duration_ms,
+            triggeredBy: row.triggered_by,
+            isLocal: false,
+          }));
+          setApiLogs(dbLogs);
+        }
+      } catch (e) {
+        console.error("Failed to load logs:", e);
+      }
+      setLogsLoading(false);
+    }
+    loadLogs();
   }, []);
 
   const handleFetchSchedule = useCallback(async () => {
     const now = new Date();
     const ts = now.toLocaleTimeString("en-IN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    const thisId = ++logIdCounter;
+    const localId = `local-${Date.now()}`;
 
-    addLog({
-      id: thisId,
+    // Add pending entry at top
+    setApiLogs(prev => [{
+      id: localId,
       timestamp: ts,
-      status: "pending",
+      status: "pending" as const,
       message: "POST /api/functions/fetch-schedule — calling…",
-    });
+      triggeredBy: "manual",
+      isLocal: true,
+    }, ...prev].slice(0, 50));
 
     const start = performance.now();
     try {
       const result = await fetchSchedule.mutateAsync() as any;
       const ms = Math.round(performance.now() - start);
-      updateLog(thisId, {
-        status: "success",
-        message: `POST /api/functions/fetch-schedule — 200 OK (${ms}ms) employees=${result?.employees ?? "-"} rows=${result?.rows ?? "-"}`,
-        durationMs: ms,
-      });
+      // Update the pending entry
+      setApiLogs(prev => prev.map(e =>
+        e.id === localId
+          ? { ...e, status: "success" as const, message: `POST /api/functions/fetch-schedule — 200 OK (${ms}ms) employees=${result?.employees ?? "-"} rows=${result?.rows ?? "-"}`, durationMs: ms }
+          : e
+      ));
       refetchScheduleHealth();
+      // Refresh DB logs after a short delay (edge function writes the log async)
+      setTimeout(async () => {
+        const { data } = await (supabase as any)
+          .from("api_call_logs")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(25);
+        if (data) {
+          const dbLogs: LogEntry[] = data.map((row: any) => ({
+            id: row.id,
+            timestamp: new Date(row.created_at).toLocaleTimeString("en-IN", {
+              hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit",
+            }) + " " + new Date(row.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
+            status: row.status as "success" | "error",
+            message: `${row.method} /api/functions/${row.endpoint} — ${row.message}`,
+            durationMs: row.duration_ms,
+            triggeredBy: row.triggered_by,
+            isLocal: false,
+          }));
+          setApiLogs(dbLogs);
+        }
+      }, 2000);
     } catch (err: any) {
       const ms = Math.round(performance.now() - start);
-      updateLog(thisId, {
-        status: "error",
-        message: `POST /api/functions/fetch-schedule — ${err.message || "Failed"} (${ms}ms)`,
-        durationMs: ms,
-      });
+      setApiLogs(prev => prev.map(e =>
+        e.id === localId
+          ? { ...e, status: "error" as const, message: `POST /api/functions/fetch-schedule — ${err.message || "Failed"} (${ms}ms)`, durationMs: ms }
+          : e
+      ));
     }
-  }, [fetchSchedule, addLog, updateLog, refetchScheduleHealth]);
+  }, [fetchSchedule, refetchScheduleHealth]);
 
   const fetchLeave = useLeaveRefresh();
 
   const handleFetchLeave = useCallback(async () => {
     const now = new Date();
     const ts = now.toLocaleTimeString("en-IN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    const thisId = ++logIdCounter;
+    const localId = `local-${Date.now()}`;
 
-    addLog({
-      id: thisId,
-      timestamp: ts,
-      status: "pending",
-      message: "GET leave API — calling…",
-    });
+    // Add pending entry at top
+    setApiLogs((prev) => [
+      {
+        id: localId,
+        timestamp: ts,
+        status: "pending" as const,
+        message: "POST /api/functions/fetch-leave-data — calling…",
+        triggeredBy: "manual",
+        isLocal: true,
+      },
+      ...prev,
+    ].slice(0, 50));
 
     const start = performance.now();
     try {
-      const result = await fetchLeave.mutateAsync();
+      const result = await fetchLeave.mutateAsync() as any;
       const ms = Math.round(performance.now() - start);
-      updateLog(thisId, {
-        status: "success",
-        message: `GET leave API — 200 OK (${ms}ms) records=${result?.count ?? result?.data?.length ?? "-"}`,
-        durationMs: ms,
-      });
+
+      setApiLogs((prev) => prev.map((e) =>
+        e.id === localId
+          ? {
+            ...e,
+            status: "success" as const,
+            message: `POST /api/functions/fetch-leave-data — 200 OK (${ms}ms) employees=${result?.employees ?? "-"} records=${result?.records ?? "-"}`,
+            durationMs: ms,
+          }
+          : e
+      ));
+
+      // Refresh DB logs after a short delay (edge function writes the log async)
+      setTimeout(async () => {
+        const { data } = await (supabase as any)
+          .from("api_call_logs")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .limit(25);
+        if (data) {
+          const dbLogs: LogEntry[] = data.map((row: any) => ({
+            id: row.id,
+            timestamp: new Date(row.created_at).toLocaleTimeString("en-IN", {
+              hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit",
+            }) + " " + new Date(row.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
+            status: row.status as "success" | "error",
+            message: `${row.method} /api/functions/${row.endpoint} — ${row.message}`,
+            durationMs: row.duration_ms,
+            triggeredBy: row.triggered_by,
+            isLocal: false,
+          }));
+          setApiLogs(dbLogs);
+        }
+      }, 2000);
     } catch (err: any) {
       const ms = Math.round(performance.now() - start);
-      updateLog(thisId, {
-        status: "error",
-        message: `GET leave API — ${err.message || "Failed"} (${ms}ms)`,
-        durationMs: ms,
-      });
+      setApiLogs((prev) => prev.map((e) =>
+        e.id === localId
+          ? {
+            ...e,
+            status: "error" as const,
+            message: `POST /api/functions/fetch-leave-data — ${err.message || "Failed"} (${ms}ms)`,
+            durationMs: ms,
+          }
+          : e
+      ));
     }
-  }, [fetchLeave, addLog, updateLog]);
+  }, [fetchLeave]);
 
   if (isLoading) {
     return (
@@ -197,7 +308,8 @@ export default function AdminDashboard() {
                 Fetch Schedule
               </CardTitle>
               <CardDescription>
-                Pull employee duty schedules from Google Sheets into the database
+                Pull employee duty schedules from Google Sheets into the database.
+                Auto-runs daily at <strong>19:00 IST</strong>.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -235,23 +347,25 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
 
+          {/* Fetch Leave Data */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-emerald-600" />
-                Fetch Leave API
+                <ClipboardList className="h-5 w-5 text-violet-600" />
+                Fetch Leave Data
               </CardTitle>
               <CardDescription>
-                Pull the latest leave data from the configured Google Apps Script
+                Import official leave register from Google Sheets into the database.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                This calls the leave webapp URL configured in system settings.
+                This calls the <code className="bg-muted px-1 py-0.5 rounded text-xs">fetch-leave-data</code> edge
+                function to sync CL, RH, NH, CH, Comp Off, and OPE duty records.
               </p>
               <Button
                 onClick={handleFetchLeave}
-                disabled={!leaveApiUrl || fetchLeave.isPending}
+                disabled={fetchLeave.isPending || !leaveApiUrl}
                 className="w-full"
               >
                 {fetchLeave.isPending ? (
@@ -262,13 +376,13 @@ export default function AdminDashboard() {
                 ) : (
                   <>
                     <RefreshCw className="mr-2 h-4 w-4" />
-                    Fetch Leave Now
+                    Fetch Leave Data Now
                   </>
                 )}
               </Button>
               {!leaveApiUrl && (
                 <p className="text-xs text-amber-600">
-                  Leave API URL not configured. Set `leave_webapp_url` in Admin Settings.
+                  Leave API URL not configured. Set <code className="bg-muted px-1 py-0.5 rounded text-xs">leave_data_webapp_url</code> in Admin Settings.
                 </p>
               )}
               {fetchLeave.isSuccess && (
@@ -292,13 +406,15 @@ export default function AdminDashboard() {
                 API Call Log
               </CardTitle>
               <CardDescription>
-                Live log of schedule API calls
+                Persistent log of schedule API calls (manual + cron)
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="bg-gray-950 rounded-lg p-3 max-h-64 overflow-y-auto font-mono text-xs space-y-1.5">
-                {apiLogs.length === 0 ? (
-                  <p className="text-gray-500 text-center py-4">No API calls yet. Click "Fetch Schedule Now" to start.</p>
+              <div className="bg-gray-950 rounded-lg p-3 max-h-72 overflow-y-auto font-mono text-xs space-y-1.5">
+                {logsLoading ? (
+                  <p className="text-gray-500 text-center py-4">Loading logs…</p>
+                ) : apiLogs.length === 0 ? (
+                  <p className="text-gray-500 text-center py-4">No API calls yet. Click "Fetch Schedule Now" or wait for the 19:00 IST cron.</p>
                 ) : (
                   apiLogs.map(log => (
                     <div key={log.id} className="flex items-start gap-2">
@@ -323,6 +439,11 @@ export default function AdminDashboard() {
                       >
                         {log.message}
                       </span>
+                      {log.triggeredBy && (
+                        <span className="text-gray-600 shrink-0 ml-auto">
+                          [{log.triggeredBy}]
+                        </span>
+                      )}
                     </div>
                   ))
                 )}

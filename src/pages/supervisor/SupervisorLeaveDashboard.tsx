@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertTriangle, Users } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AlertTriangle, Users, CalendarDays } from "lucide-react";
 import { useLeaveData } from "@/hooks/useLeaveData";
 import { LeaveSummaryCard } from "@/components/leave/LeaveSummaryCard";
 import { EmployeeLeaveTable } from "@/components/leave/EmployeeLeaveTable";
@@ -9,8 +10,12 @@ import { LeaveDetailsModal } from "@/components/leave/LeaveDetailsModal";
 import { SearchBar } from "@/components/leave/SearchBar";
 import type { NormalizedLeaveRecord } from "@/utils/leaveCalculations";
 
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: 3 }, (_, i) => CURRENT_YEAR - i);
+
 export default function SupervisorLeaveDashboard() {
-  const { data, isUrlLoading, url, urlError, leaveQuery } = useLeaveData();
+  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
+  const { data, leaveQuery } = useLeaveData(selectedYear);
   const [searchQuery, setSearchQuery] = useState("");
   const [selected, setSelected] = useState<NormalizedLeaveRecord | null>(null);
 
@@ -46,36 +51,33 @@ export default function SupervisorLeaveDashboard() {
     return ids;
   }, [data]);
 
-  const isLoading = isUrlLoading || leaveQuery.isLoading;
+  const isLoading = leaveQuery.isLoading;
 
   return (
     <DashboardLayout role="supervisor">
       <div className="space-y-6">
-        <div className="flex items-center gap-2">
-          <Users className="h-6 w-6 text-blue-600" />
-          <div>
-            <h1 className="text-2xl font-black tracking-tight">Supervisor Leave Dashboard</h1>
-            <p className="text-sm text-muted-foreground">
-              View leave usage across all employees
-            </p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Users className="h-6 w-6 text-blue-600" />
+            <div>
+              <h1 className="text-2xl font-black tracking-tight">Supervisor Leave Dashboard</h1>
+              <p className="text-sm text-muted-foreground">
+                View leave usage across all employees
+              </p>
+            </div>
           </div>
+          <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
+            <SelectTrigger className="w-[120px] h-9">
+              <CalendarDays className="h-4 w-4 mr-1.5 text-muted-foreground" />
+              <SelectValue placeholder="Year" />
+            </SelectTrigger>
+            <SelectContent>
+              {YEAR_OPTIONS.map((y) => (
+                <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-
-        {urlError && (
-          <Card className="border-amber-200 bg-amber-50">
-            <CardContent className="pt-4 pb-4 text-sm text-amber-800">
-              Unable to load leave API URL. Please check `leave_webapp_url` in settings.
-            </CardContent>
-          </Card>
-        )}
-
-        {!url && !isUrlLoading && (
-          <Card className="border-amber-200 bg-amber-50">
-            <CardContent className="pt-4 pb-4 text-sm text-amber-800">
-              Leave API URL is not configured. Ask an admin to set `leave_webapp_url`.
-            </CardContent>
-          </Card>
-        )}
 
         {leaveQuery.error && (
           <Card className="border-red-200 bg-red-50">
@@ -115,7 +117,7 @@ export default function SupervisorLeaveDashboard() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground">
-                  Leave Usage Overview
+                  Leave Usage Overview — {selectedYear}
                 </CardTitle>
               </CardHeader>
               <CardContent>

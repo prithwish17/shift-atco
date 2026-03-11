@@ -14,36 +14,66 @@ Deno.serve(async (req) => {
         return new Response(null, { headers: corsHeaders });
     }
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+    // Helper to log API calls persistently
+    async function logApiCall(status: string, message: string, durationMs?: number, triggeredBy?: string) {
+        try {
+            await adminClient
+                .from("api_call_logs")
+                .insert({
+                    endpoint: "fetch-schedule",
+                    method: "POST",
+                    status,
+                    message,
+                    duration_ms: durationMs || null,
+                    triggered_by: triggeredBy || "unknown",
+                });
+        } catch (e) {
+            console.error("Failed to insert api_call_logs:", e);
+        }
+    }
+
+    const startTime = Date.now();
+
     try {
         // Validate auth
         const authHeader = req.headers.get("Authorization");
         if (!authHeader?.startsWith("Bearer ")) {
+            await logApiCall("error", "Missing authorization header", 0, "unknown");
             return new Response(JSON.stringify({ error: "Unauthorized" }), {
                 status: 401,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
         }
 
-        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
         const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-        const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
         // Verify caller token (allow authenticated user tokens and service-role tokens)
         const token = authHeader.replace("Bearer ", "");
-        const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-            global: { headers: { Authorization: authHeader } },
-        });
-        const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(token);
-        const role = claimsData?.claims?.role as string | undefined;
-        if (claimsError || !claimsData?.claims || !(role === "authenticated" || role === "service_role")) {
-            return new Response(JSON.stringify({ error: "Unauthorized" }), {
-                status: 401,
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
+        let triggeredBy = "service_role";
+
+        // Check if token is service role or user token
+        if (token !== serviceRoleKey) {
+            const userClient = createClient(supabaseUrl, supabaseAnonKey, {
+                global: { headers: { Authorization: authHeader } },
             });
+            const { data: userData, error: userError } = await userClient.auth.getUser(token);
+            if (userError || !userData?.user) {
+                await logApiCall("error", "Invalid auth token", Date.now() - startTime, "unknown");
+                return new Response(JSON.stringify({ error: "Unauthorized" }), {
+                    status: 401,
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                });
+            }
+            triggeredBy = userData.user.email || userData.user.id;
+        } else {
+            triggeredBy = "cron_job";
         }
 
         // Try to read the webapp URL from app_settings table (admin-configurable)
-        const adminClient = createClient(supabaseUrl, serviceRoleKey);
         let appsScriptUrl = DEFAULT_APPS_SCRIPT_URL;
         try {
             const { data: setting } = await adminClient
@@ -70,13 +100,17 @@ Deno.serve(async (req) => {
         });
 
         if (!response.ok) {
-            throw new Error(`Apps Script returned ${response.status}`);
+            const errMsg = `Apps Script returned ${response.status}`;
+            await logApiCall("error", errMsg, Date.now() - startTime, triggeredBy);
+            throw new Error(errMsg);
         }
 
         const json = await response.json();
 
         if (json.status !== "success" || !Array.isArray(json.data)) {
-            throw new Error("Unexpected response format from Apps Script");
+            const errMsg = "Unexpected response format from Apps Script";
+            await logApiCall("error", errMsg, Date.now() - startTime, triggeredBy);
+            throw new Error(errMsg);
         }
 
         const employees = json.data;
@@ -114,12 +148,9 @@ Deno.serve(async (req) => {
         console.log(`Flattened ${rows.length} schedule rows from ${employees.length} employees`);
 
         // Upsert into employee_schedules using service role
+        let upserted = 0;
         if (rows.length > 0) {
-            const adminClient = createClient(supabaseUrl, serviceRoleKey);
-
-            // Batch upsert in chunks of 500
             const BATCH_SIZE = 500;
-            let upserted = 0;
             for (let i = 0; i < rows.length; i += BATCH_SIZE) {
                 const batch = rows.slice(i, i + BATCH_SIZE);
                 const { error: upsertError } = await adminClient
@@ -135,16 +166,23 @@ Deno.serve(async (req) => {
             console.log(`Upserted ${upserted} schedule rows`);
         }
 
+        const durationMs = Date.now() - startTime;
+        const successMsg = `Fetched ${employees.length} employees, ${rows.length} rows, upserted ${upserted}`;
+        await logApiCall("success", successMsg, durationMs, triggeredBy);
+
         return new Response(
             JSON.stringify({
                 success: true,
                 employees: employees.length,
                 rows: rows.length,
+                upserted,
             }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
     } catch (error) {
+        const durationMs = Date.now() - startTime;
         console.error("Error:", error);
+        await logApiCall("error", error.message || "Internal server error", durationMs, "unknown");
         return new Response(
             JSON.stringify({ error: error.message || "Internal server error" }),
             {

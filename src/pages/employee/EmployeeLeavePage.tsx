@@ -1,9 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, CalendarDays } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
 import { useLeaveData } from "@/hooks/useLeaveData";
@@ -44,18 +44,54 @@ function extractDates(items: unknown[], fields: string[]): string[] {
   return Array.from(new Set(out));
 }
 
+// Extract ISO date strings (YYYY-MM-DD) from items for calendar matching
+function extractIsoDates(items: unknown[], fields: string[]): string[] {
+  const out: string[] = [];
+  for (const item of items) {
+    if (typeof item === "string") {
+      try {
+        const d = new Date(item);
+        if (!isNaN(d.getTime())) out.push(d.toISOString().split("T")[0]);
+      } catch { /* skip */ }
+      continue;
+    }
+    if (item && typeof item === "object") {
+      for (const field of fields) {
+        const val = (item as any)[field];
+        if (typeof val === "string") {
+          try {
+            const d = new Date(val);
+            if (!isNaN(d.getTime())) out.push(d.toISOString().split("T")[0]);
+          } catch { /* skip */ }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: 3 }, (_, i) => CURRENT_YEAR - i);
+
 export default function EmployeeLeavePage() {
   const { user } = useAuth();
   const { profile, isLoading: profileLoading } = useUserProfile(user?.id);
-  const { data, isUrlLoading, url, urlError, leaveQuery } = useLeaveData();
+  const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
+  const { data, leaveQuery, refresh } = useLeaveData(selectedYear);
+
+  const [calendarDate, setCalendarDate] = useState(() => new Date());
 
   const employeeRecord = useMemo(() => {
     const empId = profile?.employee_id ? String(profile.employee_id) : "";
+    console.log("[EmployeeLeavePage] profile.employee_id:", profile?.employee_id, "→ empId:", empId);
+    console.log("[EmployeeLeavePage] data has", data.length, "records. Their empIds:", data.map(r => r.empId));
     if (!empId) return null;
-    return data.find((record) => record.empId === empId) || null;
+    const found = data.find((record) => record.empId === empId) || null;
+    console.log("[EmployeeLeavePage] match found:", !!found);
+    return found;
   }, [data, profile?.employee_id]);
 
-  const isLoading = profileLoading || isUrlLoading || leaveQuery.isLoading;
+  const isLoading = profileLoading || leaveQuery.isLoading;
 
   const cards = useMemo(() => {
     if (!employeeRecord) {
@@ -88,46 +124,101 @@ export default function EmployeeLeavePage() {
     ];
   }, [employeeRecord]);
 
+  // Calendar data: map of ISO date -> color
+  const calendarLeaves = useMemo(() => {
+    if (!employeeRecord) return new Map<string, string>();
+    const map = new Map<string, string>();
+
+    const clDates = extractIsoDates(employeeRecord.casualLeave, []);
+    clDates.forEach((d) => map.set(d, "#4FD1C5")); // teal
+
+    const rhDates = extractIsoDates(employeeRecord.restrictedHolidays, ["date"]);
+    rhDates.forEach((d) => map.set(d, "#F6AD55")); // amber
+
+    const nhDates = extractIsoDates(employeeRecord.nationalHolidays, []);
+    nhDates.forEach((d) => map.set(d, "#63B3ED")); // blue
+
+    const chDates = extractIsoDates(employeeRecord.closedHolidays, ["leaveApplied"]);
+    chDates.forEach((d) => map.set(d, "#A78BFA")); // violet
+
+    const coDates = extractIsoDates(employeeRecord.lastYearCompOff, ["leaveApplied"]);
+    coDates.forEach((d) => map.set(d, "#F87171")); // red
+
+    const opeDates = extractIsoDates(employeeRecord.opeDuty, ["opeDutyDate"]);
+    opeDates.forEach((d) => map.set(d, "#FB923C")); // orange
+
+    return map;
+  }, [employeeRecord]);
+
+  // Calendar grid calculation
+  const calendarGrid = useMemo(() => {
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const cells: { day: number | null; iso: string | null }[] = [];
+
+    // Leading empty cells
+    for (let i = 0; i < firstDay; i++) {
+      cells.push({ day: null, iso: null });
+    }
+
+    // Day cells
+    for (let d = 1; d <= daysInMonth; d++) {
+      const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      cells.push({ day: d, iso });
+    }
+
+    return cells;
+  }, [calendarDate]);
+
+  const monthLabel = calendarDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const prevMonth = () => {
+    setCalendarDate((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+  };
+  const nextMonth = () => {
+    setCalendarDate((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1));
+  };
+
   return (
     <DashboardLayout role="employee">
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-black tracking-tight">Leave Management System</h1>
-            <div className="flex items-center gap-6 text-sm text-muted-foreground mt-1">
-              <span className="text-blue-600 font-semibold">Dashboard</span>
-              <span>Leave Management</span>
-              <span>Policy Management</span>
-            </div>
+            <p className="text-sm text-muted-foreground mt-1">
+              View your leave balances and usage from the official register
+            </p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="relative w-[320px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search everything" className="pl-9 bg-slate-50" />
-            </div>
-            <Button className="bg-blue-600 hover:bg-blue-700">Apply Leave</Button>
+            <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
+              <SelectTrigger className="w-[120px] h-9">
+                <CalendarDays className="h-4 w-4 mr-1.5 text-muted-foreground" />
+                <SelectValue placeholder="Year" />
+              </SelectTrigger>
+              <SelectContent>
+                {YEAR_OPTIONS.map((y) => (
+                  <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refresh.mutate()}
+              disabled={refresh.isPending}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${refresh.isPending ? "animate-spin" : ""}`} />
+              {refresh.isPending ? "Syncing…" : "Sync Data"}
+            </Button>
           </div>
         </div>
 
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Leave Availability</h2>
         </div>
-
-        {urlError && (
-          <Card className="border-amber-200 bg-amber-50">
-            <CardContent className="pt-4 pb-4 text-sm text-amber-800">
-              Unable to load leave API URL. Please contact an admin.
-            </CardContent>
-          </Card>
-        )}
-
-        {!url && !isUrlLoading && (
-          <Card className="border-amber-200 bg-amber-50">
-            <CardContent className="pt-4 pb-4 text-sm text-amber-800">
-              Leave API URL is not configured yet.
-            </CardContent>
-          </Card>
-        )}
 
         {leaveQuery.error && (
           <Card className="border-red-200 bg-red-50">
@@ -150,7 +241,7 @@ export default function EmployeeLeavePage() {
         ) : !employeeRecord ? (
           <Card>
             <CardContent className="pt-6 pb-6 text-sm text-muted-foreground">
-              No leave data found for Employee ID {profile.employee_id}.
+              No leave data found for Employee ID {profile.employee_id}. Ask an admin to sync leave data.
             </CardContent>
           </Card>
         ) : null}
@@ -195,7 +286,7 @@ export default function EmployeeLeavePage() {
                   <TableRow>
                     <TableHead>Leave Type</TableHead>
                     <TableHead>Dates Taken</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead>Count</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -217,7 +308,7 @@ export default function EmployeeLeavePage() {
                       </TableCell>
                       <TableCell>
                         <Badge variant="secondary" className="bg-emerald-100 text-emerald-800">
-                          Taken
+                          {row.dates.length}
                         </Badge>
                       </TableCell>
                     </TableRow>
@@ -234,26 +325,29 @@ export default function EmployeeLeavePage() {
             <CardContent>
               <div className="flex items-center justify-between text-sm text-muted-foreground mb-4">
                 <div>C-Off for Duty on CH</div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  Balance
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Earned: {employeeRecord?.compOffEarned ?? 0}</span>
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Used: {employeeRecord?.compOffUsed ?? 0}</span>
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Remaining: {employeeRecord?.compOffRemaining ?? 0}</span>
                 </div>
               </div>
               <div className="border rounded-lg overflow-hidden">
-                <div className="grid grid-cols-4 bg-emerald-50 text-emerald-900 text-xs font-semibold uppercase tracking-wide">
-                  <div className="px-3 py-2 border-r">Closed Holiday Date</div>
-                  <div className="px-3 py-2 border-r">Attendance on CH</div>
+                <div className="grid grid-cols-3 bg-emerald-50 text-emerald-900 text-xs font-semibold uppercase tracking-wide">
+                  <div className="px-3 py-2 border-r">Duty Performed</div>
                   <div className="px-3 py-2 border-r">C-Off Date</div>
-                  <div className="px-3 py-2">C-Off Valid Till</div>
+                  <div className="px-3 py-2">Status</div>
                 </div>
                 <div className="divide-y">
                   {employeeRecord?.lastYearCompOff?.length ? (
                     employeeRecord.lastYearCompOff.map((row: any, idx: number) => (
-                      <div key={idx} className="grid grid-cols-4 text-sm">
-                        <div className="px-3 py-2 text-slate-700">{row?.closedHolidayDate || "—"}</div>
+                      <div key={idx} className="grid grid-cols-3 text-sm">
                         <div className="px-3 py-2 text-slate-700">{row?.dutyPerformed || "—"}</div>
-                        <div className="px-3 py-2 text-slate-700">{row?.leaveApplied || "—"}</div>
-                        <div className="px-3 py-2 text-slate-700">{row?.validTill || "—"}</div>
+                        <div className="px-3 py-2 text-slate-700">{formatDate(row?.leaveApplied) || "—"}</div>
+                        <div className="px-3 py-2">
+                          <Badge variant="secondary" className={`text-[10px] ${row?.leaveApplied ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>
+                            {row?.leaveApplied ? "Used" : "Available"}
+                          </Badge>
+                        </div>
                       </div>
                     ))
                   ) : (
@@ -274,28 +368,49 @@ export default function EmployeeLeavePage() {
           <CardContent>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Button variant="outline" size="icon"><ChevronLeft className="h-4 w-4" /></Button>
-                <div className="font-semibold">July 2023</div>
-                <Button variant="outline" size="icon"><ChevronRight className="h-4 w-4" /></Button>
+                <Button variant="outline" size="icon" onClick={prevMonth}><ChevronLeft className="h-4 w-4" /></Button>
+                <div className="font-semibold min-w-[160px] text-center">{monthLabel}</div>
+                <Button variant="outline" size="icon" onClick={nextMonth}><ChevronRight className="h-4 w-4" /></Button>
               </div>
               <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" /> Sick Leave</span>
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-teal-400" /> Casual Leave</span>
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-400" /> Earned Leave</span>
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-violet-400" /> Bereavement</span>
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-pink-400" /> Upcoming Holidays</span>
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-orange-400" /> Policy Specific</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "#4FD1C5" }} /> CL</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "#F6AD55" }} /> RH</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "#63B3ED" }} /> NH</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "#A78BFA" }} /> CH</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "#F87171" }} /> Comp Off</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full" style={{ background: "#FB923C" }} /> OPE</span>
               </div>
             </div>
             <div className="grid grid-cols-7 gap-px border border-slate-200 mt-4 text-sm">
-              {["SUN","MON","TUE","WED","THU","FRI","SAT"].map((d) => (
-                <div key={d} className="bg-slate-50 text-center py-2 font-semibold">{d}</div>
+              {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((d) => (
+                <div key={d} className="bg-slate-50 text-center py-2 font-semibold text-xs">{d}</div>
               ))}
-              {Array.from({ length: 35 }).map((_, idx) => (
-                <div key={idx} className="h-20 bg-white border border-slate-100 p-2 text-xs text-muted-foreground">
-                  <div className="font-medium text-slate-600">{idx + 1 <= 31 ? idx + 1 : ""}</div>
-                </div>
-              ))}
+              {calendarGrid.map((cell, idx) => {
+                const leaveColor = cell.iso ? calendarLeaves.get(cell.iso) : undefined;
+                const todayIso = new Date().toISOString().split("T")[0];
+                const isToday = cell.iso === todayIso;
+
+                return (
+                  <div
+                    key={idx}
+                    className={`h-16 bg-white border border-slate-100 p-1.5 text-xs ${!cell.day ? "bg-slate-50/50" : ""}`}
+                  >
+                    {cell.day && (
+                      <>
+                        <div className={`font-medium ${isToday ? "text-blue-600 font-bold" : "text-slate-600"}`}>
+                          {cell.day}
+                        </div>
+                        {leaveColor && (
+                          <div
+                            className="mt-0.5 h-2 w-full rounded-full"
+                            style={{ background: leaveColor }}
+                          />
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
