@@ -1,5 +1,6 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect, memo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
     Select,
     SelectContent,
@@ -22,6 +23,7 @@ import { DUTY_CODES, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 
 /* ── Types ── */
 interface ScheduleEntry {
@@ -94,6 +96,52 @@ const generateDates = (year: number, month: number) => {
 
 /* ═══════════════════════════════════════════════════════════════ */
 
+/* ── Memoized duty cell — only re-renders when its own props change ── */
+interface DutyCellProps {
+    duty: string;
+    isSaving: boolean;
+    isWeekend: boolean;
+    empCode: string;
+    empName: string;
+    dateKey: string;
+    onDutyChange: (empCode: string, empName: string, dateKey: string, newCode: string) => void;
+}
+
+const MemoizedDutyCell = memo(function DutyCell({
+    duty,
+    isSaving,
+    isWeekend,
+    empCode,
+    empName,
+    dateKey,
+    onDutyChange,
+}: DutyCellProps) {
+    return (
+        <div
+            className={`w-28 flex-shrink-0 px-1 flex items-center justify-center border-r border-gray-200 ${isWeekend ? "bg-muted/20" : ""}`}
+        >
+            <select
+                value={duty}
+                disabled={isSaving}
+                onChange={(e) => onDutyChange(empCode, empName, dateKey, e.target.value)}
+                className={`w-full h-8 text-[11px] font-semibold border-[1.5px] rounded-md px-1 outline-none focus:ring-2 focus:ring-ring focus:border-input shadow-sm appearance-none cursor-pointer ${getDutyColor(duty)} hover:opacity-90 transition-all text-center ${isSaving ? "opacity-60 cursor-wait" : ""}`}
+            >
+                <option value="" className="text-gray-900 bg-white">—</option>
+                {duty && !(DUTY_CODES as readonly string[]).includes(duty) && (
+                    <option value={duty} className="text-gray-900 bg-white">
+                        {duty}
+                    </option>
+                )}
+                {DUTY_CODES.map((code) => (
+                    <option key={code} value={code} className="text-gray-900 bg-white">
+                        {code}
+                    </option>
+                ))}
+            </select>
+        </div>
+    );
+});
+
 export default function DutyManagement() {
     const now = new Date();
     const [currentYear, setCurrentYear] = useState(now.getFullYear());
@@ -102,9 +150,6 @@ export default function DutyManagement() {
     const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
     const [sortBy, setSortBy] = useState<"name" | "empId" | "team">("name");
     const [savingCellKey, setSavingCellKey] = useState<string | null>(null);
-    const [gridScrollTop, setGridScrollTop] = useState(0);
-    const [gridViewportHeight, setGridViewportHeight] = useState(0);
-    const scrollRafRef = useRef<number | null>(null);
     const { toast } = useToast();
     const queryClient = useQueryClient();
 
@@ -120,13 +165,6 @@ export default function DutyManagement() {
     const onGridScroll = useCallback(() => {
         if (namesRef.current && gridRef.current) {
             namesRef.current.scrollTop = gridRef.current.scrollTop;
-            if (scrollRafRef.current !== null) return;
-            scrollRafRef.current = requestAnimationFrame(() => {
-                if (gridRef.current) {
-                    setGridScrollTop(gridRef.current.scrollTop);
-                }
-                scrollRafRef.current = null;
-            });
         }
     }, []);
 
@@ -180,13 +218,13 @@ export default function DutyManagement() {
             if (error) throw error;
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["duty-management-schedules"] });
-            queryClient.invalidateQueries({ queryKey: ["employee-schedules"] });
+            queryClient.invalidateQueries({ queryKey: scheduleKeys.all });
         },
     });
 
     const { data: schedules = [], isLoading: schedulesLoading } = useQuery({
-        queryKey: ["duty-management-schedules", startDate, endDate],
+        queryKey: scheduleKeys.grid(startDate, endDate),
+        ...SCHEDULE_QUERY_OPTIONS,
         queryFn: async () => {
             const PAGE_SIZE = 1000;
             let allRows: ScheduleEntry[] = [];
@@ -210,17 +248,18 @@ export default function DutyManagement() {
             return allRows;
         },
         enabled: !!startDate && !!endDate,
-        staleTime: 2 * 60 * 1000,
+        // staleTime, refetchInterval, refetchOnWindowFocus are set via SCHEDULE_QUERY_OPTIONS
     });
 
     /* ── Build employee list and schedule map ── */
     const employees = useMemo(() => profiles, [profiles]);
 
+    /* ── O(1) grid lookup: key → duty_code (slim, no full row objects) ── */
     const scheduleMap = useMemo(() => {
-        const map = new Map<string, ScheduleEntry>();
+        const map = new Map<string, string>();
         for (const s of schedules) {
             const key = `${(s.employee_code || "").trim().toUpperCase()}|${s.duty_date}`;
-            map.set(key, s);
+            map.set(key, s.duty_code || "");
         }
         return map;
     }, [schedules]);
@@ -302,18 +341,19 @@ export default function DutyManagement() {
         setCurrentYear(y);
     };
 
-    const handleDutyChange = async (
-        emp: { code: string; name: string },
+    const handleDutyChange = useCallback(async (
+        empCode: string,
+        empName: string,
         dateKey: string,
         newCode: string
     ) => {
         if (!newCode) return;
-        const key = `${emp.code}|${dateKey}`;
+        const key = `${empCode}|${dateKey}`;
         setSavingCellKey(key);
         try {
             await upsertSchedule.mutateAsync({
-                employeeCode: emp.code,
-                employeeName: emp.name,
+                employeeCode: empCode,
+                employeeName: empName,
                 dutyDate: dateKey,
                 dutyCode: newCode,
             });
@@ -327,7 +367,7 @@ export default function DutyManagement() {
         } finally {
             setSavingCellKey((current) => (current === key ? null : current));
         }
-    };
+    }, [upsertSchedule, toast]);
 
     const toggleTeam = (team: string) => {
         setSelectedTeams((prev) => prev.includes(team) ? prev.filter((t) => t !== team) : [...prev, team]);
@@ -339,36 +379,22 @@ export default function DutyManagement() {
 
     const isLoading = profilesLoading || schedulesLoading;
 
-    const totalRows = filteredEmployees.length;
-    const visibleCount = Math.max(1, Math.ceil(gridViewportHeight / ROW_PX) + ROW_OVERSCAN * 2);
-    const startIndex = Math.max(0, Math.floor(gridScrollTop / ROW_PX) - ROW_OVERSCAN);
-    const endIndex = Math.min(totalRows, startIndex + visibleCount);
-    const visibleEmployees = filteredEmployees.slice(startIndex, endIndex);
-    const topSpacerHeight = startIndex * ROW_PX;
-    const bottomSpacerHeight = Math.max(0, (totalRows - endIndex) * ROW_PX);
+    /* ── Virtualizer (replaces manual spacer-based virtualization) ── */
+    const rowVirtualizer = useVirtualizer({
+        count: filteredEmployees.length,
+        getScrollElement: () => gridRef.current,
+        estimateSize: () => ROW_PX,
+        overscan: ROW_OVERSCAN,
+    });
 
-    useEffect(() => {
-        const grid = gridRef.current;
-        if (!grid) return;
-        const updateHeight = () => setGridViewportHeight(grid.clientHeight);
-        updateHeight();
-        const observer = new ResizeObserver(updateHeight);
-        observer.observe(grid);
-        return () => observer.disconnect();
-    }, [isLoading]);
+    const virtualRows = rowVirtualizer.getVirtualItems();
+    const totalHeight = rowVirtualizer.getTotalSize();
 
+    // Reset virtualizer scroll when filters/month change
     useEffect(() => {
-        return () => {
-            if (scrollRafRef.current !== null) {
-                cancelAnimationFrame(scrollRafRef.current);
-            }
-        };
-    }, []);
-
-    useEffect(() => {
-        setGridScrollTop(0);
         if (gridRef.current) gridRef.current.scrollTop = 0;
         if (namesRef.current) namesRef.current.scrollTop = 0;
+        rowVirtualizer.scrollToIndex(0);
     }, [currentMonth, currentYear, searchQuery, selectedTeams, sortBy]);
 
     /* ═══════════════════════════════════════════════════════════════
@@ -503,18 +529,25 @@ export default function DutyManagement() {
                                         No employees found
                                     </div>
                                 ) : (
-                                    <>
-                                        {topSpacerHeight > 0 && <div style={{ height: topSpacerHeight }} />}
-                                        {visibleEmployees.map((emp, i) => {
-                                            const rowIndex = startIndex + i;
+                                    <div className="relative" style={{ height: totalHeight }}>
+                                        {virtualRows.map((virtualRow) => {
+                                            const emp = filteredEmployees[virtualRow.index];
+                                            const rowIndex = virtualRow.index;
                                             return (
                                                 <div
                                                     key={emp.code}
-                                                    className={`flex ${ROW_H} border-b border-gray-200 dark:border-slate-700 transition-colors ${
-                                                        rowIndex % 2 === 0
-                                                            ? "bg-white dark:bg-slate-900/55"
-                                                            : "bg-slate-50/70 dark:bg-slate-800/55"
-                                                    } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
+                                                    className={`flex ${ROW_H} border-b border-gray-200 dark:border-slate-700 transition-colors ${rowIndex % 2 === 0
+                                                        ? "bg-white dark:bg-slate-900/55"
+                                                        : "bg-slate-50/70 dark:bg-slate-800/55"
+                                                        } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
+                                                    style={{
+                                                        position: "absolute",
+                                                        top: 0,
+                                                        left: 0,
+                                                        width: "100%",
+                                                        height: ROW_PX,
+                                                        transform: `translateY(${virtualRow.start}px)`,
+                                                    }}
                                                 >
                                                     <div className="w-32 px-3 flex items-center border-r border-gray-200">
                                                         <span className="text-xs font-mono font-medium truncate">{emp.code}</span>
@@ -530,8 +563,7 @@ export default function DutyManagement() {
                                                 </div>
                                             );
                                         })}
-                                        {bottomSpacerHeight > 0 && <div style={{ height: bottomSpacerHeight }} />}
-                                    </>
+                                    </div>
                                 )}
                             </div>
                         </div>
@@ -543,7 +575,7 @@ export default function DutyManagement() {
                             onScroll={onGridScroll}
                         >
                             {/* Date header row — sticky top */}
-                            <div className={`sticky top-0 z-10 flex ${ROW_H} border-b-2 border-gray-400 bg-muted/80 backdrop-blur`}>
+                            <div className={`sticky top-0 z-10 flex ${ROW_H} border-b-2 border-gray-400 bg-background`}>
                                 {dates.map((date) => (
                                     <div
                                         key={date.key}
@@ -559,54 +591,46 @@ export default function DutyManagement() {
                             </div>
 
                             {/* Duty cells body */}
-                            {topSpacerHeight > 0 && <div style={{ height: topSpacerHeight }} />}
-                            {visibleEmployees.map((emp, i) => {
-                                const rowIndex = startIndex + i;
-                                return (
-                                    <div
-                                        key={emp.code}
-                                        className={`flex ${ROW_H} border-b border-gray-200 dark:border-slate-700 transition-colors ${
-                                            rowIndex % 2 === 0
+                            <div className="relative" style={{ height: totalHeight }}>
+                                {virtualRows.map((virtualRow) => {
+                                    const emp = filteredEmployees[virtualRow.index];
+                                    const rowIndex = virtualRow.index;
+                                    return (
+                                        <div
+                                            key={emp.code}
+                                            className={`flex ${ROW_H} border-b border-gray-200 dark:border-slate-700 transition-colors ${rowIndex % 2 === 0
                                                 ? "bg-white dark:bg-slate-900/55"
                                                 : "bg-slate-50/70 dark:bg-slate-800/55"
-                                        } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
-                                    >
-                                        {dates.map((date) => {
-                                            const entry = scheduleMap.get(`${emp.code}|${date.key}`);
-                                            const duty = entry?.duty_code || "";
-                                            const cellKey = `${emp.code}|${date.key}`;
-                                            const isSaving = savingCellKey === cellKey;
-                                            return (
-                                                <div
-                                                    key={date.key}
-                                                    className={`w-28 flex-shrink-0 px-1 flex items-center justify-center border-r border-gray-200 ${date.isWeekend ? "bg-muted/20" : ""
-                                                        }`}
-                                                >
-                                                    <select
-                                                        value={duty}
-                                                        disabled={isSaving}
-                                                        onChange={(e) => handleDutyChange(emp, date.key, e.target.value)}
-                                                        className={`w-full h-8 text-[11px] font-semibold border-[1.5px] rounded-md px-1 outline-none focus:ring-2 focus:ring-ring focus:border-input shadow-sm appearance-none cursor-pointer ${getDutyColor(duty)} hover:opacity-90 transition-all text-center ${isSaving ? "opacity-60 cursor-wait" : ""}`}
-                                                    >
-                                                        <option value="" className="text-gray-900 bg-white">—</option>
-                                                        {duty && !(DUTY_CODES as readonly string[]).includes(duty) && (
-                                                            <option value={duty} className="text-gray-900 bg-white">
-                                                                {duty}
-                                                            </option>
-                                                        )}
-                                                        {DUTY_CODES.map((code) => (
-                                                            <option key={code} value={code} className="text-gray-900 bg-white">
-                                                                {code}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                );
-                            })}
-                            {bottomSpacerHeight > 0 && <div style={{ height: bottomSpacerHeight }} />}
+                                                } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
+                                            style={{
+                                                position: "absolute",
+                                                top: 0,
+                                                left: 0,
+                                                width: "100%",
+                                                height: ROW_PX,
+                                                transform: `translateY(${virtualRow.start}px)`,
+                                            }}
+                                        >
+                                            {dates.map((date) => {
+                                                const cellKey = `${emp.code}|${date.key}`;
+                                                const duty = scheduleMap.get(cellKey) || "";
+                                                return (
+                                                    <MemoizedDutyCell
+                                                        key={date.key}
+                                                        duty={duty}
+                                                        isSaving={savingCellKey === cellKey}
+                                                        isWeekend={date.isWeekend}
+                                                        empCode={emp.code}
+                                                        empName={emp.name}
+                                                        dateKey={date.key}
+                                                        onDutyChange={handleDutyChange}
+                                                    />
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
                     </div>
                 )}

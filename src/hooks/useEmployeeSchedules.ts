@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { eachDayOfInterval, format, isAfter, isBefore, parseISO } from 'date-fns';
+import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from '@/lib/scheduleQueryConfig';
 
 // Duty code legend from Google Sheet
 export const DUTY_CODES = [
@@ -69,7 +70,8 @@ export function useEmployeeSchedules(
     endDate?: string
 ) {
     return useQuery({
-        queryKey: ['employee-schedules', employeeCode, startDate, endDate],
+        queryKey: scheduleKeys.employee(employeeCode, startDate, endDate),
+        ...SCHEDULE_QUERY_OPTIONS,
         queryFn: async () => {
             let query = supabase
                 .from('employee_schedules' as any)
@@ -222,7 +224,7 @@ export function useFetchSchedule() {
             throw error;
         },
         onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ['employee-schedules'] });
+            qc.invalidateQueries({ queryKey: scheduleKeys.all });
         },
     });
 }
@@ -247,7 +249,7 @@ export function useUpdateSchedule() {
             if (error) throw error;
         },
         onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ['employee-schedules'] });
+            qc.invalidateQueries({ queryKey: scheduleKeys.all });
         },
     });
 }

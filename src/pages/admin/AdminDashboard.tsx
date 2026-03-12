@@ -13,6 +13,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useLeaveRefresh, useLeaveApiUrl } from "@/hooks/useLeaveData";
 import { useFetchLeaveData } from "@/hooks/useLeaveRecords";
 import { useUsers } from "@/hooks/useUsers";
+import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 
 interface LogEntry {
   id: string | number;
@@ -33,7 +34,8 @@ export default function AdminDashboard() {
   const [logsLoading, setLogsLoading] = useState(true);
 
   const { data: scheduleHealth, isLoading: scheduleHealthLoading, refetch: refetchScheduleHealth } = useQuery({
-    queryKey: ["admin-schedule-health"],
+    queryKey: scheduleKeys.health(),
+    ...SCHEDULE_QUERY_OPTIONS,
     queryFn: async () => {
       const { data: latestRows, error: latestError, count } = await supabase
         .from("employee_schedules" as any)
@@ -58,7 +60,6 @@ export default function AdminDashboard() {
         updatedLast24h: updatedLast24h || 0,
       };
     },
-    staleTime: 60 * 1000,
   });
 
   const pendingApprovals = users?.filter(u => !u.approved) || [];

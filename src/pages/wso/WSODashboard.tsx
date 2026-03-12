@@ -14,6 +14,7 @@ import { getLeaveTypeLabel } from "@/lib/leaveConstants";
 import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 
 export default function WSODashboard() {
   const { user } = useAuth();
@@ -30,7 +31,8 @@ export default function WSODashboard() {
   const { data: allExchanges } = useDutyExchanges();
   const { data: baTests } = useBaTests();
   const { data: onDutyCount = 0, isLoading: onDutyLoading } = useQuery({
-    queryKey: ["wso-on-duty-schedule-count", today, wsoTeam],
+    queryKey: scheduleKeys.teamDay(today, wsoTeam),
+    ...SCHEDULE_QUERY_OPTIONS,
     queryFn: async () => {
       if (!wsoTeam) return 0;
 
@@ -55,7 +57,6 @@ export default function WSODashboard() {
       return new Set((schedules || []).map((s: any) => s.employee_code)).size;
     },
     enabled: !!wsoTeam,
-    staleTime: 60 * 1000,
   });
 
   const shiftLabel = profile?.current_shift ? `${profile.current_shift.toUpperCase()} Shift` : "—";

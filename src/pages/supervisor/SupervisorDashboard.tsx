@@ -19,6 +19,7 @@ import { getLeaveTypeLabel } from "@/lib/leaveConstants";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useLeaveApiUrl, useLeaveRefresh } from "@/hooks/useLeaveData";
+import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 
 /* ── Duty-cycle constants (mirrors WSOAttendance.tsx) ── */
 const DUTY_CYCLE: Array<"M" | "A" | "N" | "NO" | "CO"> = ["M", "A", "N", "NO", "CO"];
@@ -99,8 +100,9 @@ export default function SupervisorDashboard() {
   const fetchLeave = useLeaveRefresh();
 
   const { data: rosterResults = [] } = useQuery({
-    queryKey: ["supervisor-schedule-lookup", rosterSearch],
+    queryKey: scheduleKeys.lookup(rosterSearch),
     enabled: rosterSearch.trim().length >= 2,
+    ...SCHEDULE_QUERY_OPTIONS,
     queryFn: async () => {
       const search = rosterSearch.trim();
       const { data, error } = await supabase
@@ -125,7 +127,8 @@ export default function SupervisorDashboard() {
 
   // Fetch today's employee schedules to compute on-duty count
   const { data: todaySchedules = [], isLoading: schedulesLoading } = useQuery({
-    queryKey: ["supervisor-today-schedules", today],
+    queryKey: scheduleKeys.today(today),
+    ...SCHEDULE_QUERY_OPTIONS,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("employee_schedules" as any)
@@ -134,7 +137,6 @@ export default function SupervisorDashboard() {
       if (error) throw error;
       return (data || []) as unknown as Array<{ employee_code: string; duty_code: string }>;
     },
-    staleTime: 2 * 60 * 1000,
   });
 
   const onDutyCount = useMemo(

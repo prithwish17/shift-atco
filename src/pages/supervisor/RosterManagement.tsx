@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, memo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,6 +13,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search, Filter, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { addMonths, eachDayOfInterval, endOfMonth, format, startOfMonth } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 
 type SortBy = "name" | "empId" | "team";
 
@@ -39,6 +41,182 @@ const normalizeTeam = (value: string | null | undefined): string => {
   if (normalized === "GENERAL") return "G";
   return normalized;
 };
+
+/* ── Row height constant (matches the h-11 sm:h-12 from the original) ── */
+const ROW_HEIGHT = 44; // px — h-11 = 44px
+const OVERSCAN = 5;    // extra rows above/below viewport for smooth scrolling
+
+/* ── Memoized roster cell — only re-renders when its own props change ── */
+interface RosterCellProps {
+  duty: string;
+  isSaving: boolean;
+  empId: string;
+  dateKey: string;
+  onDutyChange: (empId: string, dateKey: string, dutyCode: string) => void;
+}
+
+const MemoizedRosterCell = memo(function RosterCell({
+  duty,
+  isSaving,
+  empId,
+  dateKey,
+  onDutyChange,
+}: RosterCellProps) {
+  return (
+    <div className="w-24 sm:w-28 px-1.5 sm:px-2 py-1 border-r border-gray-200 flex items-center justify-center flex-shrink-0">
+      <Select
+        value={duty || undefined}
+        onValueChange={(value) => onDutyChange(empId, dateKey, value)}
+        disabled={isSaving}
+      >
+        <SelectTrigger className="w-full h-8 sm:h-9 text-xs font-semibold border-[1.5px] border-gray-300 bg-white hover:bg-gray-50 transition-all focus:ring-2 focus:ring-gray-400 shadow-sm">
+          {isSaving ? (
+            <div className="w-full flex items-center justify-center">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            </div>
+          ) : (
+            <SelectValue placeholder="-" />
+          )}
+        </SelectTrigger>
+        <SelectContent>
+          {DUTY_CODES.map((dutyCode) => (
+            <SelectItem key={dutyCode} value={dutyCode} className="text-xs font-medium">
+              {dutyCode}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+});
+
+interface RosterVirtualizedGridProps {
+  employees: RosterEmployee[];
+  dates: { key: string; label: string; dayOfWeek: string }[];
+  scheduleMap: Map<string, string>;
+  savingCellKey: string | null;
+  onDutyChange: (empId: string, dateKey: string, dutyCode: string) => void;
+  namesBodyRef: React.RefObject<HTMLDivElement | null>;
+  dutiesBodyRef: React.RefObject<HTMLDivElement | null>;
+  headerScrollRef: React.RefObject<HTMLDivElement | null>;
+  syncHorizontal: (source: "header" | "duties") => void;
+  syncVertical: (source: "names" | "duties") => void;
+}
+
+function RosterVirtualizedGrid({
+  employees,
+  dates,
+  scheduleMap,
+  savingCellKey,
+  onDutyChange,
+  namesBodyRef,
+  dutiesBodyRef,
+  headerScrollRef,
+  syncHorizontal,
+  syncVertical,
+}: RosterVirtualizedGridProps) {
+  // The duties body is the "primary" scroll container for the virtualizer.
+  const rowVirtualizer = useVirtualizer({
+    count: employees.length,
+    getScrollElement: () => dutiesBodyRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: OVERSCAN,
+  });
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalHeight = rowVirtualizer.getTotalSize();
+
+  return (
+    <div className="flex-1 min-h-0 flex overflow-hidden">
+      {/* ── Names panel (left, synced vertically) ── */}
+      <div
+        ref={namesBodyRef}
+        onScroll={() => syncVertical("names")}
+        className="w-[352px] sm:w-[528px] shrink-0 overflow-y-auto overflow-x-auto border-r-2 border-gray-400"
+      >
+        <div className="min-w-[352px] sm:min-w-[528px] relative" style={{ height: totalHeight }}>
+          {virtualRows.map((virtualRow) => {
+            const employee = employees[virtualRow.index];
+            const idx = virtualRow.index;
+            return (
+              <div
+                key={employee.id}
+                className={`flex border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/40"}`}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: ROW_HEIGHT,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                <div className="w-28 sm:w-36 px-2 sm:px-4 border-r border-gray-200 flex items-center">
+                  <span className="text-xs sm:text-sm font-mono font-medium text-gray-700">{employee.empId}</span>
+                </div>
+                <div className="w-16 sm:w-24 px-2 sm:px-4 border-r border-gray-200 flex items-center justify-center">
+                  <span className="inline-flex items-center justify-center w-6 h-6 sm:w-8 sm:h-8 rounded bg-gray-700 text-white text-[10px] sm:text-xs font-semibold shadow-sm">
+                    {employee.team}
+                  </span>
+                </div>
+                <div className="w-44 sm:w-72 px-2 sm:px-4 flex items-center">
+                  <span className="text-xs sm:text-sm font-semibold text-gray-800 truncate">{employee.name}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Duties panel (right, primary scroll container) ── */}
+      <div
+        ref={dutiesBodyRef}
+        onScroll={() => {
+          syncHorizontal("duties");
+          syncVertical("duties");
+        }}
+        className="flex-1 overflow-auto"
+      >
+        <div className="min-w-max relative" style={{ height: totalHeight }}>
+          {virtualRows.map((virtualRow) => {
+            const employee = employees[virtualRow.index];
+            const idx = virtualRow.index;
+            return (
+              <div
+                key={employee.id}
+                className={`flex border-b border-gray-200 ${idx % 2 === 0 ? "bg-white" : "bg-gray-50/40"}`}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: ROW_HEIGHT,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                {dates.map((date) => {
+                  const cellKey = `${employee.empId}::${date.key}`;
+                  const duty = scheduleMap.get(cellKey) || "";
+
+                  return (
+                    <MemoizedRosterCell
+                      key={date.key}
+                      duty={duty}
+                      isSaving={savingCellKey === cellKey}
+                      empId={employee.empId}
+                      dateKey={date.key}
+                      onDutyChange={onDutyChange}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function RosterManagement() {
   const { users, isLoading: usersLoading } = useUsers();
@@ -99,7 +277,8 @@ export default function RosterManagement() {
   }, [teamOptions]);
 
   const { data: scheduleRows = [], isLoading: schedulesLoading } = useQuery({
-    queryKey: ["supervisor-roster-management", monthStartStr, monthEndStr],
+    queryKey: scheduleKeys.grid(monthStartStr, monthEndStr),
+    ...SCHEDULE_QUERY_OPTIONS,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("employee_schedules" as any)
@@ -109,13 +288,13 @@ export default function RosterManagement() {
       if (error) throw error;
       return (data || []) as unknown as ScheduleRow[];
     },
-    staleTime: 60 * 1000,
   });
 
+  /* ── O(1) grid lookup: key → duty_code (slim, no full row objects) ── */
   const scheduleMap = useMemo(() => {
-    const map = new Map<string, ScheduleRow>();
+    const map = new Map<string, string>();
     for (const row of scheduleRows) {
-      map.set(`${row.employee_code}::${row.duty_date}`, row);
+      map.set(`${row.employee_code}::${row.duty_date}`, row.duty_code || "");
     }
     return map;
   }, [scheduleRows]);
@@ -156,7 +335,7 @@ export default function RosterManagement() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["supervisor-roster-management"] });
+      queryClient.invalidateQueries({ queryKey: scheduleKeys.all });
     },
     onError: (error: any) => {
       toast({
@@ -183,15 +362,19 @@ export default function RosterManagement() {
     setViewMonth((prev) => addMonths(prev, direction === "prev" ? -1 : 1));
   };
 
-  const handleDutyChange = async (employee: RosterEmployee, dutyDate: string, dutyCode: string) => {
-    const key = `${employee.empId}::${dutyDate}`;
+  // Stable callback — uses primitives so React.memo cells don't break
+  const handleDutyChange = useCallback(async (empId: string, dutyDate: string, dutyCode: string) => {
+    const key = `${empId}::${dutyDate}`;
     setSavingCellKey(key);
     try {
-      await updateScheduleMutation.mutateAsync({ employee, dutyDate, dutyCode });
+      // Find the employee object for the mutation (needs name for upsert)
+      const emp = employees.find((e) => e.empId === empId);
+      if (!emp) return;
+      await updateScheduleMutation.mutateAsync({ employee: emp, dutyDate, dutyCode });
     } finally {
       setSavingCellKey((current) => (current === key ? null : current));
     }
-  };
+  }, [employees, updateScheduleMutation]);
 
   const isLoading = usersLoading || schedulesLoading;
 
@@ -377,83 +560,18 @@ export default function RosterManagement() {
                     <p>No employees found matching your filters</p>
                   </div>
                 ) : (
-                  <div className="flex-1 min-h-0 flex overflow-hidden">
-                    <div
-                      ref={namesBodyRef}
-                      onScroll={() => syncVertical("names")}
-                      className="w-[352px] sm:w-[528px] shrink-0 overflow-y-auto overflow-x-auto border-r-2 border-gray-400"
-                    >
-                      <div className="min-w-[352px] sm:min-w-[528px]">
-                        {filteredAndSortedEmployees.map((employee, index) => (
-                          <div
-                            key={employee.id}
-                            className={`h-11 sm:h-12 flex border-b border-gray-200 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/40"}`}
-                          >
-                            <div className="w-28 sm:w-36 px-2 sm:px-4 border-r border-gray-200 flex items-center">
-                              <span className="text-xs sm:text-sm font-mono font-medium text-gray-700">{employee.empId}</span>
-                            </div>
-                            <div className="w-16 sm:w-24 px-2 sm:px-4 border-r border-gray-200 flex items-center justify-center">
-                              <span className="inline-flex items-center justify-center w-6 h-6 sm:w-8 sm:h-8 rounded bg-gray-700 text-white text-[10px] sm:text-xs font-semibold shadow-sm">
-                                {employee.team}
-                              </span>
-                            </div>
-                            <div className="w-44 sm:w-72 px-2 sm:px-4 flex items-center">
-                              <span className="text-xs sm:text-sm font-semibold text-gray-800 truncate">{employee.name}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div
-                      ref={dutiesBodyRef}
-                      onScroll={() => {
-                        syncHorizontal("duties");
-                        syncVertical("duties");
-                      }}
-                      className="flex-1 overflow-auto"
-                    >
-                      <div className="min-w-max">
-                        {filteredAndSortedEmployees.map((employee, index) => (
-                          <div key={employee.id} className={`h-11 sm:h-12 flex border-b border-gray-200 ${index % 2 === 0 ? "bg-white" : "bg-gray-50/40"}`}>
-                            {dates.map((date) => {
-                              const key = `${employee.empId}::${date.key}`;
-                              const row = scheduleMap.get(key);
-                              const duty = row?.duty_code || "";
-                              const isSaving = savingCellKey === key;
-
-                              return (
-                                <div key={date.key} className="w-24 sm:w-28 px-1.5 sm:px-2 py-1 border-r border-gray-200 flex items-center justify-center flex-shrink-0">
-                                  <Select
-                                    value={duty || undefined}
-                                    onValueChange={(value) => handleDutyChange(employee, date.key, value)}
-                                    disabled={isSaving}
-                                  >
-                                    <SelectTrigger className="w-full h-8 sm:h-9 text-xs font-semibold border-[1.5px] border-gray-300 bg-white hover:bg-gray-50 transition-all focus:ring-2 focus:ring-gray-400 shadow-sm">
-                                      {isSaving ? (
-                                        <div className="w-full flex items-center justify-center">
-                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        </div>
-                                      ) : (
-                                        <SelectValue placeholder="-" />
-                                      )}
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {DUTY_CODES.map((dutyCode) => (
-                                        <SelectItem key={dutyCode} value={dutyCode} className="text-xs font-medium">
-                                          {dutyCode}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+                  <RosterVirtualizedGrid
+                    employees={filteredAndSortedEmployees}
+                    dates={dates}
+                    scheduleMap={scheduleMap}
+                    savingCellKey={savingCellKey}
+                    onDutyChange={handleDutyChange}
+                    namesBodyRef={namesBodyRef}
+                    dutiesBodyRef={dutiesBodyRef}
+                    headerScrollRef={headerScrollRef}
+                    syncHorizontal={syncHorizontal}
+                    syncVertical={syncVertical}
+                  />
                 )}
               </div>
             </div>

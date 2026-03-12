@@ -15,6 +15,7 @@ import { useAttendance } from "@/hooks/useAttendance";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useSearchParams } from "react-router-dom";
+import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 
 interface AttendanceRow {
   userId: string;
@@ -73,7 +74,8 @@ export default function SupervisorAttendance() {
 
   // Fetch employee schedules for the selected date
   const { data: schedules = [], isLoading: schedulesLoading } = useQuery({
-    queryKey: ["attendance-schedules", dateStr],
+    queryKey: scheduleKeys.day(dateStr),
+    ...SCHEDULE_QUERY_OPTIONS,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("employee_schedules" as any)

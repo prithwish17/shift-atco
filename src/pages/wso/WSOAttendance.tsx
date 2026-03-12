@@ -14,6 +14,7 @@ import { useUserProfile, useUsers } from "@/hooks/useUsers";
 import { useAttendance } from "@/hooks/useAttendance";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 
 interface EmployeeAttendance {
   userId: string;
@@ -110,7 +111,7 @@ function isHolidayOrOffDuty(dutyCode: string | null | undefined) {
 
 export default function WSOAttendance() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  
+
   const [attendanceState, setAttendanceState] = useState<Record<string, EmployeeAttendance>>({});
 
   const { user } = useAuth();
@@ -134,7 +135,8 @@ export default function WSOAttendance() {
   );
 
   const { data: daySchedules = [], isLoading: schedulesLoading } = useQuery({
-    queryKey: ["wso-attendance-day-schedules", dateStr, wsoTeamKey],
+    queryKey: scheduleKeys.teamDay(dateStr, wsoTeamKey),
+    ...SCHEDULE_QUERY_OPTIONS,
     queryFn: async () => {
       if (teamEmployeeCodes.length === 0) return [];
       const { data, error } = await supabase
@@ -146,7 +148,6 @@ export default function WSOAttendance() {
       return (data || []) as Array<{ employee_code: string; duty_code: string }>;
     },
     enabled: teamEmployeeCodes.length > 0,
-    staleTime: 60 * 1000,
   });
 
   const dutyByEmployeeCode = useMemo(() => {
@@ -207,14 +208,14 @@ export default function WSOAttendance() {
 
   const handleSave = () => {
     const dutyRecords = allEmployees.map((r) => ({
-        user_id: r.userId,
-        attendance_date: dateStr,
-        status: r.status as "present" | "absent",
-        comments: r.dutyCode || null,
-        marked_by: "",
-        time_in: r.timeIn ? new Date(`${dateStr}T${r.timeIn}`).toISOString() : null,
-        time_out: r.timeOut ? new Date(`${dateStr}T${r.timeOut}`).toISOString() : null,
-      }));
+      user_id: r.userId,
+      attendance_date: dateStr,
+      status: r.status as "present" | "absent",
+      comments: r.dutyCode || null,
+      marked_by: "",
+      time_in: r.timeIn ? new Date(`${dateStr}T${r.timeIn}`).toISOString() : null,
+      time_out: r.timeOut ? new Date(`${dateStr}T${r.timeOut}`).toISOString() : null,
+    }));
 
     const holidayRecords = holidayOffEmployees.map((u) => ({
       user_id: u.id,

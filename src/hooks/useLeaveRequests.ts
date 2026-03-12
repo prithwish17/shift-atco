@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { eachDayOfInterval, format, isValid, parseISO } from 'date-fns';
+import { scheduleKeys } from '@/lib/scheduleQueryConfig';
 
 // ---------- Types ----------
 
@@ -386,7 +387,7 @@ export function useCancelApprovedLeaveRequest() {
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['leave-requests'] });
-            qc.invalidateQueries({ queryKey: ['employee-schedules'] });
+            qc.invalidateQueries({ queryKey: scheduleKeys.all });
         },
     });
 }
@@ -475,7 +476,7 @@ export function useReviewLeaveRequest() {
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['leave-requests'] });
-            qc.invalidateQueries({ queryKey: ['employee-schedules'] });
+            qc.invalidateQueries({ queryKey: scheduleKeys.all });
         },
     });
 }

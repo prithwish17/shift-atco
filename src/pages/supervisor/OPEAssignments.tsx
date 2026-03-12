@@ -12,6 +12,7 @@ import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 
 /* ── Extra duty (OPE) codes: compound codes where employee works beyond normal shift ── */
 const OPE_CODES = new Set([
@@ -45,7 +46,8 @@ export default function OPEAssignments() {
     const dateStr = format(selectedDate, "yyyy-MM-dd");
 
     const { data: schedules = [], isLoading } = useQuery({
-        queryKey: ["ope-assignments", dateStr],
+        queryKey: scheduleKeys.ope(dateStr),
+        ...SCHEDULE_QUERY_OPTIONS,
         queryFn: async () => {
             const { data, error } = await supabase
                 .from("employee_schedules" as any)
@@ -58,7 +60,6 @@ export default function OPEAssignments() {
                 duty_code: string;
             }>;
         },
-        staleTime: 2 * 60 * 1000,
     });
 
     const opeEmployees = useMemo(
