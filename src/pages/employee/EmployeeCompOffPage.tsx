@@ -347,7 +347,7 @@ export default function EmployeeCompOffPage() {
 
                         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                           <div>
-                            <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Duty Code</div>
+                            <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Duty Performed</div>
                             <div className="text-sm font-semibold text-slate-800">{row.dutyPerformed || "—"}</div>
                           </div>
                           <div>
