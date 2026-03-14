@@ -257,7 +257,7 @@ export default function EmployeeLeavePage() {
   }, [employeeRecord]);
 
   const visibleCompOffLedgerRows = useMemo(
-    () => compOffLedgerRows.filter((row) => row.status !== "used"),
+    () => compOffLedgerRows.filter((row) => row.status === "available"),
     [compOffLedgerRows],
   );
 
@@ -444,7 +444,7 @@ export default function EmployeeLeavePage() {
           </Card>
         ) : null}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
           {cards.map((card) => {
             const percent = card.total > 0 ? Math.round(((card.total - card.remaining) / card.total) * 100) : 0;
             return (
