@@ -10,6 +10,8 @@ import { useMyRoster } from "@/hooks/useRosters";
 import { useMySchedule, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
 import { format, addDays, isSameDay, parse, parseISO, differenceInDays } from "date-fns";
 
+const DOUBLE_DUTY_CODES = new Set(["M+A", "A+M"]);
+
 const LICENSE_LABELS: Record<string, string> = {
   rdr: "Radar",
   app: "Approach",
@@ -48,6 +50,54 @@ function parseRosterDate(dateStr: string): Date | null {
   }
 }
 
+function isDoubleDuty(code?: string): boolean {
+  return DOUBLE_DUTY_CODES.has(code?.trim().toUpperCase() || "");
+}
+
+function getShiftName(code?: string, description?: string): string {
+  const normalizedCode = code?.trim() || "";
+  return description || DUTY_DESCRIPTIONS[normalizedCode] || normalizedCode || "—";
+}
+
+function getRosterDutyLabel(shift?: string): string {
+  const normalizedShift = shift?.trim() || "";
+  return normalizedShift ? `${normalizedShift} Shift` : "—";
+}
+
+function getRosterAssignmentLabel(shift?: string, unit?: string, position?: string): string {
+  const shiftLabel = shift?.trim() || "—";
+  const unitLabel = unit?.trim() || "—";
+  const positionLabel = position?.trim() || "";
+  const hidePosition = positionLabel.toUpperCase() === "EXTRA DUTY";
+  const hideUnit = unitLabel.toUpperCase() === "SPECIAL";
+  if (hideUnit || hidePosition) return "";
+  const parts = [shiftLabel];
+
+  if (!hideUnit) parts.push(unitLabel);
+  if (!hidePosition && positionLabel) parts.push(positionLabel);
+
+  return parts.join(" - ");
+}
+
+function shouldHideRosterEntry(unit?: string, position?: string): boolean {
+  return unit?.trim().toUpperCase() === "SPECIAL" || position?.trim().toUpperCase() === "EXTRA DUTY";
+}
+
+function sortRosterEntriesByShift<T extends { shift: string }>(entries: T[]): T[] {
+  const shiftOrder: Record<string, number> = {
+    MORNING: 0,
+    AFTERNOON: 1,
+    EVENING: 1,
+    NIGHT: 2,
+  };
+
+  return [...entries].sort((a, b) => {
+    const left = shiftOrder[a.shift?.trim().toUpperCase()] ?? 99;
+    const right = shiftOrder[b.shift?.trim().toUpperCase()] ?? 99;
+    return left - right;
+  });
+}
+
 export default function EmployeeDashboard() {
   const { user, userRole } = useAuth();
   const { profile, isLoading: profileLoading } = useUserProfile(user?.id);
@@ -78,14 +128,18 @@ export default function EmployeeDashboard() {
   const tomorrow = addDays(now, 1);
   const tomorrowStr = format(tomorrow, "yyyy-MM-dd");
 
-  const todayRoster = myRoster?.find(r => {
+  const todayRosters = sortRosterEntriesByShift((myRoster || []).filter(r => {
     const d = parseRosterDate(r.date);
     return d && isSameDay(d, now);
-  });
-  const tomorrowRoster = myRoster?.find(r => {
+  }));
+  const tomorrowRosters = sortRosterEntriesByShift((myRoster || []).filter(r => {
     const d = parseRosterDate(r.date);
     return d && isSameDay(d, tomorrow);
-  });
+  }));
+  const visibleTodayRosters = todayRosters.filter((roster) => !shouldHideRosterEntry(roster.unit, roster.position));
+  const visibleTomorrowRosters = tomorrowRosters.filter((roster) => !shouldHideRosterEntry(roster.unit, roster.position));
+  const todayRoster = visibleTodayRosters[0];
+  const tomorrowRoster = visibleTomorrowRosters[0];
   const todaySchedule = mySchedule.find(s => s.duty_date === today);
   const tomorrowSchedule = mySchedule.find(s => s.duty_date === tomorrowStr);
 
@@ -117,15 +171,38 @@ export default function EmployeeDashboard() {
               <div className="text-sm text-purple-700 dark:text-purple-300 mb-3 md:mb-4">{format(now, "EEE, dd MMM")}</div>
               {(rosterLoading || scheduleLoading) ? (
                 <p className="text-sm text-purple-600 dark:text-purple-400">Loading…</p>
+              ) : todaySchedule && isDoubleDuty(todaySchedule.duty_code) && visibleTodayRosters.length > 0 ? (
+                <div className="space-y-1">
+                  {visibleTodayRosters
+                    .map((roster) => ({
+                      key: `${roster.date}-${roster.shift}-${roster.position}-${roster.unit}`,
+                      label: getRosterAssignmentLabel(roster.shift, roster.unit, roster.position),
+                    }))
+                    .filter((roster) => roster.label)
+                    .map((roster) => (
+                      <div key={roster.key} className="text-sm font-medium text-purple-800 dark:text-purple-200">
+                        {roster.label}
+                      </div>
+                    ))}
+                </div>
               ) : todayRoster ? (
                 <div className="space-y-1">
-                  <div className="text-sm font-medium text-purple-800 dark:text-purple-200">{todayRoster.position}</div>
-                  <div className="text-sm font-medium text-purple-800 dark:text-purple-200">Unit {todayRoster.unit} · Team {todayRoster.team}</div>
+                  <div className="text-sm font-medium text-purple-800 dark:text-purple-200">
+                    {getRosterDutyLabel(todayRoster.shift)}
+                  </div>
+                  <div className="text-sm font-medium text-purple-800 dark:text-purple-200">
+                    {[
+                      todayRoster.unit?.trim().toUpperCase() === "SPECIAL" ? null : `Unit ${todayRoster.unit}`,
+                      todayRoster.position?.trim().toUpperCase() === "EXTRA DUTY" ? null : todayRoster.position,
+                      `Team ${todayRoster.team}`,
+                    ].filter(Boolean).join(" · ")}
+                  </div>
                 </div>
               ) : todaySchedule ? (
                 <div className="space-y-1">
-                  <div className="text-sm font-medium text-purple-800 dark:text-purple-200">{todaySchedule.duty_code}</div>
-                  <div className="text-sm font-medium text-purple-800 dark:text-purple-200">{todaySchedule.duty_description || DUTY_DESCRIPTIONS[todaySchedule.duty_code] || ''}</div>
+                  <div className="text-sm font-medium text-purple-800 dark:text-purple-200">
+                    {getShiftName(todaySchedule.duty_code, todaySchedule.duty_description)}
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-purple-600 dark:text-purple-400">No assignment</p>
@@ -138,15 +215,38 @@ export default function EmployeeDashboard() {
               <div className="text-sm text-blue-700 dark:text-blue-300 mb-3 md:mb-4">{format(tomorrow, "EEE, dd MMM")}</div>
               {(rosterLoading || scheduleLoading) ? (
                 <p className="text-sm text-blue-600 dark:text-blue-400">Loading…</p>
+              ) : tomorrowSchedule && isDoubleDuty(tomorrowSchedule.duty_code) && visibleTomorrowRosters.length > 0 ? (
+                <div className="space-y-1">
+                  {visibleTomorrowRosters
+                    .map((roster) => ({
+                      key: `${roster.date}-${roster.shift}-${roster.position}-${roster.unit}`,
+                      label: getRosterAssignmentLabel(roster.shift, roster.unit, roster.position),
+                    }))
+                    .filter((roster) => roster.label)
+                    .map((roster) => (
+                      <div key={roster.key} className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                        {roster.label}
+                      </div>
+                    ))}
+                </div>
               ) : tomorrowRoster ? (
                 <div className="space-y-1">
-                  <div className="text-sm font-medium text-blue-800 dark:text-blue-200">{tomorrowRoster.position}</div>
-                  <div className="text-sm font-medium text-blue-800 dark:text-blue-200">Unit {tomorrowRoster.unit} · Team {tomorrowRoster.team}</div>
+                  <div className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                    {getRosterDutyLabel(tomorrowRoster.shift)}
+                  </div>
+                  <div className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                    {[
+                      tomorrowRoster.unit?.trim().toUpperCase() === "SPECIAL" ? null : `Unit ${tomorrowRoster.unit}`,
+                      tomorrowRoster.position?.trim().toUpperCase() === "EXTRA DUTY" ? null : tomorrowRoster.position,
+                      `Team ${tomorrowRoster.team}`,
+                    ].filter(Boolean).join(" · ")}
+                  </div>
                 </div>
               ) : tomorrowSchedule ? (
                 <div className="space-y-1">
-                  <div className="text-sm font-medium text-blue-800 dark:text-blue-200">{tomorrowSchedule.duty_code}</div>
-                  <div className="text-sm font-medium text-blue-800 dark:text-blue-200">{tomorrowSchedule.duty_description || DUTY_DESCRIPTIONS[tomorrowSchedule.duty_code] || ''}</div>
+                  <div className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                    {getShiftName(tomorrowSchedule.duty_code, tomorrowSchedule.duty_description)}
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-blue-600 dark:text-blue-400">No assignment</p>
