@@ -49,6 +49,7 @@ const EmployeeSchedule = lazy(() => import("./pages/employee/EmployeeSchedule"))
 const LeaveApplication = lazy(() => import("./pages/employee/LeaveApplication"));
 const LeaveHistory = lazy(() => import("./pages/employee/LeaveHistory"));
 const EmployeeLeavePage = lazy(() => import("./pages/employee/EmployeeLeavePage"));
+const EmployeeCompOffPage = lazy(() => import("./pages/employee/EmployeeCompOffPage"));
 const DutyExchangeRequest = lazy(() => import("./pages/employee/DutyExchangeRequest"));
 const EmployeeRoster = lazy(() => import("./pages/employee/EmployeeRoster"));
 const EmployeeHolidays = lazy(() => import("./pages/employee/EmployeeHolidays"));
@@ -130,6 +131,7 @@ const App = () => (
                   <Route path="/employee/leave" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><LeaveApplication /></ProtectedRoute>} />
                   <Route path="/employee/leave-history" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><LeaveHistory /></ProtectedRoute>} />
                   <Route path="/employee/leave-dashboard" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeLeavePage /></ProtectedRoute>} />
+                  <Route path="/employee/comp-off" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeCompOffPage /></ProtectedRoute>} />
                   <Route path="/employee/duty-exchange" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><DutyExchangeRequest /></ProtectedRoute>} />
                   <Route path="/employee/atc-duties" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeATCDuties /></ProtectedRoute>} />
                   <Route path="/employee/roster" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeRoster /></ProtectedRoute>} />

@@ -256,49 +256,77 @@ export default function EmployeeDashboard() {
 
           {/* Balance Stat Cards — nested inside Duty Overview */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4">
+            <Link
+              to="/employee/leave-dashboard"
+              className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+            >
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
               <div className="flex items-center justify-between mb-2 md:mb-3">
-                <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">CL Balance</span>
+                <div>
+                  <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">Leave Overview</span>
+                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Apply for leave and leave summary</div>
+                </div>
                 <div className="size-6 md:size-8 bg-blue-100 dark:bg-blue-900/40 rounded-lg flex items-center justify-center">
                   <FileText className="size-3 md:size-4 text-blue-600 dark:text-blue-400" />
                 </div>
               </div>
-              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{clBalance ? clBalance.balance : "—"}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">Casual Leave</div>
+              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{clBalance ? clBalance.balance : ""}</div>
             </div>
+            </Link>
 
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4">
+            <Link
+              to="/employee/duty-exchange"
+              className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+            >
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
               <div className="flex items-center justify-between mb-2 md:mb-3">
-                <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">RH Balance</span>
+                <div>
+                  <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">Duty Exchange</span>
+                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Request and track exchange status</div>
+                </div>
                 <div className="size-6 md:size-8 bg-purple-100 dark:bg-purple-900/40 rounded-lg flex items-center justify-center">
                   <FileText className="size-3 md:size-4 text-purple-600 dark:text-purple-400" />
                 </div>
               </div>
-              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{rhBalance ? rhBalance.balance : "—"}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">Restricted Holiday</div>
+              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{rhBalance ? rhBalance.balance : ""}</div>
             </div>
+            </Link>
 
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4">
+            <Link
+              to="/employee/licenses"
+              className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+            >
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
               <div className="flex items-center justify-between mb-2 md:mb-3">
-                <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">EL Balance</span>
+                <div>
+                  <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">License Status</span>
+                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">View validity and renewal details</div>
+                </div>
                 <div className="size-6 md:size-8 bg-green-100 dark:bg-green-900/40 rounded-lg flex items-center justify-center">
                   <FileText className="size-3 md:size-4 text-green-600 dark:text-green-400" />
                 </div>
               </div>
-              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{elBalance ? elBalance.balance : "—"}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">Earned Leave</div>
+              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{elBalance ? elBalance.balance : ""}</div>
             </div>
+            </Link>
 
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4">
+            <Link
+              to="/employee/comp-off"
+              className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+            >
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
               <div className="flex items-center justify-between mb-2 md:mb-3">
-                <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">Comp Off</span>
+                <div>
+                  <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">Comp Off</span>
+                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Check balance and expiry status</div>
+                </div>
                 <div className="size-6 md:size-8 bg-orange-100 dark:bg-orange-900/40 rounded-lg flex items-center justify-center">
                   <Clock className="size-3 md:size-4 text-orange-600 dark:text-orange-400" />
                 </div>
               </div>
-              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{compOff ? compOff.balance : "—"}</div>
-              <div className="text-xs text-gray-600 dark:text-gray-400">{compOff?.expiry_date ? `Expires ${compOff.expiry_date}` : "No comp off"}</div>
+              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{compOff ? compOff.balance : ""}</div>
             </div>
+            </Link>
           </div>
         </div>
 

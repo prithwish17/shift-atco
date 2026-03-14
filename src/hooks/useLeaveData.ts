@@ -261,14 +261,15 @@ function reconstructRawRecords(flatRows: any[], year?: number): RawLeaveRecord[]
   return Array.from(map.values());
 }
 
-export function useLeaveData(year?: number) {
+export function useLeaveData(year?: number, empId?: string | null) {
   const { data: url = "", isLoading: isUrlLoading, error: urlError } = useLeaveApiUrl();
   const qc = useQueryClient();
 
   // Fetch ALL leave records from DB (no server-side year filter).
   // 8500 rows is a small payload (~1-2 MB). Year filtering happens client-side.
   const leaveQuery = useQuery({
-    queryKey: ["leave-data-structured", year],
+    queryKey: ["leave-data-structured", year, empId ?? "all"],
+    enabled: empId !== null,
     queryFn: async () => {
       const PAGE_SIZE = 1000;
       let allRows: any[] = [];
@@ -276,10 +277,16 @@ export function useLeaveData(year?: number) {
       let hasMore = true;
 
       while (hasMore) {
-        const { data: page, error } = await supabase
+        let query = supabase
           .from("employee_leave_records" as any)
           .select("*")
           .range(from, from + PAGE_SIZE - 1);
+
+        if (typeof empId === "string" && empId.trim()) {
+          query = query.eq("emp_id", empId.trim());
+        }
+
+        const { data: page, error } = await query;
 
         if (error) {
           console.error("[useLeaveData] Query error:", error);
@@ -292,7 +299,9 @@ export function useLeaveData(year?: number) {
         from += PAGE_SIZE;
       }
 
-      console.log(`[useLeaveData] Fetched ${allRows.length} total leave records, filtering for year=${year || "all"}`);
+      console.log(
+        `[useLeaveData] Fetched ${allRows.length} leave records for empId=${empId ?? "all"}, filtering for year=${year || "all"}`,
+      );
 
       return reconstructRawRecords(allRows, year);
     },

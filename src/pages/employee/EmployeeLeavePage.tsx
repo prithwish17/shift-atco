@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -104,6 +105,24 @@ function getCompOffSourceLabel(sourceType?: string, sourceLabel?: string): strin
   }
 }
 
+function getCompOffSourceBadgeClass(sourceType?: string): string {
+  switch ((sourceType || "").toUpperCase()) {
+    case "COMP_OFF_DUTY":
+    case "COMP_OFF":
+      return "bg-teal-100 text-teal-800";
+    case "FROM_LAST_YEAR":
+    case "LAST_YEAR_CH_DUTY":
+    case "LAST_YEAR_COMP_OFF":
+      return "bg-violet-100 text-violet-800";
+    case "OPE_DUTY":
+    case "OPE":
+    case "OPE_COMP_OFF":
+      return "bg-orange-100 text-orange-800";
+    default:
+      return "bg-sky-100 text-sky-800";
+  }
+}
+
 function getCompOffStatusLabel(entry: CompOffHistoryEntry): string {
   if (entry.status === "available" && entry.daysRemaining != null) {
     return `${entry.daysRemaining} Day${entry.daysRemaining === 1 ? "" : "s"} Left`;
@@ -131,6 +150,21 @@ function getCompOffStatusBadgeClass(status: CompOffHistoryEntry["status"]): stri
       return "bg-amber-100 text-amber-800";
     default:
       return "bg-emerald-100 text-emerald-800";
+  }
+}
+
+function getLeaveTypeHighlightClass(type: string): string {
+  switch (type) {
+    case "Casual Leave":
+      return "border-l-teal-500 bg-teal-50/80 text-teal-900";
+    case "Earned Leave":
+      return "border-l-blue-500 bg-blue-50/80 text-blue-900";
+    case "Compensatory Off":
+      return "border-l-rose-500 bg-rose-50/80 text-rose-900";
+    case "Reserved Holiday":
+      return "border-l-amber-500 bg-amber-50/80 text-amber-900";
+    default:
+      return "border-l-slate-400 bg-slate-50 text-slate-900";
   }
 }
 
@@ -193,15 +227,16 @@ export default function EmployeeLeavePage() {
   const { user } = useAuth();
   const { profile, isLoading: profileLoading } = useUserProfile(user?.id);
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
-  const { data, leaveQuery, refresh } = useLeaveData(selectedYear);
+  const employeeEmpId = profile?.employee_id ? String(profile.employee_id) : null;
+  const { data, leaveQuery, refresh } = useLeaveData(selectedYear, employeeEmpId);
 
   const [calendarDate, setCalendarDate] = useState(() => new Date());
 
   const employeeRecord = useMemo(() => {
-    const empId = profile?.employee_id ? String(profile.employee_id) : "";
+    const empId = employeeEmpId || "";
     if (!empId) return null;
     return data.find((record) => record.empId === empId) || null;
-  }, [data, profile?.employee_id]);
+  }, [data, employeeEmpId]);
 
   const isLoading = profileLoading || leaveQuery.isLoading;
 
@@ -221,15 +256,16 @@ export default function EmployeeLeavePage() {
       });
   }, [employeeRecord]);
 
+  const visibleCompOffLedgerRows = useMemo(
+    () => compOffLedgerRows.filter((row) => row.status !== "used"),
+    [compOffLedgerRows],
+  );
+
   const cards = useMemo(() => {
     if (!employeeRecord) {
-      return [
-        { label: "Casual Leave", remaining: 0, total: 12, color: "#4FD1C5", helper: "0 used" },
-        { label: "Earned Leave", remaining: 0, total: 0, color: "#63B3ED", helper: "No synced data" },
-        { label: "Compensatory Off", remaining: 0, total: 0, color: "#F87171", helper: "0 used" },
-        { label: "Reserved Holiday", remaining: 0, total: 2, color: "#F6AD55", helper: "0 used" },
-      ];
+      return [];
     }
+
     return [
       {
         label: "Casual Leave",
@@ -259,7 +295,7 @@ export default function EmployeeLeavePage() {
         color: "#F6AD55",
         helper: `${employeeRecord.restrictedCount} used`,
       },
-    ];
+    ].filter((card) => card.label === "Earned Leave" || card.remaining > 0);
   }, [employeeRecord]);
 
   const leaveSummary = useMemo(() => {
@@ -343,16 +379,16 @@ export default function EmployeeLeavePage() {
   return (
     <DashboardLayout role="employee">
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div>
           <div>
-            <h1 className="text-2xl font-black tracking-tight">Leave Management System</h1>
+            <h1 className="whitespace-nowrap text-2xl font-black tracking-tight">Leave Summary</h1>
             <p className="text-sm text-muted-foreground mt-1">
               View your leave balances and usage from the official register
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
             <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
-              <SelectTrigger className="w-[120px] h-9">
+              <SelectTrigger className="h-9 w-full sm:w-[120px]">
                 <CalendarDays className="h-4 w-4 mr-1.5 text-muted-foreground" />
                 <SelectValue placeholder="Year" />
               </SelectTrigger>
@@ -367,9 +403,13 @@ export default function EmployeeLeavePage() {
               size="sm"
               onClick={() => refresh.mutate()}
               disabled={refresh.isPending}
+              className="w-full sm:w-auto"
             >
               <RefreshCw className={`h-4 w-4 mr-2 ${refresh.isPending ? "animate-spin" : ""}`} />
               {refresh.isPending ? "Syncing…" : "Sync Data"}
+            </Button>
+            <Button asChild size="sm" className="w-full sm:w-auto">
+              <Link to="/employee/leave">Apply Leave</Link>
             </Button>
           </div>
         </div>
@@ -411,12 +451,11 @@ export default function EmployeeLeavePage() {
               <Card key={card.label} className="shadow-sm h-full">
                 <CardContent className="flex h-full items-center justify-between gap-3 px-4 py-3 sm:gap-4 sm:px-6 sm:py-4">
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Remaining</div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-800">{card.label}</div>
                     <div className="mt-1 text-2xl font-black leading-none tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">
                       {card.total > 0 ? `${card.remaining} / ${card.total}` : "—"}
                     </div>
-                    <div className="mt-1 text-lg font-semibold leading-snug break-words">{card.label}</div>
-                    <div className="text-xs text-muted-foreground mt-1 break-words">
+                    <div className="mt-1 break-words text-xs font-semibold text-slate-700">
                       {card.total > 0 ? "remaining" : "No balance data"}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1 break-words">
@@ -453,38 +492,88 @@ export default function EmployeeLeavePage() {
                   <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Remaining: {employeeRecord?.compOffRemaining ?? 0}</span>
                 </div>
               </div>
-              <div className="border rounded-lg overflow-hidden mb-4">
-                <div className="grid grid-cols-6 bg-emerald-50 text-emerald-900 text-xs font-semibold uppercase tracking-wide">
-                  <div className="px-3 py-2 border-r">Duty Date</div>
-                  <div className="px-3 py-2 border-r">Duty Code</div>
-                  <div className="px-3 py-2 border-r">Source</div>
-                  <div className="px-3 py-2 border-r">Leave Used On</div>
-                  <div className="px-3 py-2 border-r">Expiry Date</div>
-                  <div className="px-3 py-2">Remarks</div>
+              <div className="space-y-3 mb-4 sm:hidden">
+                {visibleCompOffLedgerRows.length ? (
+                  visibleCompOffLedgerRows.map((row, idx) => (
+                    <div
+                      key={`${row.sourceType}-${row.dutyDate || row.leaveApplied || idx}-mobile`}
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
+                    >
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div className="min-w-0 text-base font-bold tracking-tight text-slate-900">
+                          {formatDate(row.dutyDate) || "—"}
+                        </div>
+                        <span
+                          className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold leading-tight ${getCompOffStatusBadgeClass(row.status)}`}
+                        >
+                          {getCompOffStatusLabel(row)}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                        <div>
+                          <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Duty Code</div>
+                          <div className="text-sm font-semibold text-slate-800">{row.dutyPerformed || "—"}</div>
+                        </div>
+                        <div>
+                          <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Source</div>
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${getCompOffSourceBadgeClass(row.sourceType)}`}
+                          >
+                            {getCompOffSourceLabel(row.sourceType, row.sourceLabel)}
+                          </span>
+                        </div>
+                        <div>
+                          <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Leave Used On</div>
+                          <div className="text-sm font-semibold text-slate-800">{formatDate(row.leaveApplied) || "—"}</div>
+                        </div>
+                        <div>
+                          <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Expiry Date</div>
+                          <div className="text-sm font-semibold text-slate-800">{formatDate(row.expiryDate) || "—"}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-muted-foreground">
+                    No earned comp-off records available.
+                  </div>
+                )}
+              </div>
+
+              <div className="hidden sm:block border rounded-lg overflow-hidden mb-4">
+                <div className="grid grid-cols-6 border-b-2 border-slate-300 bg-slate-200/95 text-slate-800 text-xs font-bold uppercase tracking-[0.14em] shadow-sm">
+                  <div className="px-3 py-2.5 border-r border-slate-300">Duty Date</div>
+                  <div className="px-3 py-2.5 border-r border-slate-300">Duty Code</div>
+                  <div className="px-3 py-2.5 border-r border-slate-300">Source</div>
+                  <div className="px-3 py-2.5 border-r border-slate-300">Leave Used On</div>
+                  <div className="px-3 py-2.5 border-r border-slate-300">Expiry Date</div>
+                  <div className="px-3 py-2.5">Remarks</div>
                 </div>
-                <div className="divide-y">
-                  {compOffLedgerRows.length ? (
-                    compOffLedgerRows.map((row, idx) => (
+                <div className="divide-y divide-slate-200">
+                  {visibleCompOffLedgerRows.length ? (
+                    visibleCompOffLedgerRows.map((row, idx) => (
                       <div
                         key={`${row.sourceType}-${row.dutyDate || row.leaveApplied || idx}`}
-                        className={`grid grid-cols-6 text-sm ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/70"}`}
+                        className={`grid grid-cols-6 text-sm ${idx % 2 === 0 ? "bg-sky-100/70" : "bg-slate-50/80"}`}
                       >
                         <div className="px-3 py-2 text-slate-700">{formatDate(row.dutyDate) || "—"}</div>
                         <div className="px-3 py-2 text-slate-700">{row.dutyPerformed || "—"}</div>
                         <div className="px-3 py-2">
-                          <Badge variant="secondary" className="bg-sky-100 text-sky-800 text-[10px]">
+                          <span
+                            className={`inline-flex rounded-md px-2.5 py-1 text-[10px] font-semibold leading-tight ${getCompOffSourceBadgeClass(row.sourceType)}`}
+                          >
                             {getCompOffSourceLabel(row.sourceType, row.sourceLabel)}
-                          </Badge>
+                          </span>
                         </div>
                         <div className="px-3 py-2 text-slate-700">{formatDate(row.leaveApplied) || "—"}</div>
                         <div className="px-3 py-2 text-slate-700">{formatDate(row.expiryDate) || "—"}</div>
                         <div className="px-3 py-2">
-                          <Badge
-                            variant="secondary"
-                            className={`text-[10px] ${getCompOffStatusBadgeClass(row.status)}`}
+                          <span
+                            className={`inline-flex rounded-md px-2.5 py-1 text-[10px] font-semibold leading-tight ${getCompOffStatusBadgeClass(row.status)}`}
                           >
                             {getCompOffStatusLabel(row)}
-                          </Badge>
+                          </span>
                         </div>
                       </div>
                     ))
@@ -503,40 +592,51 @@ export default function EmployeeLeavePage() {
               <CardTitle className="text-base">Leave Summary</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Leave Type</TableHead>
-                    <TableHead>Dates Taken</TableHead>
-                    <TableHead>Count</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {leaveSummary.map((row) => (
-                    <TableRow key={row.type}>
-                      <TableCell className="font-medium">{row.type}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-2">
-                          {row.dates.length > 0 ? (
-                            row.dates.map((d) => (
-                              <Badge key={d} variant="secondary" className="bg-slate-100 text-slate-700">
-                                {d}
-                              </Badge>
-                            ))
-                          ) : (
-                            <span className="text-xs text-muted-foreground">No records</span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary" className="bg-emerald-100 text-emerald-800">
-                          {row.dates.length}
-                        </Badge>
-                      </TableCell>
+              <div className="overflow-hidden rounded-lg border border-slate-200">
+                <Table>
+                  <TableHeader className="border-b-2 border-slate-300 bg-slate-200/95">
+                    <TableRow className="border-b-0 hover:bg-transparent">
+                      <TableHead className="px-4 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-800">Leave Type</TableHead>
+                      <TableHead className="px-4 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-800">Leave Used On</TableHead>
+                      <TableHead className="px-4 py-3 text-xs font-bold uppercase tracking-[0.14em] text-slate-800">Count</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {leaveSummary.map((row, idx) => (
+                      <TableRow
+                        key={row.type}
+                        className={`${idx % 2 === 0 ? "bg-white" : "bg-slate-50/70"}`}
+                      >
+                        <TableCell>
+                          <span
+                            className={`inline-flex min-h-11 items-center border-l-4 px-3 py-2 text-sm font-semibold leading-snug ${getLeaveTypeHighlightClass(row.type)}`}
+                          >
+                            {row.type}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            {row.dates.length > 0 ? (
+                              row.dates.map((d) => (
+                                <Badge key={d} variant="secondary" className="bg-slate-100 text-slate-700">
+                                  {d}
+                                </Badge>
+                              ))
+                            ) : (
+                              <span className="text-xs text-muted-foreground">No records</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="bg-emerald-100 text-emerald-800">
+                            {row.dates.length}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -546,23 +646,10 @@ export default function EmployeeLeavePage() {
             <CardTitle className="text-base">Leave Calendar</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Button variant="outline" size="icon" onClick={prevMonth}><ChevronLeft className="h-4 w-4" /></Button>
-                <div className="font-semibold min-w-[160px] text-center">{monthLabel}</div>
-                <Button variant="outline" size="icon" onClick={nextMonth}><ChevronRight className="h-4 w-4" /></Button>
-              </div>
-              <div className="flex flex-wrap gap-2 text-xs">
-                {["CL", "RH", "NH", "CH", "COFF", "OPE", "EL"].map((key) => (
-                  <Badge
-                    key={key}
-                    variant="secondary"
-                    className={`${CALENDAR_LEAVE_STYLES[key].badgeClass} border-0 text-[10px] font-semibold`}
-                  >
-                    {CALENDAR_LEAVE_STYLES[key].legend}
-                  </Badge>
-                ))}
-              </div>
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="icon" onClick={prevMonth}><ChevronLeft className="h-4 w-4" /></Button>
+              <div className="font-semibold min-w-[160px] text-center">{monthLabel}</div>
+              <Button variant="outline" size="icon" onClick={nextMonth}><ChevronRight className="h-4 w-4" /></Button>
             </div>
             <div className="grid grid-cols-7 gap-px border border-slate-200 mt-4 text-sm">
               {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((d) => (
