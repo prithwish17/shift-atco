@@ -19,9 +19,170 @@ export function useLeaveApiUrl() {
   });
 }
 
+function normalizeDateString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+  const monthMatch = trimmed.match(/\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b\s+(\d{1,2})\s+(\d{4})/i);
+  if (monthMatch) {
+    const monthMap: Record<string, string> = {
+      JAN: "01",
+      FEB: "02",
+      MAR: "03",
+      APR: "04",
+      MAY: "05",
+      JUN: "06",
+      JUL: "07",
+      AUG: "08",
+      SEP: "09",
+      OCT: "10",
+      NOV: "11",
+      DEC: "12",
+    };
+
+    const month = monthMap[monthMatch[1].toUpperCase()];
+    if (month) {
+      return `${monthMatch[3]}-${month}-${monthMatch[2].padStart(2, "0")}`;
+    }
+  }
+
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().split("T")[0];
+}
+
+function parseJsonObject(value: unknown): Record<string, any> {
+  if (value && typeof value === "object") return value as Record<string, any>;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object") return parsed as Record<string, any>;
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function matchesYear(value: unknown, year: number): boolean {
+  const normalized = normalizeDateString(value);
+  if (!normalized) return false;
+  return Number(normalized.slice(0, 4)) === year;
+}
+
+function addMonthsToNormalizedDate(value: unknown, months: number): string | null {
+  const normalized = normalizeDateString(value);
+  if (!normalized) return null;
+
+  const [year, month, day] = normalized.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(date.getTime())) return null;
+
+  date.setUTCMonth(date.getUTCMonth() + months);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().split("T")[0];
+}
+
+function resolveCompOffExpiryForFilter(row: any, meta: Record<string, any>): string | null {
+  const dutyDate = normalizeDateString(
+    meta.duty_date ||
+    meta.ope_duty_date ||
+    (["COMP_OFF_EARNED", "LAST_YEAR_CH_DUTY", "OPE"].includes(String(row.leave_category || ""))
+      ? row.leave_date
+      : null),
+  );
+
+  if (dutyDate) return addMonthsToNormalizedDate(dutyDate, 3);
+
+  const explicitExpiry = normalizeDateString(meta.expiry_date);
+  if (explicitExpiry) return explicitExpiry;
+
+  return null;
+}
+
+function formatDisplayDate(value: unknown): string | null {
+  const normalized = normalizeDateString(value);
+  if (!normalized) return null;
+
+  const [year, month, day] = normalized.split("-");
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const monthLabel = monthNames[Number(month) - 1];
+  if (!monthLabel) return null;
+
+  return `${monthLabel} ${day} ${year}`;
+}
+
+function resolveLeaveUsedOn(row: any, meta: Record<string, any>, rawEvent: Record<string, any>): string {
+  return (
+    row.leave_used_on ||
+    meta.leave_used_on ||
+    meta.leave_applied ||
+    row.raw_leave_used_value ||
+    rawEvent.leaveUsedOn ||
+    rawEvent.leaveApplied ||
+    ""
+  );
+}
+
+function resolveDutyPerformed(row: any, meta: Record<string, any>, sourceType: string): string {
+  const rawDutyPerformed = meta.duty_performed || meta.shift || row.duty_code || "";
+  const isOpeSource = String(sourceType).toUpperCase().includes("OPE");
+
+  if (isOpeSource) {
+    const formattedOpeDate = formatDisplayDate(rawDutyPerformed) || formatDisplayDate(meta.duty_date) || formatDisplayDate(meta.ope_duty_date) || formatDisplayDate(row.leave_date);
+    if (formattedOpeDate) return formattedOpeDate;
+  }
+
+  return rawDutyPerformed || (isOpeSource ? "OPE" : "");
+}
+
+function shouldIncludeRowForYear(row: any, meta: Record<string, any>, year?: number): boolean {
+  if (!year) return true;
+
+  const rawEvent = parseJsonObject(row.raw_event);
+
+  const dateCandidates = [
+    row.leave_date,
+    row.leave_used_on,
+    row.raw_leave_used_value,
+    meta.duty_date,
+    meta.leave_used_on,
+    meta.leave_applied,
+    meta.expiry_date,
+    resolveCompOffExpiryForFilter(row, meta),
+    meta.ope_duty_date,
+    rawEvent.leaveUsedOn,
+    rawEvent.leaveApplied,
+  ];
+
+  return dateCandidates.some((value) => matchesYear(value, year));
+}
+
+function pushCompOffEntry(
+  record: RawLeaveRecord,
+  row: any,
+  meta: Record<string, any>,
+  rawEvent: Record<string, any>,
+  fallbackSourceType: string,
+) {
+  const sourceType = meta.source_type || row.source_event_type || fallbackSourceType;
+  record.lastYearCompOff!.push({
+    dutyDate: meta.duty_date || meta.ope_duty_date || row.leave_date,
+    leaveApplied: resolveLeaveUsedOn(row, meta, rawEvent),
+    dutyPerformed: resolveDutyPerformed(row, meta, sourceType),
+    sourceType,
+    sourceLabel: meta.source_label || "",
+    eligible: typeof meta.comp_off_eligible === "boolean" ? meta.comp_off_eligible : undefined,
+    expiryDate: resolveCompOffExpiryForFilter(row, meta),
+    remark: meta.remark || "",
+  });
+}
+
 // Reconstruct the RawLeaveRecord arrays from our flat employee_leave_records table.
-// When `year` is provided, only dates in that year are pushed into category arrays,
-// but every employee still gets an entry (so they appear with 0 counts).
+// When `year` is provided, comp-off rows are included if their duty date, used date,
+// or expiry date falls in that year, so last-year earned rows still show correctly.
 function reconstructRawRecords(flatRows: any[], year?: number): RawLeaveRecord[] {
   const map = new Map<string, RawLeaveRecord>();
 
@@ -43,18 +204,13 @@ function reconstructRawRecords(flatRows: any[], year?: number): RawLeaveRecord[]
       });
     }
 
-    // If year filter is active, skip dates outside that year
-    if (year && row.leave_date) {
-      const dateYear = new Date(row.leave_date).getFullYear();
-      if (dateYear !== year) continue;
-    }
+    // metadata may come back as a string from Supabase — parse it
+    const meta = parseJsonObject(row.metadata);
+    const rawEvent = parseJsonObject(row.raw_event);
+
+    if (!shouldIncludeRowForYear(row, meta, year)) continue;
 
     const rec = map.get(empId)!;
-    // metadata may come back as a string from Supabase — parse it
-    let meta = row.metadata || {};
-    if (typeof meta === "string") {
-      try { meta = JSON.parse(meta); } catch { meta = {}; }
-    }
 
     switch (row.leave_category) {
       case "CL":
@@ -76,16 +232,28 @@ function reconstructRawRecords(flatRows: any[], year?: number): RawLeaveRecord[]
         });
         break;
       case "COMP_OFF":
+        pushCompOffEntry(rec, row, meta, rawEvent, "COMP_OFF");
+        break;
+      case "COMP_OFF_EARNED":
+        pushCompOffEntry(rec, row, meta, rawEvent, "COMP_OFF_EARNED");
+        break;
+      case "LAST_YEAR_CH_DUTY":
+        pushCompOffEntry(rec, row, meta, rawEvent, "LAST_YEAR_CH_DUTY");
+        break;
+      case "COMP_OFF_USED":
+      case "LAST_YEAR_COMP_OFF":
+      case "OPE_COMP_OFF":
         rec.lastYearCompOff!.push({
-          leaveApplied: meta.leave_applied || row.leave_date,
-          dutyPerformed: meta.duty_performed || "",
+          leaveApplied: resolveLeaveUsedOn(row, meta, rawEvent) || row.leave_date,
+          sourceType: meta.source_type || row.source_event_type || row.leave_category || "COMP_OFF_USED",
+          sourceLabel: meta.source_label || "",
+          eligible: typeof meta.comp_off_eligible === "boolean" ? meta.comp_off_eligible : true,
+          expiryDate: resolveCompOffExpiryForFilter(row, meta),
+          remark: meta.remark || "",
         });
         break;
       case "OPE":
-        rec.opeDuty!.push({
-          opeDutyDate: meta.ope_duty_date || row.leave_date,
-          leaveApplied: meta.leave_applied || "",
-        });
+        pushCompOffEntry(rec, row, meta, rawEvent, "OPE");
         break;
     }
   }

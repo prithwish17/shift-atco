@@ -32,10 +32,12 @@ export function EmployeeLeaveTable({ employees, highUsageEmpIds, onViewDetails }
           <TableHead>Name</TableHead>
           <TableHead>Emp ID</TableHead>
           <TableHead>Status</TableHead>
-        <TableHead className="text-right">Casual Used</TableHead>
-        <TableHead className="text-right">Casual Remaining</TableHead>
-        <TableHead className="text-right">Restricted</TableHead>
-        <TableHead className="text-right">Comp-Off Used</TableHead>
+          <TableHead className="text-right">Casual Used</TableHead>
+          <TableHead className="text-right">Casual Remaining</TableHead>
+          <TableHead className="text-right">Restricted</TableHead>
+          <TableHead className="text-right">Comp-Off Earned</TableHead>
+          <TableHead className="text-right">Comp-Off Used</TableHead>
+          <TableHead className="text-right">Comp-Off Left</TableHead>
           <TableHead className="text-right">Usage</TableHead>
           <TableHead className="text-right">Action</TableHead>
         </TableRow>
@@ -55,7 +57,9 @@ export function EmployeeLeaveTable({ employees, highUsageEmpIds, onViewDetails }
               <TableCell className="text-right">{emp.casualCount}</TableCell>
               <TableCell className="text-right">{emp.casualRemaining}</TableCell>
               <TableCell className="text-right">{emp.restrictedCount}</TableCell>
+              <TableCell className="text-right">{emp.compOffEarned}</TableCell>
               <TableCell className="text-right">{emp.compOffUsed}</TableCell>
+              <TableCell className="text-right">{emp.compOffRemaining}</TableCell>
               <TableCell className="text-right">
                 <div className="flex items-center justify-end gap-2">
                   <span className="font-semibold">{emp.usageScore}</span>

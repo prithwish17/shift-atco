@@ -8,6 +8,11 @@ export const LEAVE_CATEGORIES = [
     { value: "NH", label: "National Holiday", color: "emerald" },
     { value: "CH", label: "Closed Holiday", color: "violet" },
     { value: "COMP_OFF", label: "Comp Off", color: "amber" },
+    { value: "COMP_OFF_EARNED", label: "Comp Off Earned", color: "amber" },
+    { value: "COMP_OFF_USED", label: "Comp Off Used", color: "orange" },
+    { value: "LAST_YEAR_CH_DUTY", label: "From Last Year", color: "amber" },
+    { value: "LAST_YEAR_COMP_OFF", label: "Last Year Comp Off", color: "orange" },
+    { value: "OPE_COMP_OFF", label: "OPE Comp Off", color: "rose" },
     { value: "OPE", label: "OPE Duty", color: "rose" },
 ] as const;
 
@@ -20,7 +25,15 @@ export interface LeaveRecord {
     sl_no: number | null;
     status: string | null;
     leave_category: string;
+    source_event_type: string;
+    event_kind: string;
     leave_date: string;
+    leave_used_on: string | null;
+    duty_code: string;
+    raw_date_value: string | null;
+    raw_shift_value: string | null;
+    raw_leave_used_value: string | null;
+    raw_event: Record<string, any>;
     metadata: Record<string, any>;
     source: string;
     sync_batch_id: string | null;
@@ -157,6 +170,14 @@ export function useCreateLeaveRecord() {
                 .from("employee_leave_records")
                 .insert({
                     ...record,
+                    source_event_type: record.leave_category,
+                    event_kind: "manual",
+                    leave_used_on: null,
+                    duty_code: "",
+                    raw_date_value: record.leave_date,
+                    raw_shift_value: null,
+                    raw_leave_used_value: null,
+                    raw_event: record.metadata || {},
                     metadata: record.metadata || {},
                     source: "webapp",
                 })
