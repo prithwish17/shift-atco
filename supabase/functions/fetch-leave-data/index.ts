@@ -168,6 +168,14 @@ Deno.serve(async (req) => {
                 return `${mmmMatch[3]}-${month}-${String(mmmMatch[1]).padStart(2, "0")}`;
             }
 
+            const jsDateMatch = trimmed.match(/\b([A-Za-z]{3})\s+(\d{1,2})\s+(\d{4})\b/);
+            if (jsDateMatch) {
+                const month = monthMap[jsDateMatch[1].toUpperCase()];
+                if (month) {
+                    return `${jsDateMatch[3]}-${month}-${String(jsDateMatch[2]).padStart(2, "0")}`;
+                }
+            }
+
             try {
                 const d = new Date(trimmed);
                 if (isNaN(d.getTime())) return null;
@@ -281,6 +289,32 @@ Deno.serve(async (req) => {
                 row.source_event_type,
                 row.leave_date,
                 row.duty_code,
+            ].join("|");
+        }
+
+        function getCanonicalCompOffKey(row: LeaveRow): string | null {
+            if (!["comp_off_earned", "comp_off_unavailable", "comp_off_used"].includes(row.event_kind)) {
+                return null;
+            }
+
+            const meta = row.metadata || {};
+            const dutyDate =
+                toDate(meta.duty_date) ||
+                toDate(meta.ope_duty_date) ||
+                toDate(meta.duty_performed) ||
+                row.leave_date;
+            const leaveUsedOn =
+                row.leave_used_on ||
+                toDate(meta.leave_used_on) ||
+                toDate(meta.leave_applied) ||
+                toDate(row.raw_leave_used_value) ||
+                "";
+
+            return [
+                row.emp_id,
+                row.event_kind,
+                dutyDate,
+                leaveUsedOn,
             ].join("|");
         }
 
@@ -553,23 +587,36 @@ Deno.serve(async (req) => {
             // 5. Last Year Comp Off — {leaveApplied, dutyPerformed}
             if (Array.isArray(emp.lastYearCompOff)) {
                 for (const co of emp.lastYearCompOff) {
-                    const leaveDate = toDate(co.leaveApplied);
+                    const leaveUsedOn = toDate(co.leaveApplied);
+                    const rawDutyPerformed = typeof co.dutyPerformed === "string" ? co.dutyPerformed.trim() : "";
+                    const derivedDutyDate = toDate(rawDutyPerformed);
+                    const isDateBasedDuty = !!derivedDutyDate;
+                    const leaveDate = derivedDutyDate || leaveUsedOn;
                     if (!leaveDate) continue; // Skip non-date entries
-                    const dutyCode = normalizeShift(co.dutyPerformed);
+                    const dutyCode = isDateBasedDuty ? "" : normalizeShift(co.dutyPerformed);
+                    const sourceType = isDateBasedDuty ? "OPE_DUTY" : "COMP_OFF_DUTY";
+                    const sourceLabel = isDateBasedDuty ? "OPE Duty" : "Comp-Off Duty";
+                    const expiryDate = addMonthsToDateString(leaveDate, 3);
+
                     rows.push(createLeaveRow(rowBase, {
-                        leaveCategory: "COMP_OFF",
-                        sourceEventType: "COMP_OFF",
+                        leaveCategory: isDateBasedDuty ? "OPE" : "COMP_OFF",
+                        sourceEventType: isDateBasedDuty ? "OPE" : "COMP_OFF",
                         eventKind: "comp_off_earned",
                         leaveDate,
-                        leaveUsedOn: leaveDate,
+                        leaveUsedOn,
                         dutyCode,
                         rawDateValue: typeof co.leaveApplied === "string" ? co.leaveApplied : null,
                         rawLeaveUsedValue: typeof co.leaveApplied === "string" ? co.leaveApplied : null,
                         rawEvent: co,
                         metadata: {
                             leave_applied: co.leaveApplied || "",
-                            leave_used_on: leaveDate,
-                            duty_performed: co.dutyPerformed || "",
+                            leave_used_on: leaveUsedOn,
+                            duty_date: leaveDate,
+                            duty_performed: isDateBasedDuty ? "OPE" : (co.dutyPerformed || ""),
+                            comp_off_eligible: true,
+                            expiry_date: expiryDate,
+                            source_type: sourceType,
+                            source_label: sourceLabel,
                         },
                     }));
                 }
@@ -609,7 +656,7 @@ Deno.serve(async (req) => {
 
         const dedupedRowMap = new Map<string, LeaveRow>();
         for (const row of rows) {
-            dedupedRowMap.set(getRowConflictKey(row), row);
+            dedupedRowMap.set(getCanonicalCompOffKey(row) || getRowConflictKey(row), row);
         }
         const dedupedRows = Array.from(dedupedRowMap.values());
         const duplicateCount = rows.length - dedupedRows.length;
@@ -621,17 +668,6 @@ Deno.serve(async (req) => {
         // Batch upsert into employee_leave_records
         let upserted = 0;
         if (dedupedRows.length > 0) {
-            const { error: cleanupError } = await adminClient
-                .from("employee_leave_records")
-                .delete()
-                .eq("source", "google_sheets")
-                .in("leave_category", ["COMP_OFF_USED", "LAST_YEAR_COMP_OFF", "OPE_COMP_OFF"]);
-
-            if (cleanupError) {
-                console.error("Cleanup error:", cleanupError);
-                throw new Error(`Failed to clean legacy comp-off usage rows: ${cleanupError.message}`);
-            }
-
             const BATCH_SIZE = 500;
             for (let i = 0; i < dedupedRows.length; i += BATCH_SIZE) {
                 const batch = dedupedRows.slice(i, i + BATCH_SIZE);
@@ -649,6 +685,20 @@ Deno.serve(async (req) => {
                 }
                 upserted += batch.length;
             }
+
+            // Remove sync-owned rows that were not refreshed in this batch.
+            // This keeps the sync authoritative without deleting data before a successful import.
+            const { error: staleCleanupError } = await adminClient
+                .from("employee_leave_records")
+                .delete()
+                .eq("source", "google_sheets")
+                .neq("sync_batch_id", batchId);
+
+            if (staleCleanupError) {
+                console.error("Stale cleanup error:", staleCleanupError);
+                throw new Error(`Failed to prune stale synced rows: ${staleCleanupError.message}`);
+            }
+
             console.log(`Upserted ${upserted} leave records`);
         }
 

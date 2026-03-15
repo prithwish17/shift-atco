@@ -48,6 +48,29 @@ function normalizeDateString(value: unknown): string | null {
     }
   }
 
+  const jsDateMatch = trimmed.match(/\b([A-Za-z]{3})\s+(\d{1,2})\s+(\d{4})\b/);
+  if (jsDateMatch) {
+    const monthMap: Record<string, string> = {
+      JAN: "01",
+      FEB: "02",
+      MAR: "03",
+      APR: "04",
+      MAY: "05",
+      JUN: "06",
+      JUL: "07",
+      AUG: "08",
+      SEP: "09",
+      OCT: "10",
+      NOV: "11",
+      DEC: "12",
+    };
+
+    const month = monthMap[jsDateMatch[1].toUpperCase()];
+    if (month) {
+      return `${jsDateMatch[3]}-${month}-${jsDateMatch[2].padStart(2, "0")}`;
+    }
+  }
+
   const date = new Date(trimmed);
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString().split("T")[0];
@@ -102,18 +125,6 @@ function resolveCompOffExpiryForFilter(row: any, meta: Record<string, any>): str
   return null;
 }
 
-function formatDisplayDate(value: unknown): string | null {
-  const normalized = normalizeDateString(value);
-  if (!normalized) return null;
-
-  const [year, month, day] = normalized.split("-");
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const monthLabel = monthNames[Number(month) - 1];
-  if (!monthLabel) return null;
-
-  return `${monthLabel} ${day} ${year}`;
-}
-
 function resolveLeaveUsedOn(row: any, meta: Record<string, any>, rawEvent: Record<string, any>): string {
   return (
     row.leave_used_on ||
@@ -129,13 +140,16 @@ function resolveLeaveUsedOn(row: any, meta: Record<string, any>, rawEvent: Recor
 function resolveDutyPerformed(row: any, meta: Record<string, any>, sourceType: string): string {
   const rawDutyPerformed = meta.duty_performed || meta.shift || row.duty_code || "";
   const isOpeSource = String(sourceType).toUpperCase().includes("OPE");
+  const isDateLikeDuty = normalizeDateString(rawDutyPerformed);
 
-  if (isOpeSource) {
-    const formattedOpeDate = formatDisplayDate(rawDutyPerformed) || formatDisplayDate(meta.duty_date) || formatDisplayDate(meta.ope_duty_date) || formatDisplayDate(row.leave_date);
-    if (formattedOpeDate) return formattedOpeDate;
+  if (typeof rawDutyPerformed === "string" && rawDutyPerformed.trim()) {
+    if (isDateLikeDuty) {
+      return "OPE";
+    }
+    return rawDutyPerformed.trim();
   }
 
-  return rawDutyPerformed || (isOpeSource ? "OPE" : "");
+  return isOpeSource ? "OPE" : "";
 }
 
 function shouldIncludeRowForYear(row: any, meta: Record<string, any>, year?: number): boolean {
