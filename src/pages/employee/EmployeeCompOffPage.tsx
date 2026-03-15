@@ -114,6 +114,48 @@ function getSortableDateValue(value: string | null): number {
   return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
 }
 
+const DUTY_CODE_LABELS: Record<string, string> = {
+  M: "MORNING",
+  A: "AFTERNOON",
+  N: "NIGHT",
+  NO: "NIGHT OFF",
+  CO: "CLEAR OFF",
+  "M+A": "MORNING NORMAL+AFTERNOON OPE",
+  "NO+N": "NIGHT OPE",
+  LEAVE: "LEAVE",
+  SAT: "SATURDAY",
+  SUN: "SUNDAY",
+  G: "GENERAL",
+  T: "TOUR",
+  CH: "CLOSED HOLIDAY",
+  NH: "NATIONAL HOLIDAY",
+  "SAT+NO": "NIGHT OFF",
+  NA: "NOT AVAILABLE",
+  "SUN+N": "NIGHT OPE",
+  "SUN+M": "MORNING OPE",
+  "SUN+A": "AFTERNOON OPE",
+  "SUN+NO": "NIGHT OFF",
+  "SAT+N": "NIGHT OPE",
+  "CO+N": "NIGHT OPE",
+  SL: "CLEAR OFF",
+  Tr: "TRAINING",
+  "CO+A": "AFTERNOON OPE",
+  "CO+M": "MORNING OPE",
+  GO: "GENERAL-O",
+  "A+M": "MORNING OPE+AFTERNOON NORMAL",
+};
+
+function formatDutyPerformed(value?: string | null): string {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) return "—";
+
+  const normalizedKey = Object.keys(DUTY_CODE_LABELS).find(
+    (code) => code.toUpperCase() === trimmed.toUpperCase(),
+  );
+
+  return normalizedKey ? DUTY_CODE_LABELS[normalizedKey] : trimmed;
+}
+
 function compareCompOffRows(a: CompOffHistoryEntry, b: CompOffHistoryEntry): number {
   const leftDutyDate = getSortableDateValue(a.dutyDate);
   const rightDutyDate = getSortableDateValue(b.dutyDate);
@@ -192,12 +234,12 @@ export default function EmployeeCompOffPage() {
       <div className="space-y-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h1 className="text-2xl font-black tracking-tight">Comp-Off Management</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <h1 className="text-xl font-black tracking-tight sm:text-2xl">Comp-Off Management</h1>
+            <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
               Track available comp-off, expiry timelines, and full comp-off history
             </p>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="grid w-full grid-cols-2 gap-3 sm:flex sm:w-auto sm:items-center">
             <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
               <SelectTrigger className="h-9 w-full sm:w-[120px]">
                 <CalendarDays className="mr-1.5 h-4 w-4 text-muted-foreground" />
@@ -250,51 +292,51 @@ export default function EmployeeCompOffPage() {
           <>
             <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
               <Card className="shadow-sm">
-                <CardContent className="p-3 sm:p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Available</div>
-                  <div className="mt-1.5 text-2xl font-black tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">{employeeRecord.compOffRemaining}</div>
-                  <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground sm:mt-1 sm:text-sm">Comp-off currently available</div>
+                <CardContent className="p-2.5 sm:p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">Available</div>
+                  <div className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">{employeeRecord.compOffRemaining}</div>
+                  <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground sm:mt-1 sm:text-sm">Comp-off currently available</div>
                 </CardContent>
               </Card>
               <Card className="shadow-sm">
-                <CardContent className="p-3 sm:p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Used</div>
-                  <div className="mt-1.5 text-2xl font-black tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">{employeeRecord.compOffUsed}</div>
-                  <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground sm:mt-1 sm:text-sm">Already used this year view</div>
+                <CardContent className="p-2.5 sm:p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">Used</div>
+                  <div className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">{employeeRecord.compOffUsed}</div>
+                  <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground sm:mt-1 sm:text-sm">Already used this year view</div>
                 </CardContent>
               </Card>
               <Card className="shadow-sm">
-                <CardContent className="p-3 sm:p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Expired</div>
-                  <div className="mt-1.5 text-2xl font-black tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">{employeeRecord.compOffExpired}</div>
-                  <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground sm:mt-1 sm:text-sm">Expired before use</div>
+                <CardContent className="p-2.5 sm:p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">Expired</div>
+                  <div className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">{employeeRecord.compOffExpired}</div>
+                  <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground sm:mt-1 sm:text-sm">Expired before use</div>
                 </CardContent>
               </Card>
               <Card className="shadow-sm">
-                <CardContent className="p-3 sm:p-4">
-                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Earned</div>
-                  <div className="mt-1.5 text-2xl font-black tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">{employeeRecord.compOffEarned}</div>
-                  <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground sm:mt-1 sm:text-sm">Total valid comp-off earned</div>
+                <CardContent className="p-2.5 sm:p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">Earned</div>
+                  <div className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">{employeeRecord.compOffEarned}</div>
+                  <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground sm:mt-1 sm:text-sm">Total valid comp-off earned</div>
                 </CardContent>
               </Card>
             </div>
 
             <Card className="shadow-sm">
               <CardHeader>
-                <CardTitle className="text-base">Comp-Off Balance</CardTitle>
+                <CardTitle className="text-sm sm:text-base">Comp-Off Balance</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700">
+                <div className="mb-4 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground sm:text-xs">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 sm:gap-1.5 sm:px-3 sm:py-1.5">
                     <span className="h-2 w-2 rounded-full bg-emerald-500" /> Earned: {employeeRecord.compOffEarned}
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 sm:gap-1.5 sm:px-3 sm:py-1.5">
                     <span className="h-2 w-2 rounded-full bg-amber-500" /> Used: {employeeRecord.compOffUsed}
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 sm:gap-1.5 sm:px-3 sm:py-1.5">
                     <span className="h-2 w-2 rounded-full bg-rose-500" /> Expired: {employeeRecord.compOffExpired}
                   </span>
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 sm:gap-1.5 sm:px-3 sm:py-1.5">
                     <span className="h-2 w-2 rounded-full bg-blue-500" /> Remaining: {employeeRecord.compOffRemaining}
                   </span>
                 </div>
@@ -309,7 +351,7 @@ export default function EmployeeCompOffPage() {
                       key={tab.key}
                       type="button"
                       onClick={() => setActiveFilter(tab.key)}
-                      className={`rounded-xl border px-4 py-2.5 text-sm font-semibold transition-colors ${
+                      className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors sm:px-4 sm:py-2.5 sm:text-sm ${
                         activeFilter === tab.key
                           ? "border-slate-900 bg-slate-900 text-white"
                           : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -325,10 +367,10 @@ export default function EmployeeCompOffPage() {
                     filteredCompOffRows.map((row) => (
                       <div
                         key={getCompOffRowKey(row)}
-                        className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm sm:px-4 sm:py-3"
                       >
                         <div className="mb-3 flex items-start justify-between gap-3">
-                          <div className="min-w-0 text-base font-bold tracking-tight text-slate-900 sm:text-lg">
+                          <div className="min-w-0 text-sm font-bold tracking-tight text-slate-900 sm:text-lg">
                             {formatDate(row.dutyDate) || "—"}
                           </div>
                           <span
@@ -336,33 +378,33 @@ export default function EmployeeCompOffPage() {
                           >
                             {isDaysLeftStatus(row) ? (
                               <span className="flex items-baseline gap-1">
-                                <span className="text-[15px] font-black leading-none">{row.daysRemaining}</span>
-                                <span className="text-[10px] font-semibold uppercase tracking-[0.08em]">days left</span>
+                                <span className="text-[13px] font-black leading-none sm:text-[15px]">{row.daysRemaining}</span>
+                                <span className="text-[9px] font-semibold uppercase tracking-[0.08em] sm:text-[10px]">days left</span>
                               </span>
                             ) : (
-                              <span className="text-[11px]">{getCompOffStatusLabel(row)}</span>
+                              <span className="text-[10px] sm:text-[11px]">{getCompOffStatusLabel(row)}</span>
                             )}
                           </span>
                         </div>
 
                         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                           <div>
-                            <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Duty Performed</div>
-                            <div className="text-sm font-semibold text-slate-800">{row.dutyPerformed || "—"}</div>
+                            <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">Duty Performed</div>
+                            <div className="text-xs font-semibold text-slate-800 sm:text-sm">{formatDutyPerformed(row.dutyPerformed)}</div>
                           </div>
                           <div>
-                            <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Source</div>
-                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${getCompOffSourceBadgeClass(row.sourceType)}`}>
+                            <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">Expiry Date</div>
+                            <div className="text-xs font-semibold text-slate-800 sm:text-sm">{formatDate(row.expiryDate) || "—"}</div>
+                          </div>
+                          <div>
+                            <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">Source</div>
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold sm:px-2.5 sm:text-[11px] ${getCompOffSourceBadgeClass(row.sourceType)}`}>
                               {getCompOffSourceLabel(row.sourceType, row.sourceLabel)}
                             </span>
                           </div>
                           <div>
-                            <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Leave Used On</div>
-                            <div className="text-sm font-semibold text-slate-800">{formatDate(row.leaveApplied) || "—"}</div>
-                          </div>
-                          <div>
-                            <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Expiry Date</div>
-                            <div className="text-sm font-semibold text-slate-800">{formatDate(row.expiryDate) || "—"}</div>
+                            <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">Leave Used On</div>
+                            <div className="text-xs font-semibold text-slate-800 sm:text-sm">{formatDate(row.leaveApplied) || "—"}</div>
                           </div>
                         </div>
                       </div>
