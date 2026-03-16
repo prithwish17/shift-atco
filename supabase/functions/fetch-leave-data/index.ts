@@ -654,15 +654,32 @@ Deno.serve(async (req) => {
 
         console.log(`Parsed ${rows.length} leave records from ${employees.length} employees`);
 
-        const dedupedRowMap = new Map<string, LeaveRow>();
+        // Two-pass deduplication:
+        // Pass 1: deduplicate by canonical comp-off key (merges semantically identical comp-off rows)
+        const canonicalMap = new Map<string, LeaveRow>();
         for (const row of rows) {
-            dedupedRowMap.set(getCanonicalCompOffKey(row) || getRowConflictKey(row), row);
+            const canonKey = getCanonicalCompOffKey(row);
+            if (canonKey) {
+                canonicalMap.set(canonKey, row);
+            } else {
+                // Non-comp-off rows get a unique placeholder key so they pass through
+                canonicalMap.set(`__row__${canonicalMap.size}`, row);
+            }
         }
-        const dedupedRows = Array.from(dedupedRowMap.values());
+        const afterCanonical = Array.from(canonicalMap.values());
+
+        // Pass 2: deduplicate by DB conflict key (emp_id, leave_category, source_event_type, leave_date, duty_code)
+        // This is CRITICAL — the DB upsert uses this exact constraint, so any two rows with the same
+        // conflict key in one batch will cause "ON CONFLICT DO UPDATE cannot affect row a second time".
+        const dbConflictMap = new Map<string, LeaveRow>();
+        for (const row of afterCanonical) {
+            dbConflictMap.set(getRowConflictKey(row), row);
+        }
+        const dedupedRows = Array.from(dbConflictMap.values());
         const duplicateCount = rows.length - dedupedRows.length;
 
         if (duplicateCount > 0) {
-            console.log(`Dropped ${duplicateCount} duplicate leave rows before upsert`);
+            console.log(`Dropped ${duplicateCount} duplicate leave rows before upsert (canonical: ${rows.length - afterCanonical.length}, db-key: ${afterCanonical.length - dedupedRows.length})`);
         }
 
         // Batch upsert into employee_leave_records

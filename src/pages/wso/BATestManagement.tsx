@@ -14,7 +14,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile, useUsers } from "@/hooks/useUsers";
 import { useBaTests, useCreateBaTest } from "@/hooks/useBaTests";
 import { useToast } from "@/hooks/use-toast";
-import jsPDF from "jspdf";
 
 export default function BATestManagement() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -56,10 +55,12 @@ export default function BATestManagement() {
     });
   };
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     const selected = onDutyEmployees.filter(e => selectedEmployees.includes(e.id));
     if (selected.length === 0) return;
 
+    // Dynamic import — only loads jspdf when the user clicks Download
+    const { default: jsPDF } = await import("jspdf");
     const doc = new jsPDF();
     doc.setFontSize(18);
     doc.text("BA Test List", 20, 20);

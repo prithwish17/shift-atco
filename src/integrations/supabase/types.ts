@@ -337,6 +337,9 @@ export type Database = {
           alternate_email: string | null
           created_at: string
           current_shift: Database["public"]["Enums"]["shift_type"]
+          date_of_birth: string | null
+          date_of_joining: string | null
+          department: string | null
           designation: string | null
           email: string
           emergency_contact: string | null
@@ -347,6 +350,8 @@ export type Database = {
           initials: string | null
           mobile: string | null
           photo_url: string | null
+          profile_details: Record<string, any> | null
+          station: string | null
           stream: string | null
           updated_at: string
         }
@@ -355,6 +360,9 @@ export type Database = {
           alternate_email?: string | null
           created_at?: string
           current_shift?: Database["public"]["Enums"]["shift_type"]
+          date_of_birth?: string | null
+          date_of_joining?: string | null
+          department?: string | null
           designation?: string | null
           email: string
           emergency_contact?: string | null
@@ -365,6 +373,8 @@ export type Database = {
           initials?: string | null
           mobile?: string | null
           photo_url?: string | null
+          profile_details?: Record<string, any> | null
+          station?: string | null
           stream?: string | null
           updated_at?: string
         }
@@ -373,6 +383,9 @@ export type Database = {
           alternate_email?: string | null
           created_at?: string
           current_shift?: Database["public"]["Enums"]["shift_type"]
+          date_of_birth?: string | null
+          date_of_joining?: string | null
+          department?: string | null
           designation?: string | null
           email?: string
           emergency_contact?: string | null
@@ -383,6 +396,8 @@ export type Database = {
           initials?: string | null
           mobile?: string | null
           photo_url?: string | null
+          profile_details?: Record<string, any> | null
+          station?: string | null
           stream?: string | null
           updated_at?: string
         }

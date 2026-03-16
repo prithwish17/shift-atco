@@ -166,118 +166,71 @@ export default function EmployeeSchedule() {
           </div>
         </div>
 
-        {/* ── Top Row: Next Duty + Monthly Summary ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-          {/* Next Duty Card — Figma gradient */}
-          <div className="bg-gradient-to-br from-blue-50/40 via-slate-50 to-indigo-50/30 dark:from-blue-950/30 dark:via-gray-900 dark:to-indigo-950/20 rounded-lg p-5 shadow-sm border border-slate-200/60 dark:border-slate-700/60">
-            <div className="flex items-center gap-2 mb-4">
-              <Clock className="text-slate-700 dark:text-slate-300" size={20} />
-              <h2 className="font-semibold text-gray-900 dark:text-gray-100 text-base">Next Duty</h2>
-            </div>
-
-            {isLoading ? (
-              <div className="space-y-2">
-                {[...Array(2)].map((_, i) => (
-                  <Skeleton key={i} className="h-14 w-full" />
-                ))}
+        {/* ── Today's Duty (compact, two-line) ── */}
+        <div className="bg-gradient-to-r from-blue-50/40 via-slate-50 to-indigo-50/30 dark:from-blue-950/30 dark:via-gray-900 dark:to-indigo-950/20 rounded-lg px-3 py-2.5 sm:px-4 sm:py-3 shadow-sm border border-slate-200/60 dark:border-slate-700/60">
+          {isLoading ? (
+            <Skeleton className="h-12 w-full" />
+          ) : nextDuty ? (
+            <div className="space-y-1">
+              {/* Line 1: Title */}
+              <div className="flex items-center gap-1.5">
+                <Clock className="text-slate-600 dark:text-slate-400" size={16} />
+                <span className="text-xs font-semibold text-gray-900 dark:text-gray-100 sm:text-sm">Today's Duty</span>
               </div>
-            ) : nextDuty ? (
-              <div className="space-y-3">
-                {/* Date row */}
-                <div className="flex items-center gap-3 p-3 bg-white/80 dark:bg-gray-800/60 rounded-lg border border-slate-200/60 dark:border-slate-700/60 shadow-sm">
-                  <CalendarIcon className="text-slate-600 dark:text-slate-400" size={24} />
-                  <div>
-                    <p className="text-lg font-bold text-gray-900 dark:text-gray-100">
-                      {format(parseISO(nextDuty.duty_date), "EEEE")}
-                    </p>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      {format(parseISO(nextDuty.duty_date), "MMMM d, yyyy")}
-                    </p>
-                  </div>
+              {/* Line 2: Date + Duty */}
+              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <div className="flex items-center gap-1.5 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+                  <CalendarIcon size={14} className="shrink-0" />
+                  <span className="font-medium">{format(parseISO(nextDuty.duty_date), "EEE, MMM d")}</span>
                 </div>
-
-                {/* Duty status row */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 bg-gradient-to-r from-rose-50/60 to-red-50/50 dark:from-rose-950/30 dark:to-red-950/20 rounded-lg border border-rose-200/50 dark:border-rose-800/50 shadow-sm">
-                  <div className="min-w-0">
-                    <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">Duty Status</p>
-                    <p className="text-lg font-bold text-rose-700 dark:text-rose-400">{nextDuty.duty_code}</p>
-                  </div>
-                  <span className="text-sm text-slate-600 dark:text-slate-400 whitespace-normal break-normal leading-snug sm:text-right">
-                    {shiftTime(nextDuty.duty_code) || nextDuty.duty_description || "—"}
-                  </span>
+                <span className={`text-xs font-bold px-2.5 py-1 rounded-md ${dutyColor(nextDuty.duty_code)}`}>
+                  {DUTY_DESCRIPTIONS[nextDuty.duty_code] || nextDuty.duty_code}
+                </span>
+              </div>
+              {/* Line 3: Shift timings */}
+              {shiftTime(nextDuty.duty_code) && (
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 sm:text-sm">
+                  🕐 {shiftTime(nextDuty.duty_code)}
                 </div>
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No upcoming duties</p>
-            )}
-          </div>
-
-          {/* Monthly Summary — Figma horizontal bar chart */}
-          <div className="bg-gradient-to-br from-slate-50 to-purple-50/30 dark:from-gray-900 dark:to-purple-950/20 rounded-lg p-5 shadow-sm border border-slate-200/50 dark:border-slate-700/50">
-            <div className="flex items-center gap-2 mb-4">
-              <TrendingUp className="text-purple-600 dark:text-purple-400" size={20} />
-              <h2 className="font-semibold text-gray-900 dark:text-gray-100 text-base">
-                {format(currentMonth, "MMMM")} Summary
-              </h2>
+              )}
             </div>
-
-            {isLoading ? (
-              <Skeleton className="h-32 w-full" />
-            ) : dutyStats.length > 0 ? (
-              <div className="space-y-3">
-                {dutyStats.map(([code, count]) => (
-                  <div key={code} className="flex items-center gap-3">
-                    <span className={`text-xs font-semibold w-14 ${barTextColor(code)}`}>{code}</span>
-                    <div className="flex-1 relative">
-                      <div className="h-2 bg-gray-200/50 dark:bg-gray-700/50 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full ${barColor(code)} rounded-full transition-all duration-300`}
-                          style={{ width: `${(count / maxStatValue) * 100}%` }}
-                        />
-                      </div>
-                      <span
-                        className="absolute top-1/2 -translate-y-1/2 text-xs font-bold text-gray-700 dark:text-gray-300"
-                        style={{ left: `${(count / maxStatValue) * 100}%`, marginLeft: '8px' }}
-                      >
-                        {count}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No data for this month</p>
-            )}
-          </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Clock className="text-slate-500" size={16} />
+              <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Today's Duty</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">— No upcoming duties</span>
+            </div>
+          )}
         </div>
 
         {/* ── Schedule Calendar ── */}
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-4 md:p-6">
           {/* Calendar Header */}
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Schedule Calendar</h2>
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 mb-4 sm:flex-row sm:items-center sm:justify-between sm:mb-6">
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 sm:text-lg">Schedule Calendar</h2>
+            <div className="flex items-center gap-1.5 sm:gap-2">
               <button
                 onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-700 shadow-sm transition-all hover:bg-blue-100 hover:text-blue-700 active:scale-95 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-blue-900/40 dark:hover:text-blue-300 sm:px-3 sm:py-1.5 sm:text-xs"
               >
-                <ChevronLeft size={20} className="text-gray-600 dark:text-gray-400" />
+                <ChevronLeft size={14} className="sm:size-4" />
+                <span className="hidden sm:inline">Prev</span>
               </button>
-              <div className="min-w-[140px] text-center">
-                <span className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              <div className="min-w-[90px] text-center sm:min-w-[140px]">
+                <span className="text-xs font-semibold text-gray-900 dark:text-gray-100 sm:text-base">
                   {format(currentMonth, "MMMM yyyy")}
                 </span>
               </div>
               <button
                 onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-700 shadow-sm transition-all hover:bg-blue-100 hover:text-blue-700 active:scale-95 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-blue-900/40 dark:hover:text-blue-300 sm:px-3 sm:py-1.5 sm:text-xs"
               >
-                <ChevronRight size={20} className="text-gray-600 dark:text-gray-400" />
+                <span className="hidden sm:inline">Next</span>
+                <ChevronRight size={14} className="sm:size-4" />
               </button>
               <button
                 onClick={() => setCurrentMonth(new Date())}
-                className="px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                className="rounded-full bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95 dark:bg-blue-500 dark:hover:bg-blue-600 sm:px-3 sm:py-1.5 sm:text-xs"
               >
                 Today
               </button>
@@ -336,72 +289,124 @@ export default function EmployeeSchedule() {
           )}
         </div>
 
-        {/* ── Duty Legend ── */}
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-4 md:p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Duty Legend</h2>
-          <div className="flex flex-wrap gap-2">
-            {DUTY_CODES.map((code) => (
-              <span
-                key={code}
-                className={`text-xs font-medium px-3 py-1.5 rounded-md ${dutyColor(code)}`}
-              >
-                {code} {DUTY_DESCRIPTIONS[code] || ""}
-              </span>
-            ))}
+        {/* ── Month Summary ── */}
+        <div className="bg-gradient-to-br from-slate-50 to-purple-50/30 dark:from-gray-900 dark:to-purple-950/20 rounded-lg p-4 sm:p-5 shadow-sm border border-slate-200/50 dark:border-slate-700/50">
+          <div className="flex items-center gap-2 mb-3">
+            <TrendingUp className="text-purple-600 dark:text-purple-400" size={18} />
+            <h2 className="font-semibold text-gray-900 dark:text-gray-100 text-sm sm:text-base">
+              {format(currentMonth, "MMMM")} Summary
+            </h2>
           </div>
-        </div>
-
-        {/* ── Upcoming 7 Days ── */}
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-4 md:p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Upcoming 7 Days</h2>
 
           {isLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : dutyStats.length > 0 ? (
             <div className="space-y-2">
-              {[...Array(4)].map((_, i) => (
-                <Skeleton key={i} className="h-16 w-full" />
-              ))}
-            </div>
-          ) : upcomingDuties.length > 0 ? (
-            <div className="space-y-3">
-              {upcomingDuties.map((duty) => (
-                <div
-                  key={duty.id}
-                  className="flex flex-wrap items-start gap-3 sm:gap-4 p-4 bg-gradient-to-r from-slate-50 to-white dark:from-gray-800/50 dark:to-gray-900 rounded-lg border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow"
-                >
-                  {/* Date column */}
-                  <div className="flex flex-col items-center min-w-[60px]">
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      {format(parseISO(duty.duty_date), "EEE")}
-                    </span>
-                    <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                      {format(parseISO(duty.duty_date), "d")}
-                    </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      {format(parseISO(duty.duty_date), "MMM")}
-                    </span>
-                  </div>
-
-                  {/* Duty info */}
-                  <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-                    <span className={`text-xs font-semibold px-3 py-1.5 rounded-md w-fit ${dutyColor(duty.duty_code)}`}>
-                      {duty.duty_code}
-                    </span>
-                    <span className="text-sm text-gray-700 dark:text-gray-300 whitespace-normal break-normal leading-snug">
-                      {duty.duty_description || DUTY_DESCRIPTIONS[duty.duty_code] || ""}
-                    </span>
-                  </div>
-
-                  {/* Time/Status */}
-                  <div className="basis-full pl-[72px] text-left sm:basis-auto sm:pl-0 sm:text-right min-w-0 sm:min-w-[140px]">
-                    <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 whitespace-normal break-normal leading-snug">
-                      {shiftTime(duty.duty_code) || ""}
+              {dutyStats.map(([code, count]) => (
+                <div key={code} className="flex items-center gap-3">
+                  <span className={`text-xs font-semibold w-14 ${barTextColor(code)}`}>{code}</span>
+                  <div className="flex-1 relative">
+                    <div className="h-2 bg-gray-200/50 dark:bg-gray-700/50 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${barColor(code)} rounded-full transition-all duration-300`}
+                        style={{ width: `${(count / maxStatValue) * 100}%` }}
+                      />
+                    </div>
+                    <span
+                      className="absolute top-1/2 -translate-y-1/2 text-xs font-bold text-gray-700 dark:text-gray-300"
+                      style={{ left: `${(count / maxStatValue) * 100}%`, marginLeft: '8px' }}
+                    >
+                      {count}
                     </span>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-6">
+            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-3">No data for this month</p>
+          )}
+        </div>
+
+        {/* ── Duty Legend ── */}
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-3 sm:p-4 md:p-6">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 sm:text-lg sm:mb-4">Duty Legend</h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {/* Shifts */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5 sm:text-xs">Shifts</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(['M', 'A', 'N', 'G', 'M+A', 'A+M', 'NO+N'] as const).map((code) => (
+                  <span key={code} className={`text-[10px] font-medium px-2 py-1 rounded-md sm:text-xs sm:px-3 sm:py-1.5 ${dutyColor(code)}`}>
+                    {code} — {DUTY_DESCRIPTIONS[code]}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {/* Offs & Leaves */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5 sm:text-xs">Offs & Leaves</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(['NO', 'CO', 'GO', 'LEAVE', 'SL', 'CH', 'NH'] as const).map((code) => (
+                  <span key={code} className={`text-[10px] font-medium px-2 py-1 rounded-md sm:text-xs sm:px-3 sm:py-1.5 ${dutyColor(code)}`}>
+                    {code} — {DUTY_DESCRIPTIONS[code]}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {/* Combos & Others */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5 sm:text-xs">Combos & Others</p>
+              <div className="flex flex-wrap gap-1.5">
+                {(['CO+M', 'CO+A', 'CO+N', 'SAT', 'SAT+NO', 'SAT+N', 'SUN', 'SUN+M', 'SUN+A', 'SUN+N', 'SUN+NO', 'T', 'Tr', 'NA'] as const).map((code) => (
+                  <span key={code} className={`text-[10px] font-medium px-2 py-1 rounded-md sm:text-xs sm:px-3 sm:py-1.5 ${dutyColor(code)}`}>
+                    {code} — {DUTY_DESCRIPTIONS[code]}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Upcoming 7 Days ── */}
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-3 sm:p-4 md:p-6">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2 sm:text-lg sm:mb-4">Upcoming 7 Days</h2>
+
+          {isLoading ? (
+            <div className="space-y-1.5">
+              {[...Array(4)].map((_, i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : upcomingDuties.length > 0 ? (
+            <div className="space-y-1.5 sm:space-y-2">
+              {upcomingDuties.map((duty) => (
+                <div
+                  key={duty.id}
+                  className="flex items-center gap-2 sm:gap-3 px-2 py-1.5 sm:px-4 sm:py-3 bg-gradient-to-r from-slate-50 to-white dark:from-gray-800/50 dark:to-gray-900 rounded-lg border border-slate-200 dark:border-slate-700"
+                >
+                  {/* Date */}
+                  <div className="flex items-center gap-1 min-w-[56px] sm:min-w-[72px]">
+                    <span className="text-base font-bold text-gray-900 dark:text-gray-100 sm:text-xl">{format(parseISO(duty.duty_date), "d")}</span>
+                    <div className="flex flex-col leading-none">
+                      <span className="text-[9px] font-medium text-gray-500 dark:text-gray-400 sm:text-xs">{format(parseISO(duty.duty_date), "EEE")}</span>
+                      <span className="text-[9px] text-gray-400 dark:text-gray-500 sm:text-xs">{format(parseISO(duty.duty_date), "MMM")}</span>
+                    </div>
+                  </div>
+
+                  {/* Duty badge */}
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md shrink-0 sm:text-xs sm:px-3 sm:py-1 ${dutyColor(duty.duty_code)}`}>
+                    {DUTY_DESCRIPTIONS[duty.duty_code] || duty.duty_code}
+                  </span>
+
+                  {/* Time */}
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400 ml-auto sm:text-xs">
+                    {shiftTime(duty.duty_code) || ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-4 sm:text-sm">
               No duties in the next 7 days
             </p>
           )}

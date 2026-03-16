@@ -388,23 +388,23 @@ export default function EmployeeCompOffPage() {
                         </div>
 
                         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                          <div>
+                          <div className="overflow-hidden">
                             <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">Duty Performed</div>
-                            <div className="text-xs font-semibold text-slate-800 sm:text-sm">{formatDutyPerformed(row.dutyPerformed)}</div>
+                            <div className="text-xs font-semibold text-slate-800 sm:text-sm break-words">{formatDutyPerformed(row.dutyPerformed)}</div>
                           </div>
-                          <div>
+                          <div className="overflow-hidden">
                             <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">Expiry Date</div>
-                            <div className="text-xs font-semibold text-slate-800 sm:text-sm">{formatDate(row.expiryDate) || "—"}</div>
+                            <div className="text-xs font-semibold text-slate-800 sm:text-sm break-words">{formatDate(row.expiryDate) || "—"}</div>
                           </div>
-                          <div>
+                          <div className="overflow-hidden">
                             <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">Source</div>
                             <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold sm:px-2.5 sm:text-[11px] ${getCompOffSourceBadgeClass(row.sourceType)}`}>
                               {getCompOffSourceLabel(row.sourceType, row.sourceLabel)}
                             </span>
                           </div>
-                          <div>
+                          <div className="overflow-hidden">
                             <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">Leave Used On</div>
-                            <div className="text-xs font-semibold text-slate-800 sm:text-sm">{formatDate(row.leaveApplied) || "—"}</div>
+                            <div className="text-xs font-semibold text-slate-800 sm:text-sm break-words">{formatDate(row.leaveApplied) || "—"}</div>
                           </div>
                         </div>
                       </div>

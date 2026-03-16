@@ -490,32 +490,32 @@ export default function EmployeeLeavePage() {
           </Card>
         ) : null}
 
-        <div className="grid justify-center gap-3 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))] sm:gap-4 sm:[grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+        <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
           {cards.map((card) => {
             const percent = card.total > 0 ? Math.round(((card.total - card.remaining) / card.total) * 100) : 0;
             return (
-              <Card key={card.label} className="h-full w-full max-w-[260px] shadow-sm sm:max-w-none">
-                <CardContent className="flex h-full items-center justify-between gap-2.5 px-3 py-2.5 sm:gap-4 sm:px-6 sm:py-4">
+              <Card key={card.label} className="h-full w-full shadow-sm">
+                <CardContent className="flex h-full items-center justify-between gap-2 px-2.5 py-2 sm:gap-4 sm:px-6 sm:py-4">
                   <div className="min-w-0 flex-1">
-                    <div className="text-[11px] font-bold uppercase tracking-wide text-slate-800 sm:text-xs">{card.label}</div>
-                    <div className="mt-1 text-xl font-black leading-none tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">
+                    <div className="text-[9px] font-bold uppercase tracking-wide text-slate-800 sm:text-xs">{card.label}</div>
+                    <div className="mt-0.5 text-lg font-black leading-none tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">
                       {card.total > 0 ? `${card.remaining} / ${card.total}` : "—"}
                     </div>
-                    <div className="mt-1 break-words text-[11px] font-semibold text-slate-700 sm:text-xs">
+                    <div className="mt-0.5 break-words text-[9px] font-semibold text-slate-700 sm:mt-1 sm:text-xs">
                       {card.total > 0 ? "remaining" : "No balance data"}
                     </div>
-                    <div className="mt-1 break-words text-[11px] text-muted-foreground sm:text-xs">
+                    <div className="mt-0.5 break-words text-[9px] text-muted-foreground sm:mt-1 sm:text-xs">
                       {card.helper}
                     </div>
                   </div>
                   <div
-                    className="flex h-14 w-14 shrink-0 items-center justify-center self-center rounded-full sm:h-16 sm:w-16"
+                    className="flex h-10 w-10 shrink-0 items-center justify-center self-center rounded-full sm:h-16 sm:w-16"
                     style={{
                       background: `conic-gradient(${card.color} ${percent}%, #E5E7EB 0)`,
                     }}
                   >
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white sm:h-12 sm:w-12">
-                      <div className="text-xs font-bold text-slate-700 sm:text-sm">{percent}%</div>
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white sm:h-12 sm:w-12">
+                      <div className="text-[9px] font-bold text-slate-700 sm:text-sm">{percent}%</div>
                     </div>
                   </div>
                 </CardContent>
@@ -526,9 +526,9 @@ export default function EmployeeLeavePage() {
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card className="w-full shadow-sm">
-            <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
-              <CardTitle className="text-base sm:text-lg">Comp-Off Balance</CardTitle>
-              <div className="grid shrink-0 grid-cols-2 gap-2 sm:w-auto">
+            <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 px-3 py-2.5 sm:gap-3 sm:px-6 sm:py-4">
+              <CardTitle className="text-sm sm:text-lg">Comp-Off Balance</CardTitle>
+              <div className="grid shrink-0 grid-cols-2 gap-1.5 sm:w-auto sm:gap-2">
                 {[
                   { key: "available" as const, label: "Available" },
                   { key: "all" as const, label: "View All" },
@@ -537,7 +537,7 @@ export default function EmployeeLeavePage() {
                     key={tab.key}
                     type="button"
                     onClick={() => setCompOffView(tab.key)}
-                    className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors sm:text-sm ${
+                    className={`rounded-lg border px-2 py-1 text-[10px] font-semibold transition-colors sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm ${
                       compOffView === tab.key
                         ? "border-slate-900 bg-slate-900 text-white"
                         : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -557,113 +557,127 @@ export default function EmployeeLeavePage() {
                   <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Remaining: {employeeRecord?.compOffRemaining ?? 0}</span>
                 </div>
               </div>
-              <div className="space-y-3 mb-4 sm:hidden">
+              <div className="space-y-2 mb-4 sm:hidden">
                 {visibleCompOffLedgerRows.length ? (
                   visibleCompOffLedgerRows.map((row, idx) => (
                     <div
                       key={`${row.sourceType}-${row.dutyDate || row.leaveApplied || idx}-mobile`}
-                      className="rounded-xl border border-slate-200 bg-white px-3.5 py-3 shadow-sm"
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm"
                     >
-                      <div className="mb-3 flex items-start justify-between gap-3">
-                        <div className="min-w-0 text-sm font-bold tracking-tight text-slate-900">
+                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <div className="min-w-0 text-xs font-bold tracking-tight text-slate-900">
                           {formatDate(row.dutyDate) || "—"}
                         </div>
                         <span
-                          className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold leading-tight ${getCompOffStatusBadgeClass(row.status)}`}
+                          className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold leading-tight ${getCompOffStatusBadgeClass(row.status)}`}
                         >
                           {getCompOffStatusLabel(row)}
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                        <div>
-                          <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">Duty Performed</div>
-                          <div className="text-xs font-semibold text-slate-800">{formatDutyPerformed(row.dutyPerformed)}</div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                        <div className="overflow-hidden">
+                          <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-500">Duty Performed</div>
+                          <div className="text-[10px] font-semibold text-slate-800 break-words">{formatDutyPerformed(row.dutyPerformed)}</div>
                         </div>
-                        <div>
-                          <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">Expiry Date</div>
-                          <div className="text-xs font-semibold text-slate-800">{formatDate(row.expiryDate) || "—"}</div>
+                        <div className="overflow-hidden">
+                          <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-500">Expiry Date</div>
+                          <div className="text-[10px] font-semibold text-slate-800 break-words">{formatDate(row.expiryDate) || "—"}</div>
                         </div>
-                        <div>
-                          <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">Source</div>
+                        <div className="overflow-hidden">
+                          <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-500">Source</div>
                           <span
-                            className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${getCompOffSourceBadgeClass(row.sourceType)}`}
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-semibold ${getCompOffSourceBadgeClass(row.sourceType)}`}
                           >
                             {getCompOffSourceLabel(row.sourceType, row.sourceLabel)}
                           </span>
                         </div>
-                        <div>
-                          <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500">Leave Used On</div>
-                          <div className="text-xs font-semibold text-slate-800">{formatDate(row.leaveApplied) || "—"}</div>
+                        <div className="overflow-hidden">
+                          <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-500">Leave Used On</div>
+                          <div className="text-[10px] font-semibold text-slate-800 break-words">{formatDate(row.leaveApplied) || "—"}</div>
                         </div>
                       </div>
                     </div>
                   ))
                 ) : (
-                  <div className="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-muted-foreground">
+                  <div className="rounded-xl border border-dashed border-slate-300 px-4 py-4 text-center text-xs text-muted-foreground">
                     {compOffView === "all" ? "No comp-off records available." : "No earned comp-off records available."}
                   </div>
                 )}
               </div>
 
-              <div className="hidden sm:block border rounded-lg overflow-hidden mb-4">
-                <div className="grid grid-cols-6 border-b-2 border-slate-300 bg-slate-200/95 text-slate-800 text-xs font-bold uppercase tracking-[0.14em] shadow-sm">
-                  <div className="px-3 py-2.5 border-r border-slate-300">Duty Date</div>
-                  <div className="px-3 py-2.5 border-r border-slate-300">Duty Performed</div>
-                  <div className="px-3 py-2.5 border-r border-slate-300">Expiry Date</div>
-                  <div className="px-3 py-2.5 border-r border-slate-300">Source</div>
-                  <div className="px-3 py-2.5 border-r border-slate-300">Leave Used On</div>
-                  <div className="px-3 py-2.5">Remarks</div>
-                </div>
-                <div className="divide-y divide-slate-200">
-                  {visibleCompOffLedgerRows.length ? (
-                    visibleCompOffLedgerRows.map((row, idx) => (
-                      <div
-                        key={`${row.sourceType}-${row.dutyDate || row.leaveApplied || idx}`}
-                        className={`grid grid-cols-6 text-sm ${idx % 2 === 0 ? "bg-sky-100/70" : "bg-slate-50/80"}`}
-                      >
-                        <div className="px-3 py-2 text-slate-700">{formatDate(row.dutyDate) || "—"}</div>
-                        <div className="px-3 py-2 text-slate-700">{formatDutyPerformed(row.dutyPerformed)}</div>
-                        <div className="px-3 py-2 text-slate-700">{formatDate(row.expiryDate) || "—"}</div>
-                        <div className="px-3 py-2">
-                          <span
-                            className={`inline-flex rounded-md px-2.5 py-1 text-[10px] font-semibold leading-tight ${getCompOffSourceBadgeClass(row.sourceType)}`}
-                          >
-                            {getCompOffSourceLabel(row.sourceType, row.sourceLabel)}
-                          </span>
-                        </div>
-                        <div className="px-3 py-2 text-slate-700">{formatDate(row.leaveApplied) || "—"}</div>
-                        <div className="px-3 py-2">
-                          <span
-                            className={`inline-flex rounded-md px-2.5 py-1 text-[10px] font-semibold leading-tight ${getCompOffStatusBadgeClass(row.status)}`}
-                          >
-                            {getCompOffStatusLabel(row)}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="px-3 py-6 text-sm text-muted-foreground text-center">
-                      {compOffView === "all" ? "No comp-off records available." : "No earned comp-off records available."}
-                    </div>
-                  )}
-                </div>
+              <div className="hidden sm:block border rounded-lg overflow-hidden mb-4 overflow-x-auto">
+                <table className="w-full table-fixed border-collapse">
+                  <colgroup>
+                    <col className="w-[14%]" />
+                    <col className="w-[22%]" />
+                    <col className="w-[14%]" />
+                    <col className="w-[14%]" />
+                    <col className="w-[16%]" />
+                    <col className="w-[20%]" />
+                  </colgroup>
+                  <thead>
+                    <tr className="border-b-2 border-slate-300 bg-slate-200/95 text-slate-800 text-xs font-bold uppercase tracking-[0.14em] shadow-sm">
+                      <th className="px-3 py-2.5 text-left border-r border-slate-300 font-bold">Duty Date</th>
+                      <th className="px-3 py-2.5 text-left border-r border-slate-300 font-bold">Duty Performed</th>
+                      <th className="px-3 py-2.5 text-left border-r border-slate-300 font-bold">Expiry Date</th>
+                      <th className="px-3 py-2.5 text-left border-r border-slate-300 font-bold">Source</th>
+                      <th className="px-3 py-2.5 text-left border-r border-slate-300 font-bold">Leave Used On</th>
+                      <th className="px-3 py-2.5 text-left font-bold">Remarks</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {visibleCompOffLedgerRows.length ? (
+                      visibleCompOffLedgerRows.map((row, idx) => (
+                        <tr
+                          key={`${row.sourceType}-${row.dutyDate || row.leaveApplied || idx}`}
+                          className={`text-sm ${idx % 2 === 0 ? "bg-sky-100/70" : "bg-slate-50/80"}`}
+                        >
+                          <td className="px-3 py-2 text-slate-700 whitespace-normal break-words">{formatDate(row.dutyDate) || "—"}</td>
+                          <td className="px-3 py-2 text-slate-700 whitespace-normal break-words">{formatDutyPerformed(row.dutyPerformed)}</td>
+                          <td className="px-3 py-2 text-slate-700 whitespace-normal break-words">{formatDate(row.expiryDate) || "—"}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`inline-flex rounded-md px-2.5 py-1 text-[10px] font-semibold leading-tight ${getCompOffSourceBadgeClass(row.sourceType)}`}
+                            >
+                              {getCompOffSourceLabel(row.sourceType, row.sourceLabel)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-slate-700 whitespace-normal break-words">{formatDate(row.leaveApplied) || "—"}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`inline-flex rounded-md px-2.5 py-1 text-[10px] font-semibold leading-tight ${getCompOffStatusBadgeClass(row.status)}`}
+                            >
+                              {getCompOffStatusLabel(row)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-6 text-sm text-muted-foreground text-center">
+                          {compOffView === "all" ? "No comp-off records available." : "No earned comp-off records available."}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </CardContent>
           </Card>
 
           <Card className="w-full shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-sm sm:text-base">Leave Summary</CardTitle>
+            <CardHeader className="px-3 py-2 sm:px-6 sm:py-4">
+              <CardTitle className="text-xs sm:text-base">Leave Summary</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-3 pb-3 sm:px-6 sm:pb-6">
               <div className="overflow-hidden rounded-lg border border-slate-200">
                 <Table>
                   <TableHeader className="border-b-2 border-slate-300 bg-slate-200/95">
                     <TableRow className="border-b-0 hover:bg-transparent">
-                      <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-800 sm:px-4 sm:py-3 sm:text-xs">Leave Type</TableHead>
-                      <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-800 sm:px-4 sm:py-3 sm:text-xs">Leave Used On</TableHead>
-                      <TableHead className="px-3 py-2.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-800 sm:px-4 sm:py-3 sm:text-xs">Count</TableHead>
+                      <TableHead className="px-2 py-1.5 text-[8px] font-bold uppercase tracking-[0.14em] text-slate-800 sm:px-4 sm:py-3 sm:text-xs">Leave Type</TableHead>
+                      <TableHead className="px-2 py-1.5 text-[8px] font-bold uppercase tracking-[0.14em] text-slate-800 sm:px-4 sm:py-3 sm:text-xs">Leave Used On</TableHead>
+                      <TableHead className="px-2 py-1.5 text-[8px] font-bold uppercase tracking-[0.14em] text-slate-800 sm:px-4 sm:py-3 sm:text-xs">Count</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -672,28 +686,28 @@ export default function EmployeeLeavePage() {
                         key={row.type}
                         className={`${idx % 2 === 0 ? "bg-white" : "bg-slate-50/70"}`}
                       >
-                        <TableCell>
+                        <TableCell className="px-2 py-1.5 sm:px-4 sm:py-2">
                           <span
-                            className={`inline-flex min-h-10 items-center border-l-4 px-2.5 py-2 text-xs font-semibold leading-snug sm:min-h-11 sm:px-3 sm:text-sm ${getLeaveTypeHighlightClass(row.type)}`}
+                            className={`inline-flex min-h-7 items-center border-l-4 px-1.5 py-1 text-[10px] font-semibold leading-snug sm:min-h-11 sm:px-3 sm:py-2 sm:text-sm ${getLeaveTypeHighlightClass(row.type)}`}
                           >
                             {row.type}
                           </span>
                         </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-2">
+                        <TableCell className="px-2 py-1.5 sm:px-4 sm:py-2">
+                          <div className="flex flex-wrap gap-1 sm:gap-2">
                             {row.dates.length > 0 ? (
                               row.dates.map((d) => (
-                                <Badge key={d} variant="secondary" className="bg-slate-100 text-[10px] text-slate-700 sm:text-xs">
+                                <Badge key={d} variant="secondary" className="bg-slate-100 text-[8px] text-slate-700 px-1.5 py-0.5 sm:text-xs sm:px-2.5 sm:py-0.5">
                                   {d}
                                 </Badge>
                               ))
                             ) : (
-                              <span className="text-[10px] text-muted-foreground sm:text-xs">No records</span>
+                              <span className="text-[9px] text-muted-foreground sm:text-xs">No records</span>
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <Badge variant="secondary" className="bg-emerald-100 text-[10px] text-emerald-800 sm:text-xs">
+                        <TableCell className="px-2 py-1.5 sm:px-4 sm:py-2">
+                          <Badge variant="secondary" className="bg-emerald-100 text-[9px] text-emerald-800 sm:text-xs">
                             {row.dates.length}
                           </Badge>
                         </TableCell>

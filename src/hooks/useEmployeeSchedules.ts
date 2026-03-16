@@ -41,7 +41,7 @@ export const DUTY_DESCRIPTIONS: Record<string, string> = {
     Tr: 'Transfer',
     'CO+A': 'Comp Off + Afternoon',
     'CO+M': 'Comp Off + Morning',
-    GO: 'Gazette Off',
+    GO: 'General Oscar',
     'A+M': 'Afternoon + Morning',
 };
 
