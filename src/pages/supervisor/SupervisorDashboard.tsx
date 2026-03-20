@@ -240,50 +240,50 @@ export default function SupervisorDashboard() {
 
   return (
     <DashboardLayout role="supervisor">
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Supervisor Dashboard</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Supervisor Dashboard</h1>
+          <p className="text-sm text-muted-foreground sm:text-base">
             {format(parseISO(istToday), "EEEE, MMMM d, yyyy")}
           </p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <StatCard title="On Duty Today" value={isLoading ? "..." : onDutyCount} icon={Users} description="Employees currently on duty" className="bg-blue-50/70 border-blue-100 dark:bg-blue-950/30 dark:border-blue-900/40" />
-          <StatCard title="Leave Requests" value={isLoading ? "..." : pendingLeaves.length} icon={FileText} description="Pending approval" className="bg-amber-50/70 border-amber-100 dark:bg-amber-950/30 dark:border-amber-900/40" />
-          <StatCard title="Duty Exchanges" value={isLoading ? "..." : pendingExchanges.length} icon={Clock} description="Awaiting final approval" className="bg-emerald-50/70 border-emerald-100 dark:bg-emerald-950/30 dark:border-emerald-900/40" />
-          <Link to="/supervisor/ope-assignments">
-            <StatCard title="OPE Assignments" value={isLoading ? "..." : opeCount} icon={ClipboardList} description="Extra duties today" className="bg-violet-50/70 border-violet-100 dark:bg-violet-950/30 dark:border-violet-900/40 cursor-pointer hover:shadow-md transition-shadow" />
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-2 lg:grid-cols-4 sm:gap-4">
+          <StatCard title="On Duty Today" value={isLoading ? "..." : onDutyCount} icon={Users} description="Employees currently on duty" compactMobile className="bg-blue-50/70 border-blue-100 dark:bg-blue-950/30 dark:border-blue-900/40" />
+          <StatCard title="Leave Requests" value={isLoading ? "..." : pendingLeaves.length} icon={FileText} description="Pending approval" compactMobile className="bg-amber-50/70 border-amber-100 dark:bg-amber-950/30 dark:border-amber-900/40" />
+          <StatCard title="Duty Exchanges" value={isLoading ? "..." : pendingExchanges.length} icon={Clock} description="Awaiting final approval" compactMobile className="bg-emerald-50/70 border-emerald-100 dark:bg-emerald-950/30 dark:border-emerald-900/40" />
+          <Link to="/supervisor/ope-assignments" className="block h-full">
+            <StatCard title="OPE Assignments" value={isLoading ? "..." : opeCount} icon={ClipboardList} description="Extra duties today" compactMobile className="bg-violet-50/70 border-violet-100 dark:bg-violet-950/30 dark:border-violet-900/40 cursor-pointer hover:shadow-md transition-shadow" />
           </Link>
         </div>
 
         {/* Roster Lookup */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Search className="h-5 w-5" />
+          <CardHeader className="p-4 sm:p-6">
+            <CardTitle className="flex items-center gap-1.5 text-lg sm:gap-2 sm:text-2xl">
+              <Search className="h-4 w-4 sm:h-5 sm:w-5" />
               Employee Roster Lookup
             </CardTitle>
-            <CardDescription>Search by employee name to view their roster assignments</CardDescription>
+            <CardDescription className="text-xs sm:text-sm">Search by employee name to view their roster assignments</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
             <Input
               placeholder="Type employee name..."
               value={rosterSearch}
               onChange={(e) => setRosterSearch(e.target.value)}
-              className="mb-4"
+              className="mb-3 text-sm sm:mb-4"
             />
             {rosterSearch.length >= 2 && (
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {rosterResults.length > 0 ? rosterResults.slice(0, 10).map((r, i) => (
-                  <div key={i} className="flex items-center justify-between border-b pb-2 last:border-0 text-sm">
+                  <div key={i} className="flex flex-col gap-2 border-b pb-2 text-xs last:border-0 sm:flex-row sm:items-center sm:justify-between sm:text-sm">
                     <div>
-                      <p className="font-medium">{r.employee_name}</p>
+                      <p className="font-medium text-foreground">{r.employee_name}</p>
                       <p className="text-muted-foreground">{r.duty_date} — {r.employee_code}</p>
                     </div>
-                    <div className="flex gap-2">
-                      <Badge variant="outline">{r.duty_code}</Badge>
-                      <Badge>{r.duty_description || "-"}</Badge>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline" className="text-[11px] sm:text-xs">{r.duty_code}</Badge>
+                      <Badge className="text-[11px] sm:text-xs">{r.duty_description || "-"}</Badge>
                     </div>
                   </div>
                 )) : (
@@ -294,30 +294,30 @@ export default function SupervisorDashboard() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 sm:gap-4">
           <Card className="lg:col-span-2 bg-amber-50/40 border-amber-100 dark:bg-amber-950/20 dark:border-amber-900/30">
-            <CardHeader>
-              <CardTitle className="flex items-center justify-between">
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle className="flex items-center justify-between text-lg sm:text-2xl">
                 Pending Leave Requests
-                <Badge variant="secondary">{pendingLeaves.length}</Badge>
+                <Badge variant="secondary" className="text-[11px] sm:text-xs">{pendingLeaves.length}</Badge>
               </CardTitle>
-              <CardDescription>Review and approve employee leave applications</CardDescription>
+              <CardDescription className="text-xs sm:text-sm">Review and approve employee leave applications</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
+            <CardContent className="px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
+              <div className="space-y-3 sm:space-y-4">
                 {pendingLeaves.slice(0, 5).map((leaveReq) => (
-                  <div key={leaveReq.id} className="flex items-center justify-between border-b pb-3 last:border-0">
+                  <div key={leaveReq.id} className="flex flex-col gap-3 border-b pb-3 last:border-0 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="font-medium">{leaveReq.employee_name || "Unknown"}</p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm font-medium sm:text-base">{leaveReq.employee_name || "Unknown"}</p>
+                      <p className="text-xs text-muted-foreground sm:text-sm">
                         {getLeaveTypeLabel(leaveReq.leave_type)} - {leaveReq.start_date} to {leaveReq.end_date}
                       </p>
-                      <Badge variant={leaveReq.status === "Pending WSO" ? "outline" : "secondary"} className="mt-1">
+                      <Badge variant={leaveReq.status === "Pending WSO" ? "outline" : "secondary"} className="mt-1 text-[11px] sm:text-xs">
                         {leaveReq.status}
                       </Badge>
                     </div>
                     <Link to="/supervisor/leaves">
-                      <Button size="sm" variant="outline">Review</Button>
+                      <Button size="sm" variant="outline" className="text-xs sm:text-sm">Review</Button>
                     </Link>
                   </div>
                 ))}
@@ -329,12 +329,12 @@ export default function SupervisorDashboard() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Today's Shifts</CardTitle>
-              <CardDescription>Teams on duty — {format(parseISO(istToday), "dd MMM yyyy")}</CardDescription>
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle className="text-lg sm:text-2xl">Today's Shifts</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">Teams on duty — {format(parseISO(istToday), "dd MMM yyyy")}</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
+            <CardContent className="px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
+              <div className="space-y-2.5 sm:space-y-3">
                 {[
                   { key: "M", label: "Morning", icon: Sunrise, color: "text-amber-500", bg: "bg-amber-50 dark:bg-amber-950/40", border: "border-amber-200 dark:border-amber-800/40" },
                   { key: "A", label: "Afternoon", icon: Sun, color: "text-orange-500", bg: "bg-orange-50 dark:bg-orange-950/40", border: "border-orange-200 dark:border-orange-800/40" },
@@ -345,37 +345,37 @@ export default function SupervisorDashboard() {
                   <Link
                     key={key}
                     to={`/supervisor/attendance?shift=${encodeURIComponent(key)}&date=${encodeURIComponent(today)}`}
-                    className={`flex items-center gap-4 p-3 rounded-lg border ${bg} ${border} hover:shadow-md transition-shadow`}
+                    className={`flex items-center gap-3 rounded-lg border p-2.5 ${bg} ${border} hover:shadow-md transition-shadow sm:gap-4 sm:p-3`}
                     title={`Open ${label} attendance list`}
                   >
-                    <ShiftIcon className={`h-5 w-5 flex-shrink-0 ${color}`} />
+                    <ShiftIcon className={`h-4 w-4 flex-shrink-0 sm:h-5 sm:w-5 ${color}`} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold tracking-wide uppercase text-muted-foreground">{label}</p>
-                      <p className="text-base font-bold text-foreground mt-0.5">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">{label}</p>
+                      <p className="mt-0.5 text-sm font-bold text-foreground sm:text-base">
                         {shiftTeams[key]?.length > 0
                           ? shiftTeams[key].join(", ")
-                          : <span className="text-muted-foreground font-normal text-sm italic">—</span>}
+                          : <span className="text-xs font-normal italic text-muted-foreground sm:text-sm">—</span>}
                       </p>
                     </div>
-                    <Badge variant="secondary" className="text-sm font-bold tabular-nums">
+                    <Badge variant="secondary" className="text-xs font-bold tabular-nums sm:text-sm">
                       {isLoading ? "..." : shiftCounts[key] || 0}
                     </Badge>
                   </Link>
                 ))}
 
                 {/* General shift — Team G */}
-                <div className={`flex items-center gap-4 p-3 rounded-lg border ${isGeneralOnDuty ? "bg-teal-50 border-teal-200 dark:bg-teal-950/40 dark:border-teal-800/40" : "bg-gray-50 border-gray-200 dark:bg-gray-950/40 dark:border-gray-800/40 opacity-60"}`}>
-                  <Briefcase className={`h-5 w-5 flex-shrink-0 ${isGeneralOnDuty ? "text-teal-500" : "text-gray-400"}`} />
+                <div className={`flex items-center gap-3 rounded-lg border p-2.5 sm:gap-4 sm:p-3 ${isGeneralOnDuty ? "bg-teal-50 border-teal-200 dark:bg-teal-950/40 dark:border-teal-800/40" : "bg-gray-50 border-gray-200 dark:bg-gray-950/40 dark:border-gray-800/40 opacity-60"}`}>
+                  <Briefcase className={`h-4 w-4 flex-shrink-0 sm:h-5 sm:w-5 ${isGeneralOnDuty ? "text-teal-500" : "text-gray-400"}`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold tracking-wide uppercase text-muted-foreground">General</p>
-                    <p className="text-base font-bold text-foreground mt-0.5">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:text-xs">General</p>
+                    <p className="mt-0.5 text-sm font-bold text-foreground sm:text-base">
                       Team G
-                      <span className="text-xs font-normal text-muted-foreground ml-2">
+                      <span className="ml-2 text-[11px] font-normal text-muted-foreground sm:text-xs">
                         {isGeneralOnDuty ? "Mon – Fri" : "Off today"}
                       </span>
                     </p>
                   </div>
-                  <Badge variant="secondary" className="text-sm font-bold tabular-nums">
+                  <Badge variant="secondary" className="text-xs font-bold tabular-nums sm:text-sm">
                     {isLoading ? "..." : generalCount}
                   </Badge>
                 </div>
@@ -385,23 +385,23 @@ export default function SupervisorDashboard() {
         </div>
 
         <Card className="bg-emerald-50/40 border-emerald-100 dark:bg-emerald-950/20 dark:border-emerald-900/30">
-          <CardHeader>
-            <CardTitle>Duty Exchange Approvals</CardTitle>
-            <CardDescription>Requests approved by WSO awaiting final approval</CardDescription>
+          <CardHeader className="p-4 sm:p-6">
+            <CardTitle className="text-lg sm:text-2xl">Duty Exchange Approvals</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">Requests approved by WSO awaiting final approval</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
+          <CardContent className="px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
+            <div className="space-y-3 sm:space-y-4">
               {pendingExchanges.slice(0, 5).map((exchange) => (
-                <div key={exchange.id} className="flex items-center justify-between border-b pb-3 last:border-0">
+                <div key={exchange.id} className="flex flex-col gap-3 border-b pb-3 last:border-0 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="font-medium">
+                    <p className="text-sm font-medium sm:text-base">
                       {(exchange as any).requesting_user?.full_name || "Unknown"} ↔ {(exchange as any).exchange_partner?.full_name || "Unknown"}
                     </p>
-                    <p className="text-sm text-muted-foreground">Reason: {exchange.reason}</p>
-                    <Badge variant="outline" className="mt-1">WSO Approved</Badge>
+                    <p className="text-xs text-muted-foreground sm:text-sm">Reason: {exchange.reason}</p>
+                    <Badge variant="outline" className="mt-1 text-[11px] sm:text-xs">WSO Approved</Badge>
                   </div>
                   <Link to="/supervisor/duty-exchange">
-                    <Button size="sm" variant="outline">Review</Button>
+                    <Button size="sm" variant="outline" className="text-xs sm:text-sm">Review</Button>
                   </Link>
                 </div>
               ))}
@@ -413,58 +413,58 @@ export default function SupervisorDashboard() {
         </Card>
 
         <Card className="bg-slate-50/50 border-slate-200 dark:bg-slate-950/20 dark:border-slate-800/30">
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
+          <CardHeader className="p-4 sm:p-6">
+            <CardTitle className="text-lg sm:text-2xl">Quick Actions</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-7">
+          <CardContent className="px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-7 sm:gap-4">
               <Link to="/supervisor/attendance">
-                <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                  <ClipboardList className="h-6 w-6" />
+                <Button variant="outline" className="flex h-16 w-full flex-col gap-1.5 text-xs sm:h-20 sm:gap-2 sm:text-sm">
+                  <ClipboardList className="h-5 w-5 sm:h-6 sm:w-6" />
                   Mark Attendance
                 </Button>
               </Link>
               <Link to="/supervisor/leaves">
-                <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                  <FileText className="h-6 w-6" />
+                <Button variant="outline" className="flex h-16 w-full flex-col gap-1.5 text-xs sm:h-20 sm:gap-2 sm:text-sm">
+                  <FileText className="h-5 w-5 sm:h-6 sm:w-6" />
                   Approve Leaves
                 </Button>
               </Link>
               <Link to="/supervisor/employees">
-                <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                  <Users className="h-6 w-6" />
+                <Button variant="outline" className="flex h-16 w-full flex-col gap-1.5 text-xs sm:h-20 sm:gap-2 sm:text-sm">
+                  <Users className="h-5 w-5 sm:h-6 sm:w-6" />
                   Manage Employees
                 </Button>
               </Link>
               <Button
                 variant="outline"
-                className="w-full h-20 flex flex-col gap-2"
+                className="flex h-16 w-full flex-col gap-1.5 text-xs sm:h-20 sm:gap-2 sm:text-sm"
                 onClick={handleFetchSchedule}
                 disabled={fetchSchedule.isPending}
               >
                 {fetchSchedule.isPending ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <Loader2 className="h-5 w-5 animate-spin sm:h-6 sm:w-6" />
                 ) : (
-                  <CalendarIcon className="h-6 w-6" />
+                  <CalendarIcon className="h-5 w-5 sm:h-6 sm:w-6" />
                 )}
                 Fetch Schedule
               </Button>
               <Button
                 variant="outline"
-                className="w-full h-20 flex flex-col gap-2"
+                className="flex h-16 w-full flex-col gap-1.5 text-xs sm:h-20 sm:gap-2 sm:text-sm"
                 onClick={handleFetchLeave}
                 disabled={fetchLeave.isPending}
               >
                 {fetchLeave.isPending ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <Loader2 className="h-5 w-5 animate-spin sm:h-6 sm:w-6" />
                 ) : (
-                  <FileText className="h-6 w-6" />
+                  <FileText className="h-5 w-5 sm:h-6 sm:w-6" />
                 )}
                 Fetch Leave
               </Button>
               <Link to="/supervisor/roster">
-                <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
-                  <CalendarIcon className="h-6 w-6" />
+                <Button variant="outline" className="flex h-16 w-full flex-col gap-1.5 text-xs sm:h-20 sm:gap-2 sm:text-sm">
+                  <CalendarIcon className="h-5 w-5 sm:h-6 sm:w-6" />
                   Shift Roster Data
                 </Button>
               </Link>
