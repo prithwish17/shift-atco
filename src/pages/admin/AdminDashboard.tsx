@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Activity, CheckCircle, Settings, FileText, AlertCircle, RefreshCw, CalendarDays, Clock, Terminal, ClipboardList } from "lucide-react";
+import { Users, Activity, CheckCircle, Settings, FileText, AlertCircle, RefreshCw, CalendarDays, Clock, Terminal, ClipboardList, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useFetchSchedule } from "@/hooks/useEmployeeSchedules";
 import { supabase } from "@/integrations/supabase/client";
@@ -32,6 +32,8 @@ export default function AdminDashboard() {
   const fetchLeaveData = useFetchLeaveData(); // Removed duplicate declaration
   const [apiLogs, setApiLogs] = useState<LogEntry[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
+  const [purging, setPurging] = useState(false);
+  const [purgeResult, setPurgeResult] = useState<{ count: number; cutoff: string } | null>(null);
 
   const { data: scheduleHealth, isLoading: scheduleHealthLoading, refetch: refetchScheduleHealth } = useQuery({
     queryKey: scheduleKeys.health(),
@@ -493,6 +495,74 @@ export default function AdminDashboard() {
               <RefreshCw className="mr-2 h-4 w-4" />
               Refresh Status
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* ── Purge Old Roster Data ── */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-600" />
+              Purge Old Roster Data
+            </CardTitle>
+            <CardDescription>
+              Delete roster entries older than 7 days to keep the database lean.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This will permanently delete all rows in the <code className="bg-muted px-1 py-0.5 rounded text-xs">rosters</code> table
+              with a date before{" "}
+              <strong>
+                {new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+              </strong>.
+            </p>
+            <Button
+              variant="destructive"
+              disabled={purging}
+              onClick={async () => {
+                const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+                const cutoffStr = cutoff.toISOString().split("T")[0];
+                if (!confirm(`Delete all roster data before ${cutoffStr}? This cannot be undone.`)) return;
+                setPurging(true);
+                setPurgeResult(null);
+                try {
+                  const { count, error } = await (supabase as any)
+                    .from("rosters")
+                    .delete({ count: "exact" })
+                    .lt("date", cutoffStr);
+                  if (error) throw error;
+                  setPurgeResult({ count: count ?? 0, cutoff: cutoffStr });
+                } catch (err: any) {
+                  setPurgeResult({ count: -1, cutoff: err.message });
+                } finally {
+                  setPurging(false);
+                }
+              }}
+              className="w-full"
+            >
+              {purging ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting…
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete Roster Data Older Than 7 Days
+                </>
+              )}
+            </Button>
+            {purgeResult && purgeResult.count >= 0 && (
+              <p className="text-sm text-green-600 flex items-center gap-1">
+                <CheckCircle className="h-4 w-4" /> Deleted {purgeResult.count} rows (before {purgeResult.cutoff})
+              </p>
+            )}
+            {purgeResult && purgeResult.count < 0 && (
+              <p className="text-sm text-red-600 flex items-center gap-1">
+                <AlertCircle className="h-4 w-4" /> {purgeResult.cutoff}
+              </p>
+            )}
           </CardContent>
         </Card>
 

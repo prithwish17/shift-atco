@@ -36,6 +36,7 @@ const HolidayManagement = lazy(() => import("./pages/supervisor/HolidayManagemen
 const OPEAssignments = lazy(() => import("./pages/supervisor/OPEAssignments"));
 const DutyManagement = lazy(() => import("./pages/supervisor/DutyManagement"));
 const LicenseManagement = lazy(() => import("./pages/supervisor/LicenseManagement"));
+const RatingsManagement = lazy(() => import("./pages/supervisor/RatingsManagement"));
 
 // WSO
 const WSODashboard = lazy(() => import("./pages/wso/WSODashboard"));
@@ -118,6 +119,7 @@ const App = () => (
                   <Route path="/supervisor/duty-management" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyManagement /></ProtectedRoute>} />
                   <Route path="/supervisor/roster" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDailyRoster /></ProtectedRoute>} />
                   <Route path="/supervisor/licenses" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><LicenseManagement /></ProtectedRoute>} />
+                  <Route path="/supervisor/ratings" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><RatingsManagement /></ProtectedRoute>} />
 
                   {/* WSO Routes */}
                   <Route path="/wso" element={<ProtectedRoute allowedRoles={['wso']}><WSODashboard /></ProtectedRoute>} />

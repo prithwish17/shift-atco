@@ -43,6 +43,7 @@ const menuItems = {
     { title: "Leave Discrepancy", url: "/supervisor/leave-discrepancy", icon: ShieldAlert },
     { title: "Employee Management", url: "/supervisor/employees", icon: Users },
     { title: "License Management", url: "/supervisor/licenses", icon: Shield },
+    { title: "Ratings Management", url: "/supervisor/ratings", icon: Shield },
     { title: "Mark Attendance", url: "/supervisor/attendance", icon: ClipboardList },
     { title: "Duty Exchange", url: "/supervisor/duty-exchange", icon: Calendar },
     { title: "Shift Duty Grid", url: "/supervisor/atc-grid", icon: Radio },
