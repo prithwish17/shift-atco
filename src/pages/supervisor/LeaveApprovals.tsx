@@ -16,6 +16,19 @@ import { LEAVE_STATUS, getLeaveTypeLabel, getLeaveStatusInfo } from '@/lib/leave
 import { useAllLeaveRequests, useReviewLeaveRequest, useCancelApprovedLeaveRequest } from '@/hooks/useLeaveRequests';
 import type { LeaveRequest } from '@/hooks/useLeaveRequests';
 
+function getWsoShiftLabel(team: string | null | undefined) {
+  const normalizedTeam = String(team || '').trim().toUpperCase();
+  if (!normalizedTeam) return 'WSO';
+  if (normalizedTeam === 'GENERAL' || normalizedTeam === 'G') return 'WSO - General';
+  return `WSO - Shift ${normalizedTeam}`;
+}
+
+function formatLeaveRange(startDate: string, endDate: string) {
+  const start = format(new Date(startDate), 'dd MMM yyyy');
+  const end = format(new Date(endDate), 'dd MMM yyyy');
+  return startDate === endDate ? start : `${start} — ${end}`;
+}
+
 export default function LeaveApprovals() {
   const { user, userRole } = useAuth();
   const { profile } = useUserProfile(user?.id);
@@ -294,7 +307,7 @@ export default function LeaveApprovals() {
                             <div className="truncate">{req.reason || '—'}</div>
                             {req.wso_approved_at && (
                               <div className="text-[11px] text-amber-700">
-                                Approved by WSO{req.wso_approver_profile?.full_name ? `: ${req.wso_approver_profile.full_name}` : ''}
+                                Approved by {getWsoShiftLabel(req.team)}
                               </div>
                             )}
                             {req.status === 'Approved' && req.supervisor_approved_at && (
@@ -367,39 +380,118 @@ export default function LeaveApprovals() {
         </Card>
 
         <Dialog open={reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
-          <DialogContent>
+          <DialogContent className="w-[calc(100vw-1.5rem)] max-w-3xl overflow-hidden p-0 sm:w-full">
             <DialogHeader>
-              <DialogTitle>
-                {reviewAction === 'approve'
-                  ? (isWSO
-                    ? 'Approve & Forward to Supervisor'
-                    : reviewTarget?.status === 'Pending WSO'
-                      ? 'Direct Approve'
-                      : 'Final Approve')
-                  : 'Reject'} Leave Request
-              </DialogTitle>
-              <DialogDescription>
-                {reviewTarget && (
-                  <>
-                    <strong>{reviewTarget.employee_name}</strong> — {getLeaveTypeLabel(reviewTarget.leave_type)} ({reviewTarget.total_days} day{reviewTarget.total_days > 1 ? 's' : ''})
-                    <br />
-                    {format(new Date(reviewTarget.start_date), 'dd MMM yyyy')}
-                    {reviewTarget.start_date !== reviewTarget.end_date && ` — ${format(new Date(reviewTarget.end_date), 'dd MMM yyyy')}`}
-                  </>
-                )}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 pt-2">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Remarks (optional)</label>
-                <Textarea
-                  value={reviewRemarks}
-                  onChange={e => setReviewRemarks(e.target.value)}
-                  placeholder={isWSO ? 'WSO remarks...' : 'Supervisor remarks...'}
-                  rows={3}
-                />
+              <div className="px-4 pt-4 sm:px-6 sm:pt-6">
+                <DialogTitle>
+                  {reviewAction === 'approve'
+                    ? (isWSO
+                      ? 'Approve & Forward to Supervisor'
+                      : reviewTarget?.status === 'Pending WSO'
+                        ? 'Direct Approve'
+                        : 'Final Approve')
+                    : 'Reject'} Leave Request
+                </DialogTitle>
+                <DialogDescription className="mt-2">
+                  Review the full leave request details before taking action.
+                </DialogDescription>
               </div>
-              <div className="flex gap-2 justify-end">
+            </DialogHeader>
+            <div className="max-h-[85vh] overflow-y-auto px-4 pb-4 sm:px-6 sm:pb-6">
+              {reviewTarget && (
+                <div className="space-y-4 pt-2">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <div className="rounded-lg border bg-muted/30 p-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Employee</div>
+                      <div className="mt-1 text-sm font-semibold break-words">{reviewTarget.employee_name}</div>
+                      <div className="mt-1 text-xs text-muted-foreground break-words">{reviewTarget.employee_id}</div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 p-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Team / Shift</div>
+                      <div className="mt-1 text-sm font-semibold">{reviewTarget.team ? `Team ${reviewTarget.team}` : 'Not specified'}</div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 p-3 sm:col-span-2 xl:col-span-1">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</div>
+                      <div className="mt-1">
+                        <Badge className={`text-[10px] font-medium border ${getLeaveStatusInfo(reviewTarget.status).color}`}>
+                          {getLeaveStatusInfo(reviewTarget.status).label}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 p-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Leave Type</div>
+                      <div className="mt-1 text-sm font-semibold">{getLeaveTypeLabel(reviewTarget.leave_type)}</div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 p-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Leave Dates</div>
+                      <div className="mt-1 text-sm font-semibold">{formatLeaveRange(reviewTarget.start_date, reviewTarget.end_date)}</div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 p-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total Days</div>
+                      <div className="mt-1 text-sm font-semibold">{reviewTarget.total_days} day{reviewTarget.total_days > 1 ? 's' : ''}</div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 p-3 sm:col-span-2 xl:col-span-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Reason</div>
+                      <div className="mt-1 text-sm whitespace-pre-wrap break-words">{reviewTarget.reason || '—'}</div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border p-3">
+                    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Approval Trail</div>
+                    <div className="mt-2 space-y-2 text-sm">
+                      <div>
+                        <span className="font-medium">Applied:</span>{' '}
+                        <span>{format(new Date(reviewTarget.applied_at), 'dd MMM yyyy, hh:mm a')}</span>
+                      </div>
+                      {reviewTarget.wso_approved_at && (
+                        <div>
+                          <span className="font-medium">WSO Approval:</span>{' '}
+                          <span>{getWsoShiftLabel(reviewTarget.team)} on {format(new Date(reviewTarget.wso_approved_at), 'dd MMM yyyy, hh:mm a')}</span>
+                        </div>
+                      )}
+                      {reviewTarget.supervisor_approved_at && (
+                        <div>
+                          <span className="font-medium">Supervisor Approval:</span>{' '}
+                          <span>
+                            {reviewTarget.direct_supervisor_approved ? 'Direct approval' : 'Final approval'}
+                            {' '}on {format(new Date(reviewTarget.supervisor_approved_at), 'dd MMM yyyy, hh:mm a')}
+                          </span>
+                        </div>
+                      )}
+                      {reviewTarget.remarks && (
+                        <div>
+                          <span className="font-medium">Review Remarks:</span>{' '}
+                          <span className="break-words">{reviewTarget.remarks}</span>
+                        </div>
+                      )}
+                      {reviewTarget.wso_comments && (
+                        <div>
+                          <span className="font-medium">WSO Remarks:</span>{' '}
+                          <span className="break-words">{reviewTarget.wso_comments}</span>
+                        </div>
+                      )}
+                      {reviewTarget.supervisor_comments && (
+                        <div>
+                          <span className="font-medium">Supervisor Remarks:</span>{' '}
+                          <span className="break-words">{reviewTarget.supervisor_comments}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Remarks (optional)</label>
+                    <Textarea
+                      value={reviewRemarks}
+                      onChange={e => setReviewRemarks(e.target.value)}
+                      placeholder={isWSO ? 'WSO remarks...' : 'Supervisor remarks...'}
+                      rows={4}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <Button variant="outline" onClick={() => setReviewDialogOpen(false)}>Cancel</Button>
                 <Button
                   variant={reviewAction === 'approve' ? 'default' : 'destructive'}
@@ -422,32 +514,53 @@ export default function LeaveApprovals() {
         </Dialog>
 
         <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
-          <DialogContent>
+          <DialogContent className="w-[calc(100vw-1.5rem)] max-w-2xl overflow-hidden p-0 sm:w-full">
             <DialogHeader>
-              <DialogTitle>Cancel Approved Leave</DialogTitle>
-              <DialogDescription>
-                {cancelTarget && (
-                  <>
-                    <strong>{cancelTarget.employee_name}</strong> — {getLeaveTypeLabel(cancelTarget.leave_type)} ({cancelTarget.total_days} day{cancelTarget.total_days > 1 ? 's' : ''})
-                    <br />
-                    {format(new Date(cancelTarget.start_date), 'dd MMM yyyy')}
-                    {cancelTarget.start_date !== cancelTarget.end_date && ` — ${format(new Date(cancelTarget.end_date), 'dd MMM yyyy')}`}
-                  </>
-                )}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 pt-2">
-              <p className="text-sm text-muted-foreground">This will mark the approved leave request as cancelled.</p>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Remarks (optional)</label>
-                <Textarea
-                  value={cancelRemarks}
-                  onChange={e => setCancelRemarks(e.target.value)}
-                  placeholder="Reason for cancellation..."
-                  rows={3}
-                />
+              <div className="px-4 pt-4 sm:px-6 sm:pt-6">
+                <DialogTitle>Cancel Approved Leave</DialogTitle>
+                <DialogDescription className="mt-2">
+                  Review the leave details before cancelling the approved request.
+                </DialogDescription>
               </div>
-              <div className="flex gap-2 justify-end">
+            </DialogHeader>
+            <div className="max-h-[85vh] overflow-y-auto px-4 pb-4 sm:px-6 sm:pb-6">
+              {cancelTarget && (
+                <div className="space-y-4 pt-2">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border bg-muted/30 p-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Employee</div>
+                      <div className="mt-1 text-sm font-semibold break-words">{cancelTarget.employee_name}</div>
+                      <div className="mt-1 text-xs text-muted-foreground break-words">{cancelTarget.employee_id}</div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 p-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Leave Type</div>
+                      <div className="mt-1 text-sm font-semibold">{getLeaveTypeLabel(cancelTarget.leave_type)}</div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 p-3 sm:col-span-2">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Leave Dates</div>
+                      <div className="mt-1 text-sm font-semibold">{formatLeaveRange(cancelTarget.start_date, cancelTarget.end_date)}</div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 p-3 sm:col-span-2">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Reason</div>
+                      <div className="mt-1 text-sm whitespace-pre-wrap break-words">{cancelTarget.reason || '—'}</div>
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-muted-foreground">This will mark the approved leave request as cancelled.</p>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Remarks (optional)</label>
+                    <Textarea
+                      value={cancelRemarks}
+                      onChange={e => setCancelRemarks(e.target.value)}
+                      placeholder="Reason for cancellation..."
+                      rows={4}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <Button variant="outline" onClick={() => setCancelDialogOpen(false)}>Keep Approved</Button>
                 <Button variant="destructive" onClick={handleCancelApproved} disabled={cancelApprovedRequest.isPending}>
                   {cancelApprovedRequest.isPending ? 'Cancelling...' : 'Yes, Cancel Leave'}

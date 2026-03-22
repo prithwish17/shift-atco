@@ -317,6 +317,7 @@ export function useGridEmployees() {
             const { data, error } = await supabase
                 .from('profiles')
                 .select('id, full_name, designation')
+                .neq('is_hidden' as any, true)
                 .order('full_name');
             if (error) throw error;
             return (data || []) as GridEmployee[];

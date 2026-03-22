@@ -37,7 +37,8 @@ export async function syncRosterToGrid(
     // 2. Fetch all employee profiles for name→ID mapping
     const { data: profiles, error: profErr } = await supabase
         .from('profiles')
-        .select('id, full_name');
+        .select('id, full_name')
+        .neq('is_hidden' as any, true);
 
     if (profErr) throw profErr;
 

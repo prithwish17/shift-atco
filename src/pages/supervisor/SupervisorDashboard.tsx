@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useFetchSchedule } from "@/hooks/useEmployeeSchedules";
 
-import { Users, FileText, Calendar as CalendarIcon, ClipboardList, Clock, Search, Loader2, Sun, Sunrise, Moon, Briefcase } from "lucide-react";
+import { Users, FileText, Calendar as CalendarIcon, ClipboardList, Clock, Search, Loader2, Sun, Sunrise, Moon, Briefcase, AlertCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useState, useMemo, useEffect } from "react";
 import { useDutyExchanges } from "@/hooks/useDutyExchanges";
@@ -19,6 +19,7 @@ import { getLeaveTypeLabel } from "@/lib/leaveConstants";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useLeaveApiUrl, useLeaveRefresh } from "@/hooks/useLeaveData";
+import { useHideMissingEmployeesBoard, useMissingEmployees, useMissingEmployeesHidden } from "@/hooks/useEmployeeDataSync";
 import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 
 /* ── Duty-cycle constants (mirrors WSOAttendance.tsx) ── */
@@ -98,6 +99,9 @@ export default function SupervisorDashboard() {
   const fetchSchedule = useFetchSchedule();
   const { data: leaveApiUrl = "" } = useLeaveApiUrl();
   const fetchLeave = useLeaveRefresh();
+  const { data: missingEmployees = [] } = useMissingEmployees();
+  const { data: missingEmployeesHidden = false } = useMissingEmployeesHidden();
+  const hideMissingEmployeesBoard = useHideMissingEmployeesBoard();
 
   const { data: rosterResults = [] } = useQuery({
     queryKey: scheduleKeys.lookup(rosterSearch),
@@ -411,6 +415,47 @@ export default function SupervisorDashboard() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Missing Employees */}
+        {missingEmployees.length > 0 && !missingEmployeesHidden && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-amber-600" />
+                  Missing from API
+                </span>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{missingEmployees.length}</Badge>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-3 text-xs"
+                    onClick={() => hideMissingEmployeesBoard.mutate()}
+                    disabled={hideMissingEmployeesBoard.isPending}
+                  >
+                    OK
+                  </Button>
+                </div>
+              </CardTitle>
+              <CardDescription>
+                Employees in the database but not found in the latest employee data sync
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-48 overflow-y-auto space-y-2">
+                {missingEmployees.map((emp) => (
+                  <div key={emp.employee_id} className="border-b pb-2 last:border-0 text-sm">
+                    <div>
+                      <p className="font-medium">{emp.full_name}</p>
+                      <p className="text-xs text-muted-foreground">{emp.employee_id}{emp.designation ? ` · ${emp.designation}` : ""}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="bg-slate-50/50 border-slate-200 dark:bg-slate-950/20 dark:border-slate-800/30">
           <CardHeader className="p-4 sm:p-6">

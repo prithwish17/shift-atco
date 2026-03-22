@@ -13,7 +13,87 @@ export interface UserWithRole {
   photo_url: string | null;
   role: string | null;
   approved: boolean;
+  is_hidden: boolean;
   created_at: string;
+}
+
+const PROFILE_LICENSE_LABELS: Record<string, string> = {
+  rdr: "Radar",
+  app: "Approach",
+  plr: "Precision",
+  adc: "Aerodrome",
+  alpha: "Alpha",
+  occ: "Oceanic",
+};
+
+function normalizeDateString(value?: string | null) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
+function getLatestDateValue(records: Array<Record<string, string> | null | undefined>) {
+  const values = records
+    .flatMap((record) => Object.values(record || {}))
+    .filter(Boolean)
+    .map((value) => {
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    })
+    .filter((value): value is Date => value instanceof Date)
+    .sort((first, second) => second.getTime() - first.getTime());
+
+  return values[0] ? values[0].toISOString().slice(0, 10) : "";
+}
+
+function buildMergedProfileDetails(
+  existingProfileDetails: Record<string, any> | null | undefined,
+  licenses: Array<Record<string, any>>,
+  trainingRecord: Record<string, any> | null,
+  employeeDataSync: Record<string, any> | null,
+) {
+  const existing = existingProfileDetails || {};
+  const licenseLabels = licenses.map((license) => PROFILE_LICENSE_LABELS[license.license_type] || String(license.license_type || "").toUpperCase()).filter(Boolean);
+  const nearestLicenseExpiry = licenses
+    .map((license) => normalizeDateString(license.expiry_date))
+    .filter(Boolean)
+    .sort((first, second) => first.localeCompare(second))[0] || "";
+
+  const ratingQualified = Object.entries(trainingRecord?.rating_summary || {})
+    .filter(([, value]) => String(value).toLowerCase() === "yes")
+    .map(([key]) => key);
+  const ojtiQualified = Object.entries(trainingRecord?.ojti || {})
+    .filter(([, value]) => Boolean(value))
+    .map(([key]) => `${key} OJTI`);
+  const examinerQualified = Object.entries(trainingRecord?.examiner || {})
+    .filter(([, value]) => Boolean(value))
+    .map(([key]) => `${key} Examiner`);
+  const equipmentQualifications = [...ratingQualified, ...ojtiQualified, ...examinerQualified]
+    .filter((value, index, arr) => value && arr.indexOf(value) === index)
+    .join(", ");
+
+  return {
+    ...existing,
+    atc_license_number: existing.atc_license_number || trainingRecord?.license_number || "",
+    atc_license_type: existing.atc_license_type || employeeDataSync?.highest_rating || licenseLabels[0] || "",
+    atc_license_expiry: existing.atc_license_expiry || nearestLicenseExpiry,
+    issuing_authority: existing.issuing_authority || "",
+    medical_cert_class: existing.medical_cert_class || "",
+    medical_cert_validity: existing.medical_cert_validity || normalizeDateString(trainingRecord?.med_endorsed_upto),
+    unit_endorsements: existing.unit_endorsements || licenseLabels.join(", "),
+    equipment_qualifications: existing.equipment_qualifications || equipmentQualifications,
+    initial_training_institute: existing.initial_training_institute || "",
+    initial_training_year: existing.initial_training_year || "",
+    last_recurrent_training_date: existing.last_recurrent_training_date || getLatestDateValue([
+      trainingRecord?.completion_dates,
+      trainingRecord?.instructor_validity,
+      trainingRecord?.examiner_validity,
+    ]),
+    security_clearance_status: existing.security_clearance_status || "",
+    icao_english_proficiency_level: existing.icao_english_proficiency_level || trainingRecord?.elpa_level || "",
+    employee_data_sync: employeeDataSync,
+  };
 }
 
 export function useUsers() {
@@ -70,6 +150,7 @@ export function useUsers() {
           ...profile,
           role: userRole?.role || null,
           approved: userRole?.approved || false,
+          is_hidden: profile.is_hidden || false,
         } as UserWithRole;
       });
     },
@@ -193,6 +274,34 @@ export function useUsers() {
     },
   });
 
+  const toggleHideUser = useMutation({
+    mutationFn: async ({ userId, hidden }: { userId: string; hidden: boolean }) => {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ is_hidden: hidden } as any)
+        .eq("id", userId);
+
+      if (error) throw error;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["grid-employees"] });
+      toast({
+        title: variables.hidden ? "User hidden" : "User unhidden",
+        description: variables.hidden
+          ? "User will no longer appear in schedules, leaves, or other views."
+          : "User is now visible across all views.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error updating visibility",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   return {
     users,
     isLoading,
@@ -201,10 +310,12 @@ export function useUsers() {
     deleteUser: deleteUser.mutate,
     updateProfile: updateProfile.mutate,
     updateUserRole: updateUserRole.mutate,
+    toggleHideUser: toggleHideUser.mutate,
     isApproving: approveUser.isPending,
     isDeleting: deleteUser.isPending,
     isUpdating: updateProfile.isPending,
     isUpdatingRole: updateUserRole.isPending,
+    isTogglingHide: toggleHideUser.isPending,
   };
 }
 
@@ -236,7 +347,38 @@ export function useUserProfile(userId?: string) {
         .eq("user_id", id)
         .single();
 
-      return { ...data, licenses: licenses || [], role: role?.role };
+      const linkedEmployeeData = ((data as any)?.profile_details?.employee_data_sync || null) as Record<string, any> | null;
+
+      let trainingRecord: Record<string, any> | null = null;
+      if ((data as any)?.employee_id) {
+        const { data: trainingData } = await supabase
+          .from("employee_training_records" as any)
+          .select("emp_id, employee_name, license_number, ojti, examiner, completion_dates, instructor_validity, examiner_validity, elpa_level, elpa_valid_upto, elpa_endorsed_upto, med_last_date, med_endorsed_upto, med_status, med_history, rating_designation, highest_rating, rating_summary, without_ratings, rating_data, rating_synced_at")
+          .eq("emp_id", (data as any).employee_id)
+          .maybeSingle();
+        trainingRecord = (trainingData as Record<string, any> | null) || null;
+      }
+
+      const mergedProfileDetails = buildMergedProfileDetails(
+        (data as any)?.profile_details || null,
+        (licenses || []) as Array<Record<string, any>>,
+        trainingRecord,
+        linkedEmployeeData,
+      );
+
+      return {
+        ...data,
+        licenses: licenses || [],
+        role: role?.role,
+        profile_details: mergedProfileDetails,
+        employee_data_sync: linkedEmployeeData,
+        linked_training_record: trainingRecord,
+        highest_rating: trainingRecord?.highest_rating ?? linkedEmployeeData?.highest_rating ?? null,
+        rating_summary: trainingRecord?.rating_summary ?? linkedEmployeeData?.rating_summary ?? {},
+        without_ratings: trainingRecord?.without_ratings ?? linkedEmployeeData?.without_ratings ?? {},
+        rating_designation: trainingRecord?.rating_designation ?? (data as any)?.designation ?? linkedEmployeeData?.designation ?? null,
+        rating_synced_at: trainingRecord?.rating_synced_at ?? null,
+      };
     },
     enabled: !!userId || undefined,
   });

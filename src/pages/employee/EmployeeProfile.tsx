@@ -24,7 +24,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile, useUsers } from "@/hooks/useUsers";
-import { useLicenses } from "@/hooks/useLicenses";
+import { buildEmployeeLicenseHealth, getHealthStatusLabel, type LicenseWithExtras } from "@/hooks/useLicenseDashboard";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const LICENSE_LABELS: { [key: string]: string } = {
@@ -95,7 +95,6 @@ export default function EmployeeProfile() {
   const { user } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const { profile, isLoading } = useUserProfile(user?.id);
-  const { licenses } = useLicenses(user?.id);
   const { updateProfile, isUpdating } = useUsers();
 
   const [profileData, setProfileData] = useState({
@@ -158,7 +157,10 @@ export default function EmployeeProfile() {
         department: profileData.department || null,
         station: profileData.station || null,
         date_of_joining: profileData.dateOfJoining || null,
-        profile_details: details,
+        profile_details: {
+          ...((profile?.profile_details as any) || {}),
+          ...details,
+        },
       },
     });
 
@@ -171,6 +173,35 @@ export default function EmployeeProfile() {
       .map((n) => n[0])
       .join("")
       .toUpperCase();
+  };
+
+  const completionDates = Object.entries((profile?.linked_training_record?.completion_dates as Record<string, string> | undefined) || {})
+    .filter(([, value]) => Boolean(value))
+    .sort(([first], [second]) => first.localeCompare(second));
+  const trainingRecord = profile?.linked_training_record as Record<string, any> | null | undefined;
+  const licenseHealth = buildEmployeeLicenseHealth(profile, ((profile?.licenses || []) as LicenseWithExtras[]));
+  const activeRatings = licenseHealth.ratings.filter((rating) => rating.isActive);
+  const currentLicenseNumber = String(trainingRecord?.license_number || details.atc_license_number || "").trim();
+  const currentElpaLevel = String(trainingRecord?.elpa_level || details.icao_english_proficiency_level || "").trim();
+  const highestRating = String(profile?.highest_rating || trainingRecord?.highest_rating || "").trim();
+
+  const formatCourseLabel = (value: string) =>
+    value
+      .replace(/_/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+
+  const formatProfileDate = (value: string) => {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString();
+  };
+
+  const getProfileHealthBadgeClass = (status: "valid" | "warning" | "expired" | "info") => {
+    if (status === "expired") return "bg-red-600 text-xs";
+    if (status === "warning") return "bg-amber-500 text-white text-xs";
+    if (status === "valid") return "bg-green-600 text-xs";
+    return "bg-slate-500 text-white text-xs";
   };
 
   if (isLoading) {
@@ -295,6 +326,16 @@ export default function EmployeeProfile() {
                   <MapPin className="h-4 w-4 text-muted-foreground" />
                   <span className="text-muted-foreground">Station:</span>
                   <span className="font-medium">{profileData.station || "—"}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Phone className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Contact:</span>
+                  <span className="font-medium">{profileData.mobile || "—"}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Award className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Highest Rating:</span>
+                  <span className="font-medium">{highestRating || "—"}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant="outline" className="uppercase text-xs">
@@ -423,7 +464,17 @@ export default function EmployeeProfile() {
                       label="Current Station"
                       value={profileData.station}
                       onChange={(v) => setProfileData({ ...profileData, station: v })}
-                      placeholder="e.g. DEL, BOM, CCU"
+                      placeholder="e.g. VECC"
+                    />
+                    <ReadOnlyField
+                      icon={Phone}
+                      label="Contact No"
+                      value={profileData.mobile}
+                    />
+                    <ReadOnlyField
+                      icon={Award}
+                      label="Highest Rating"
+                      value={highestRating}
                     />
                     <EditableField
                       icon={Calendar}
@@ -450,6 +501,20 @@ export default function EmployeeProfile() {
                     <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                       <Award className="h-4 w-4" /> ATC License Details
                     </h3>
+                    <div className="grid grid-cols-1 gap-3 mb-4 md:grid-cols-3">
+                      <div className="rounded-lg border bg-muted/20 px-4 py-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Current License Number</p>
+                        <p className="mt-1 text-sm font-medium">{currentLicenseNumber || "—"}</p>
+                      </div>
+                      <div className="rounded-lg border bg-muted/20 px-4 py-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Highest Rating</p>
+                        <p className="mt-1 text-sm font-medium">{highestRating || "—"}</p>
+                      </div>
+                      <div className="rounded-lg border bg-muted/20 px-4 py-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Current Station</p>
+                        <p className="mt-1 text-sm font-medium">{profileData.station || "—"}</p>
+                      </div>
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <EditableField
                         label="ATC License Number"
@@ -495,51 +560,90 @@ export default function EmployeeProfile() {
 
                   <Separator />
 
-                  {/* Existing unit endorsement licenses */}
+                  {/* Backend-linked operational ratings */}
                   <div>
                     <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                      <Shield className="h-4 w-4" /> Unit Endorsement Licenses
+                      <Radio className="h-4 w-4" /> Operational Ratings
                     </h3>
                     <div className="space-y-3">
-                      {licenses && licenses.length > 0 ? (
-                        licenses.map((license) => (
-                          <Card key={license.id}>
+                      {activeRatings.length > 0 ? (
+                        activeRatings.map((rating) => (
+                          <Card key={rating.id}>
                             <CardContent className="pt-4 pb-4">
                               <div className="flex items-start justify-between">
                                 <div className="space-y-1">
                                   <div className="flex items-center gap-2">
                                     <Shield className="h-4 w-4 text-primary" />
                                     <h4 className="font-semibold text-sm">
-                                      {LICENSE_LABELS[license.license_type] || license.license_type.toUpperCase()}
+                                      {rating.label}
                                     </h4>
                                     <Badge variant="secondary" className="text-xs">
-                                      {license.license_type.toUpperCase()}
+                                      {rating.ratingKey.toUpperCase()}
                                     </Badge>
                                   </div>
                                   <div className="text-xs text-muted-foreground space-y-0.5">
-                                    {license.issue_date && (
-                                      <p>Issued: {new Date(license.issue_date).toLocaleDateString()}</p>
+                                    {rating.issueDate && (
+                                      <p>Issued: {new Date(rating.issueDate).toLocaleDateString()}</p>
                                     )}
-                                    {license.expiry_date && (
-                                      <p>Expires: {new Date(license.expiry_date).toLocaleDateString()}</p>
+                                    {rating.expiryDate && (
+                                      <p>Expires: {new Date(rating.expiryDate).toLocaleDateString()}</p>
+                                    )}
+                                    {rating.lastProficiencyDate && (
+                                      <p>Last Proficiency: {new Date(rating.lastProficiencyDate).toLocaleDateString()}</p>
                                     )}
                                   </div>
                                 </div>
-                                {(() => {
-                                  if (!license.expiry_date) return <Badge className="bg-green-600 text-xs">Valid</Badge>;
-                                  const expiry = new Date(license.expiry_date);
-                                  const now = new Date();
-                                  const daysUntil = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                                  if (daysUntil < 0) return <Badge variant="destructive" className="text-xs">Expired</Badge>;
-                                  if (daysUntil <= 30) return <Badge className="bg-amber-500 text-white text-xs">Expiring Soon</Badge>;
-                                  return <Badge className="bg-green-600 text-xs">Valid</Badge>;
-                                })()}
+                                <Badge className={getProfileHealthBadgeClass(rating.status)}>
+                                  {getHealthStatusLabel(rating)}
+                                </Badge>
                               </div>
                             </CardContent>
                           </Card>
                         ))
                       ) : (
-                        <p className="text-sm text-muted-foreground text-center py-4">No endorsement licenses found</p>
+                        <p className="text-sm text-muted-foreground text-center py-4">No operational ratings found in backend records.</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div>
+                    <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                      <Shield className="h-4 w-4" /> License Register
+                    </h3>
+                    <div className="space-y-3">
+                      {licenseHealth.licenses.length > 0 ? (
+                        licenseHealth.licenses.map((license) => (
+                          <Card key={license.id}>
+                            <CardContent className="pt-4 pb-4">
+                              <div className="flex items-start justify-between">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <Shield className="h-4 w-4 text-primary" />
+                                    <h4 className="font-semibold text-sm">{license.label}</h4>
+                                    {license.meta && (
+                                      <Badge variant="secondary" className="text-xs">{license.meta}</Badge>
+                                    )}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground space-y-0.5">
+                                    {license.issueDate && <p>Issued: {new Date(license.issueDate).toLocaleDateString()}</p>}
+                                    {license.expiryDate ? (
+                                      <p>Expires: {new Date(license.expiryDate).toLocaleDateString()}</p>
+                                    ) : (
+                                      <p>No expiry date recorded</p>
+                                    )}
+                                  </div>
+                                </div>
+                                <Badge className={getProfileHealthBadgeClass(license.status)}>
+                                  {getHealthStatusLabel(license)}
+                                </Badge>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center py-4">No license records found.</p>
                       )}
                     </div>
                   </div>
@@ -649,6 +753,30 @@ export default function EmployeeProfile() {
                       onChange={(v) => updateDetail("last_recurrent_training_date", v)}
                     />
                   </div>
+
+                  <Separator />
+
+                  <div>
+                    <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                      <FileText className="h-4 w-4" /> Course Completion Dates
+                    </h3>
+                    {completionDates.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        {completionDates.map(([course, date]) => (
+                          <div key={course} className="rounded-lg border bg-muted/20 px-4 py-3">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                              {formatCourseLabel(course)}
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-foreground">
+                              {formatProfileDate(date)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No course completion dates found in training records.</p>
+                    )}
+                  </div>
                 </TabsContent>
 
                 {/* ============ SECURITY ============ */}
@@ -721,6 +849,20 @@ export default function EmployeeProfile() {
 
                 {/* ============ LANGUAGE ============ */}
                 <TabsContent value="language" className="space-y-4 mt-2">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <div className="rounded-lg border bg-muted/20 px-4 py-3">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">ICAO ELPA Level</p>
+                      <p className="mt-1 text-sm font-medium">{currentElpaLevel ? `Level ${currentElpaLevel}` : "—"}</p>
+                    </div>
+                    <div className="rounded-lg border bg-muted/20 px-4 py-3">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">ELPA Valid Upto</p>
+                      <p className="mt-1 text-sm font-medium">{trainingRecord?.elpa_valid_upto ? formatProfileDate(String(trainingRecord.elpa_valid_upto)) : "—"}</p>
+                    </div>
+                    <div className="rounded-lg border bg-muted/20 px-4 py-3">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">ELPA Endorsed Upto</p>
+                      <p className="mt-1 text-sm font-medium">{trainingRecord?.elpa_endorsed_upto ? formatProfileDate(String(trainingRecord.elpa_endorsed_upto)) : "—"}</p>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="flex items-center gap-1 text-muted-foreground text-xs uppercase tracking-wider">

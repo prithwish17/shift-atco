@@ -1,20 +1,22 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Register all 23 scheduled sync cron jobs via pg_cron + pg_net.
+-- Register all scheduled sync cron jobs via pg_cron + pg_net.
 -- Run ONCE in Dashboard → SQL Editor after deploying the Edge Functions.
 --
--- REQUIRED: Replace <YOUR-ANON-KEY> below with your project's anon/public key.
---           Find it in: Dashboard → Settings → API → Project API keys → anon key
---           The base URL uses the existing project reference (ilkrqlxrqaelflslbdnx).
+-- Uses current_setting('app.settings.service_role_key') and
+-- current_setting('app.settings.supabase_url') which Supabase provides
+-- automatically — no manual key replacement needed.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE
-  base text := 'https://ilkrqlxrqaelflslbdnx.supabase.co/functions/v1';
-  akey text := '<YOUR-ANON-KEY>';   -- ← replace before running
+  base text := current_setting('app.settings.supabase_url', true)
+                || '/functions/v1';
+  skey text := current_setting('app.settings.service_role_key', true);
 
   jobs text[][] := ARRAY[
     -- name, cron (UTC), function, payload
-    ARRAY['sync-leave-records',    '0 */2 * * *',  'sync-leave-records',  '{"source":"google_sheets"}'],
+    ARRAY['fetch-schedule',        '30 13 * * *',   'fetch-schedule',      '{}'],
+    ARRAY['sync-leave-records',    '0 */2 * * *',   'sync-leave-records',  '{"source":"google_sheets"}'],
     ARRAY['expire-records',        '0 18   * * *',  'expire-records',      '{}'],
 
     -- Morning roster (30-min past the hour, UTC equivalents of IST times)
@@ -45,6 +47,15 @@ DECLARE
 
   j text[];
 BEGIN
+  IF base IS NULL OR base = '/functions/v1' THEN
+    RAISE WARNING 'Skipping cron setup: app.settings.supabase_url not available';
+    RETURN;
+  END IF;
+  IF skey IS NULL OR skey = '' THEN
+    RAISE WARNING 'Skipping cron setup: app.settings.service_role_key not available';
+    RETURN;
+  END IF;
+
   -- Unschedule existing jobs with the same names before re-registering
   FOREACH j SLICE 1 IN ARRAY jobs LOOP
     BEGIN
@@ -60,11 +71,14 @@ BEGIN
       format(
         $q$SELECT net.http_post(
           url     := %L,
-          headers := ('{"Authorization":"Bearer %s","Content-Type":"application/json"}')::jsonb,
-          body    := '%s'::jsonb
+          headers := jsonb_build_object(
+            'Content-Type', 'application/json',
+            'apikey',        current_setting('app.settings.service_role_key'),
+            'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
+          ),
+          body    := %L::jsonb
         );$q$,
         base || '/' || j[3],
-        akey,
         j[4]
       )
     );

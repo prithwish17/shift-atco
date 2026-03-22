@@ -39,6 +39,7 @@ export default function WSODashboard() {
       const { data: shiftProfiles, error: profilesError } = await supabase
         .from("profiles")
         .select("employee_id, current_shift")
+        .neq("is_hidden" as any, true)
         .or(`current_shift.eq.${wsoTeam.toLowerCase()},current_shift.eq.${wsoTeam.toUpperCase()}`);
       if (profilesError) throw profilesError;
 

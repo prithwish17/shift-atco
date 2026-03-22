@@ -38,6 +38,7 @@ CREATE POLICY "Service role write sync_jobs" ON public.sync_jobs
 
 -- 1.4  Seed sync_jobs — one row per logical job
 INSERT INTO public.sync_jobs (job_name, edge_function_name, cron_schedule, payload) VALUES
+  ('fetch-schedule',       'fetch-schedule',      '30 13 * * *',  '{}'),
   ('sync-leave-records',   'sync-leave-records',  '0 */2 * * *',  '{"source":"google_sheets"}'),
   ('expire-records',       'expire-records',       '0 18   * * *', '{}'),
 

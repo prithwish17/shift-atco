@@ -28,6 +28,9 @@ export default function AdminSettings() {
     const [elpaUrl, setElpaUrl] = useState("");
     const [medicalUrl, setMedicalUrl] = useState("");
     const [ratingUrl, setRatingUrl] = useState("");
+    const [elUrl, setElUrl] = useState("");
+    const [teamCodeUrl, setTeamCodeUrl] = useState("");
+    const [employeeDataUrl, setEmployeeDataUrl] = useState("");
 
     const { data: settings, isLoading } = useQuery({
         queryKey: ["app-settings"],
@@ -57,6 +60,12 @@ export default function AdminSettings() {
             if (medical) setMedicalUrl(medical.value);
             const rating = settings.find((s) => s.key === "rating_data_webapp_url");
             if (rating) setRatingUrl(rating.value);
+            const el = settings.find((s) => s.key === "el_data_webapp_url");
+            if (el) setElUrl(el.value);
+            const teamCode = settings.find((s) => s.key === "team_code_webapp_url");
+            if (teamCode) setTeamCodeUrl(teamCode.value);
+            const employeeData = settings.find((s) => s.key === "employee_data_webapp_url");
+            if (employeeData) setEmployeeDataUrl(employeeData.value);
         }
     }, [settings]);
 
@@ -160,6 +169,42 @@ export default function AdminSettings() {
             key: "rating_data_webapp_url",
             value: ratingUrl.trim(),
             label: "Rating Data Webapp URL",
+        });
+    };
+
+    const handleSaveElUrl = () => {
+        if (!elUrl.trim()) {
+            toast({ title: "Error", description: "URL cannot be empty", variant: "destructive" });
+            return;
+        }
+        updateSetting.mutate({
+            key: "el_data_webapp_url",
+            value: elUrl.trim(),
+            label: "Earned Leave Data Webapp URL",
+        });
+    };
+
+    const handleSaveTeamCodeUrl = () => {
+        if (!teamCodeUrl.trim()) {
+            toast({ title: "Error", description: "URL cannot be empty", variant: "destructive" });
+            return;
+        }
+        updateSetting.mutate({
+            key: "team_code_webapp_url",
+            value: teamCodeUrl.trim(),
+            label: "Team Code Sync Webapp URL",
+        });
+    };
+
+    const handleSaveEmployeeDataUrl = () => {
+        if (!employeeDataUrl.trim()) {
+            toast({ title: "Error", description: "URL cannot be empty", variant: "destructive" });
+            return;
+        }
+        updateSetting.mutate({
+            key: "employee_data_webapp_url",
+            value: employeeDataUrl.trim(),
+            label: "Employee Data Webapp URL",
         });
     };
 
@@ -388,6 +433,117 @@ export default function AdminSettings() {
                         </div>
                         <Button
                             onClick={handleSaveMedicalUrl}
+                            disabled={updateSetting.isPending || isLoading}
+                        >
+                            {updateSetting.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <Save className="h-4 w-4 mr-2" />
+                            )}
+                            Save URL
+                        </Button>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Earned Leave (EL) Integration</CardTitle>
+                        <CardDescription>
+                            Configure the webapp URL used to fetch earned leave (EL) records.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="el-url">Earned Leave Data Webapp URL</Label>
+                            <Input
+                                id="el-url"
+                                type="url"
+                                placeholder="https://script.google.com/macros/s/.../exec"
+                                value={elUrl}
+                                onChange={(e) => setElUrl(e.target.value)}
+                                className="font-mono text-sm"
+                                disabled={isLoading}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                The full URL of the webapp that returns employee earned leave periods as JSON
+                            </p>
+                        </div>
+                        <Button
+                            onClick={handleSaveElUrl}
+                            disabled={updateSetting.isPending || isLoading}
+                        >
+                            {updateSetting.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <Save className="h-4 w-4 mr-2" />
+                            )}
+                            Save URL
+                        </Button>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Team Code Integration</CardTitle>
+                        <CardDescription>
+                            Configure the webapp URL used to fetch team code assignments for employees.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="team-code-url">Team Code Sync Webapp URL</Label>
+                            <Input
+                                id="team-code-url"
+                                type="url"
+                                placeholder="https://script.google.com/macros/s/.../exec"
+                                value={teamCodeUrl}
+                                onChange={(e) => setTeamCodeUrl(e.target.value)}
+                                className="font-mono text-sm"
+                                disabled={isLoading}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                The full URL of the webapp that returns team code (current_shift) assignments as JSON
+                            </p>
+                        </div>
+                        <Button
+                            onClick={handleSaveTeamCodeUrl}
+                            disabled={updateSetting.isPending || isLoading}
+                        >
+                            {updateSetting.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <Save className="h-4 w-4 mr-2" />
+                            )}
+                            Save URL
+                        </Button>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Employee Data Integration</CardTitle>
+                        <CardDescription>
+                            Configure the webapp URL used to fetch employee data with ratings, designations, and contact details.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="employee-data-url">Employee Data Webapp URL</Label>
+                            <Input
+                                id="employee-data-url"
+                                type="url"
+                                placeholder="https://script.google.com/macros/s/.../exec"
+                                value={employeeDataUrl}
+                                onChange={(e) => setEmployeeDataUrl(e.target.value)}
+                                className="font-mono text-sm"
+                                disabled={isLoading}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                The full URL of the webapp that returns employee data with ratings, designations, and contact info as JSON
+                            </p>
+                        </div>
+                        <Button
+                            onClick={handleSaveEmployeeDataUrl}
                             disabled={updateSetting.isPending || isLoading}
                         >
                             {updateSetting.isPending ? (

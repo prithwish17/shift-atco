@@ -6,12 +6,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Activity, CheckCircle, Settings, FileText, AlertCircle, RefreshCw, CalendarDays, Clock, Terminal, ClipboardList, Trash2 } from "lucide-react";
+import { Users, Activity, CheckCircle, Settings, FileText, AlertCircle, RefreshCw, CalendarDays, Clock, Terminal, ClipboardList, Trash2, UserCheck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useFetchSchedule } from "@/hooks/useEmployeeSchedules";
 import { supabase } from "@/integrations/supabase/client";
 import { useLeaveRefresh, useLeaveApiUrl } from "@/hooks/useLeaveData";
 import { useFetchLeaveData } from "@/hooks/useLeaveRecords";
+import { useElApiUrl, useSyncElData } from "@/hooks/useElData";
+import { useTeamCodeApiUrl, useSyncTeamCode } from "@/hooks/useTeamCodeSync";
+import { useEmployeeDataApiUrl, useHideMissingEmployeesBoard, useMissingEmployees, useMissingEmployeesHidden, useSyncEmployeeData } from "@/hooks/useEmployeeDataSync";
 import { useUsers } from "@/hooks/useUsers";
 import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 
@@ -29,7 +32,16 @@ export default function AdminDashboard() {
   const { users, isLoading, approveUser, isApproving } = useUsers();
   const fetchSchedule = useFetchSchedule();
   const { data: leaveApiUrl } = useLeaveApiUrl(); // Removed `= ""` default as per instruction
+  const { data: elApiUrl } = useElApiUrl();
+  const { data: teamCodeApiUrl } = useTeamCodeApiUrl();
   const fetchLeaveData = useFetchLeaveData(); // Removed duplicate declaration
+  const syncElData = useSyncElData();
+  const syncTeamCode = useSyncTeamCode();
+  const { data: employeeDataApiUrl } = useEmployeeDataApiUrl();
+  const syncEmployeeData = useSyncEmployeeData();
+  const { data: missingEmployees = [] } = useMissingEmployees();
+  const { data: missingEmployeesHidden = false } = useMissingEmployeesHidden();
+  const hideMissingEmployeesBoard = useHideMissingEmployeesBoard();
   const [apiLogs, setApiLogs] = useState<LogEntry[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
   const [purging, setPurging] = useState(false);
@@ -79,46 +91,47 @@ export default function AdminDashboard() {
     setApiLogs(prev => prev.map(e => (e.id === id ? { ...e, ...updates } : e)));
   }, []);
 
+  const loadLogs = useCallback(async () => {
+    setLogsLoading(true);
+    try {
+      const { data, error } = await (supabase as any)
+        .from("api_call_logs")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(25);
+
+      if (error) {
+        console.error("Failed to load api_call_logs:", error);
+      } else if (data) {
+        const dbLogs: LogEntry[] = data.map((row: any) => ({
+          id: row.id,
+          timestamp: new Date(row.created_at).toLocaleTimeString("en-IN", {
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          }) + " " + new Date(row.created_at).toLocaleDateString("en-IN", {
+            day: "2-digit",
+            month: "short",
+          }),
+          status: row.status as "success" | "error",
+          message: `${row.method} /api/functions/${row.endpoint} — ${row.message}`,
+          durationMs: row.duration_ms,
+          triggeredBy: row.triggered_by,
+          isLocal: false,
+        }));
+        setApiLogs(dbLogs);
+      }
+    } catch (e) {
+      console.error("Failed to load logs:", e);
+    }
+    setLogsLoading(false);
+  }, []);
+
   // Load persistent logs from DB on mount
   useEffect(() => {
-    async function loadLogs() {
-      setLogsLoading(true);
-      try {
-        const { data, error } = await (supabase as any)
-          .from("api_call_logs")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(25);
-
-        if (error) {
-          console.error("Failed to load api_call_logs:", error);
-        } else if (data) {
-          const dbLogs: LogEntry[] = data.map((row: any) => ({
-            id: row.id,
-            timestamp: new Date(row.created_at).toLocaleTimeString("en-IN", {
-              hour12: false,
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-            }) + " " + new Date(row.created_at).toLocaleDateString("en-IN", {
-              day: "2-digit",
-              month: "short",
-            }),
-            status: row.status as "success" | "error",
-            message: `${row.method} /api/functions/${row.endpoint} — ${row.message}`,
-            durationMs: row.duration_ms,
-            triggeredBy: row.triggered_by,
-            isLocal: false,
-          }));
-          setApiLogs(dbLogs);
-        }
-      } catch (e) {
-        console.error("Failed to load logs:", e);
-      }
-      setLogsLoading(false);
-    }
     loadLogs();
-  }, []);
+  }, [loadLogs]);
 
   const handleFetchSchedule = useCallback(async () => {
     const now = new Date();
@@ -147,26 +160,8 @@ export default function AdminDashboard() {
       ));
       refetchScheduleHealth();
       // Refresh DB logs after a short delay (edge function writes the log async)
-      setTimeout(async () => {
-        const { data } = await (supabase as any)
-          .from("api_call_logs")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(25);
-        if (data) {
-          const dbLogs: LogEntry[] = data.map((row: any) => ({
-            id: row.id,
-            timestamp: new Date(row.created_at).toLocaleTimeString("en-IN", {
-              hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit",
-            }) + " " + new Date(row.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
-            status: row.status as "success" | "error",
-            message: `${row.method} /api/functions/${row.endpoint} — ${row.message}`,
-            durationMs: row.duration_ms,
-            triggeredBy: row.triggered_by,
-            isLocal: false,
-          }));
-          setApiLogs(dbLogs);
-        }
+      setTimeout(() => {
+        void loadLogs();
       }, 2000);
     } catch (err: any) {
       const ms = Math.round(performance.now() - start);
@@ -176,7 +171,7 @@ export default function AdminDashboard() {
           : e
       ));
     }
-  }, [fetchSchedule, refetchScheduleHealth]);
+  }, [fetchSchedule, loadLogs, refetchScheduleHealth]);
 
   const fetchLeave = useLeaveRefresh();
 
@@ -215,26 +210,8 @@ export default function AdminDashboard() {
       ));
 
       // Refresh DB logs after a short delay (edge function writes the log async)
-      setTimeout(async () => {
-        const { data } = await (supabase as any)
-          .from("api_call_logs")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(25);
-        if (data) {
-          const dbLogs: LogEntry[] = data.map((row: any) => ({
-            id: row.id,
-            timestamp: new Date(row.created_at).toLocaleTimeString("en-IN", {
-              hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit",
-            }) + " " + new Date(row.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
-            status: row.status as "success" | "error",
-            message: `${row.method} /api/functions/${row.endpoint} — ${row.message}`,
-            durationMs: row.duration_ms,
-            triggeredBy: row.triggered_by,
-            isLocal: false,
-          }));
-          setApiLogs(dbLogs);
-        }
+      setTimeout(() => {
+        void loadLogs();
       }, 2000);
     } catch (err: any) {
       const ms = Math.round(performance.now() - start);
@@ -249,7 +226,160 @@ export default function AdminDashboard() {
           : e
       ));
     }
-  }, [fetchLeave]);
+  }, [fetchLeave, loadLogs]);
+
+  const handleFetchEl = useCallback(async () => {
+    const now = new Date();
+    const ts = now.toLocaleTimeString("en-IN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const localId = `local-${Date.now()}`;
+
+    setApiLogs((prev) => [
+      {
+        id: localId,
+        timestamp: ts,
+        status: "pending" as const,
+        message: "POST /api/functions/fetch-el-data — calling…",
+        triggeredBy: "manual",
+        isLocal: true,
+      },
+      ...prev,
+    ].slice(0, 50));
+
+    const start = performance.now();
+    try {
+      const result = await syncElData.mutateAsync() as any;
+      const ms = Math.round(performance.now() - start);
+
+      setApiLogs((prev) => prev.map((e) =>
+        e.id === localId
+          ? {
+            ...e,
+            status: "success" as const,
+            message: `POST /api/functions/fetch-el-data — 200 OK (${ms}ms) employees=${result?.employees ?? "-"} details=${result?.details ?? "-"}`,
+            durationMs: ms,
+          }
+          : e
+      ));
+
+      setTimeout(() => {
+        void loadLogs();
+      }, 2000);
+    } catch (err: any) {
+      const ms = Math.round(performance.now() - start);
+      setApiLogs((prev) => prev.map((e) =>
+        e.id === localId
+          ? {
+            ...e,
+            status: "error" as const,
+            message: `POST /api/functions/fetch-el-data — ${err.message || "Failed"} (${ms}ms)`,
+            durationMs: ms,
+          }
+          : e
+      ));
+    }
+  }, [loadLogs, syncElData]);
+
+  const handleFetchTeamCode = useCallback(async () => {
+    const now = new Date();
+    const ts = now.toLocaleTimeString("en-IN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const localId = `local-${Date.now()}`;
+
+    setApiLogs((prev) => [
+      {
+        id: localId,
+        timestamp: ts,
+        status: "pending" as const,
+        message: "POST /api/functions/fetch-team-code — calling…",
+        triggeredBy: "manual",
+        isLocal: true,
+      },
+      ...prev,
+    ].slice(0, 50));
+
+    const start = performance.now();
+    try {
+      const result = await syncTeamCode.mutateAsync() as any;
+      const ms = Math.round(performance.now() - start);
+
+      setApiLogs((prev) => prev.map((e) =>
+        e.id === localId
+          ? {
+            ...e,
+            status: "success" as const,
+            message: `POST /api/functions/fetch-team-code — 200 OK (${ms}ms) total=${result?.total ?? "-"} updated=${result?.updated ?? "-"}`,
+            durationMs: ms,
+          }
+          : e
+      ));
+
+      setTimeout(() => {
+        void loadLogs();
+      }, 2000);
+    } catch (err: any) {
+      const ms = Math.round(performance.now() - start);
+      setApiLogs((prev) => prev.map((e) =>
+        e.id === localId
+          ? {
+            ...e,
+            status: "error" as const,
+            message: `POST /api/functions/fetch-team-code — ${err.message || "Failed"} (${ms}ms)`,
+            durationMs: ms,
+          }
+          : e
+      ));
+    }
+  }, [loadLogs, syncTeamCode]);
+
+  const handleFetchEmployeeData = useCallback(async () => {
+    const now = new Date();
+    const ts = now.toLocaleTimeString("en-IN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const localId = `local-${Date.now()}`;
+
+    setApiLogs((prev) => [
+      {
+        id: localId,
+        timestamp: ts,
+        status: "pending" as const,
+        message: "POST /api/functions/fetch-employee-data — calling…",
+        triggeredBy: "manual",
+        isLocal: true,
+      },
+      ...prev,
+    ].slice(0, 50));
+
+    const start = performance.now();
+    try {
+      const result = await syncEmployeeData.mutateAsync() as any;
+      const ms = Math.round(performance.now() - start);
+
+      setApiLogs((prev) => prev.map((e) =>
+        e.id === localId
+          ? {
+            ...e,
+            status: "success" as const,
+            message: `POST /api/functions/fetch-employee-data — 200 OK (${ms}ms) total=${result?.total ?? "-"} new=${result?.newEmployeesCreated ?? "-"} designation=${result?.designationUpdated ?? "-"} missing=${result?.missingEmployees ?? "-"}`,
+            durationMs: ms,
+          }
+          : e
+      ));
+
+      setTimeout(() => {
+        void loadLogs();
+      }, 2000);
+    } catch (err: any) {
+      const ms = Math.round(performance.now() - start);
+      setApiLogs((prev) => prev.map((e) =>
+        e.id === localId
+          ? {
+            ...e,
+            status: "error" as const,
+            message: `POST /api/functions/fetch-employee-data — ${err.message || "Failed"} (${ms}ms)`,
+            durationMs: ms,
+          }
+          : e
+      ));
+    }
+  }, [loadLogs, syncEmployeeData]);
 
   if (isLoading) {
     return (
@@ -401,6 +531,200 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
 
+          {/* Fetch Earned Leave Data */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardList className="h-5 w-5 text-teal-600" />
+                Fetch Earned Leave Data
+              </CardTitle>
+              <CardDescription>
+                Import earned leave (EL) records from the configured webapp URL.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This calls the <code className="bg-muted px-1 py-0.5 rounded text-xs">fetch-el-data</code> edge
+                function to sync EL leave periods.
+              </p>
+              <Button
+                onClick={handleFetchEl}
+                disabled={syncElData.isPending || !elApiUrl}
+                className="w-full"
+              >
+                {syncElData.isPending ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                    Fetching…
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Fetch EL Data Now
+                  </>
+                )}
+              </Button>
+              {syncElData.isSuccess && (
+                <p className="text-sm text-green-600 flex items-center gap-1">
+                  <CheckCircle className="h-4 w-4" /> EL data fetched successfully
+                </p>
+              )}
+              {!elApiUrl && (
+                <p className="text-xs text-amber-600">
+                  EL API URL not configured. Set <code className="bg-muted px-1 py-0.5 rounded text-xs">el_data_webapp_url</code> in Admin Settings.
+                </p>
+              )}
+              {syncElData.isError && (
+                <p className="text-sm text-red-600 flex items-center gap-1">
+                  <AlertCircle className="h-4 w-4" /> {(syncElData.error as Error)?.message || "Failed to fetch EL data"}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Fetch Team Code Data */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5 text-orange-600" />
+                Fetch Team Code Data
+              </CardTitle>
+              <CardDescription>
+                Import team code (shift group) assignments from the configured webapp URL.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This calls the <code className="bg-muted px-1 py-0.5 rounded text-xs">fetch-team-code</code> edge
+                function to update each employee's current_shift in profiles.
+              </p>
+              <Button
+                onClick={handleFetchTeamCode}
+                disabled={syncTeamCode.isPending || !teamCodeApiUrl}
+                className="w-full"
+              >
+                {syncTeamCode.isPending ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                    Fetching…
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Fetch Team Codes Now
+                  </>
+                )}
+              </Button>
+              {!teamCodeApiUrl && (
+                <p className="text-xs text-amber-600">
+                  Team Code API URL not configured. Set <code className="bg-muted px-1 py-0.5 rounded text-xs">team_code_webapp_url</code> in Admin Settings.
+                </p>
+              )}
+              {syncTeamCode.isSuccess && (
+                <p className="text-sm text-green-600 flex items-center gap-1">
+                  <CheckCircle className="h-4 w-4" /> Team codes synced successfully
+                </p>
+              )}
+              {syncTeamCode.isError && (
+                <p className="text-sm text-red-600 flex items-center gap-1">
+                  <AlertCircle className="h-4 w-4" /> {(syncTeamCode.error as Error)?.message || "Failed to fetch team codes"}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Fetch Employee Data */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserCheck className="h-5 w-5 text-indigo-600" />
+                Fetch Employee Data
+              </CardTitle>
+              <CardDescription>
+                Sync employee details, ratings, designations, and register new employees from the configured webapp.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This calls the <code className="bg-muted px-1 py-0.5 rounded text-xs">fetch-employee-data</code> edge
+                function to update designations, contacts, ratings, and auto-register new employees.
+              </p>
+              <Button
+                onClick={handleFetchEmployeeData}
+                disabled={syncEmployeeData.isPending || !employeeDataApiUrl}
+                className="w-full"
+              >
+                {syncEmployeeData.isPending ? (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                    Syncing…
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Fetch Employee Data Now
+                  </>
+                )}
+              </Button>
+              {!employeeDataApiUrl && (
+                <p className="text-xs text-amber-600">
+                  Employee Data API URL not configured. Set <code className="bg-muted px-1 py-0.5 rounded text-xs">employee_data_webapp_url</code> in Admin Settings.
+                </p>
+              )}
+              {syncEmployeeData.isSuccess && (
+                <p className="text-sm text-green-600 flex items-center gap-1">
+                  <CheckCircle className="h-4 w-4" /> Employee data synced successfully
+                </p>
+              )}
+              {syncEmployeeData.isError && (
+                <p className="text-sm text-red-600 flex items-center gap-1">
+                  <AlertCircle className="h-4 w-4" /> {(syncEmployeeData.error as Error)?.message || "Failed to sync employee data"}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Missing Employees */}
+          {missingEmployees.length > 0 && !missingEmployeesHidden && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5 text-amber-600" />
+                    Missing from API
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">{missingEmployees.length}</Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-3 text-xs"
+                      onClick={() => hideMissingEmployeesBoard.mutate()}
+                      disabled={hideMissingEmployeesBoard.isPending}
+                    >
+                      OK
+                    </Button>
+                  </div>
+                </CardTitle>
+                <CardDescription>
+                  Employees in the database but not found in the latest employee data sync
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="max-h-48 overflow-y-auto space-y-2">
+                  {missingEmployees.map((emp) => (
+                    <div key={emp.employee_id} className="border-b pb-2 last:border-0 text-sm">
+                      <div>
+                        <p className="font-medium">{emp.full_name}</p>
+                        <p className="text-xs text-muted-foreground">{emp.employee_id}{emp.designation ? ` · ${emp.designation}` : ""}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* API Call Log */}
           <Card>
             <CardHeader>
@@ -409,7 +733,7 @@ export default function AdminDashboard() {
                 API Call Log
               </CardTitle>
               <CardDescription>
-                Persistent log of schedule API calls (manual + cron)
+                Persistent log of edge function calls from manual syncs and cron jobs
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -417,7 +741,7 @@ export default function AdminDashboard() {
                 {logsLoading ? (
                   <p className="text-gray-500 text-center py-4">Loading logs…</p>
                 ) : apiLogs.length === 0 ? (
-                  <p className="text-gray-500 text-center py-4">No API calls yet. Click "Fetch Schedule Now" or wait for the 19:00 IST cron.</p>
+                  <p className="text-gray-500 text-center py-4">No API calls yet. Trigger a fetch action or wait for the scheduled sync.</p>
                 ) : (
                   apiLogs.map(log => (
                     <div key={log.id} className="flex items-start gap-2">

@@ -6,12 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Shield, Heart, MapPin, AlertTriangle, Plus, Users, GraduationCap, RefreshCw, Search, CheckCircle2, XCircle, Pencil, Save, X, Calendar, Award, Eye, Languages, Stethoscope } from 'lucide-react';
+import { Shield, Heart, AlertTriangle, Plus, GraduationCap, RefreshCw, Search, CheckCircle2, XCircle, Pencil, Save, X, Calendar, Award, Eye, Languages, Stethoscope } from 'lucide-react';
 import { format, differenceInDays, startOfDay } from 'date-fns';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -51,26 +51,6 @@ interface TrainingRecord {
     examiner_validity: Record<string, string>;
 }
 
-interface ElpaRecord {
-    emp_id: string;
-    name: string;
-    level: string | null;
-    valid_upto: string | null;
-    endorsed_upto: string | null;
-}
-
-interface MedicalSyncRecord {
-    emp_id: string;
-    name: string;
-    last_medical: string | null;
-    endorsed_upto: string | null;
-    status: string | null;
-    history: Record<string, string>;
-}
-
-
-
-// ---------- Hooks ----------
 function useAllLicenses() {
     return useQuery({
         queryKey: ['all-licenses'],
@@ -83,15 +63,30 @@ function useAllLicenses() {
             const licenses = (data || []) as unknown as LicenseRow[];
 
             const userIds = new Set<string>();
-            for (const l of licenses) { if (l.user_id) userIds.add(l.user_id); }
+            for (const license of licenses) {
+                if (license.user_id) userIds.add(license.user_id);
+            }
 
             let profileMap: Record<string, { full_name: string; employee_id: string }> = {};
             if (userIds.size > 0) {
-                const { data: profiles } = await supabase.from('profiles').select('id, full_name, employee_id').in('id', Array.from(userIds));
-                if (profiles) { for (const p of profiles) { profileMap[p.id] = { full_name: p.full_name, employee_id: p.employee_id }; } }
+                const { data: profiles } = await supabase
+                    .from('profiles')
+                    .select('id, full_name, employee_id')
+                    .in('id', Array.from(userIds));
+                if (profiles) {
+                    for (const profile of profiles) {
+                        profileMap[profile.id] = {
+                            full_name: profile.full_name,
+                            employee_id: profile.employee_id,
+                        };
+                    }
+                }
             }
 
-            return licenses.map((l) => ({ ...l, profile: profileMap[l.user_id] || undefined }));
+            return licenses.map((license) => ({
+                ...license,
+                profile: profileMap[license.user_id] || undefined,
+            }));
         },
         staleTime: 5 * 60 * 1000,
     });
@@ -206,6 +201,35 @@ function useSyncTrainingData() {
     });
 }
 
+async function invokeUpdateTrainingRecord(empId: string, updates: Record<string, unknown>) {
+    const { data, error } = await supabase.functions.invoke('update-training-record', {
+        body: { emp_id: empId, updates },
+    });
+
+    if (error) {
+        if (import.meta.env.DEV) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) throw error;
+            const base = import.meta.env.VITE_FUNCTIONS_PROXY_BASE_URL || 'https://shift-atco.vercel.app';
+            const res = await fetch(`${base}/api/functions/update-training-record`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${session.access_token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ emp_id: empId, updates }),
+            });
+            if (res.ok) return res.json();
+            const errBody = await res.json().catch(() => ({}));
+            throw new Error(errBody.error || error.message || `Edge function failed: HTTP ${res.status}`);
+        }
+        throw error;
+    }
+
+    if (data?.error) throw new Error(data.error);
+    return data;
+}
+
 function useUpdateTrainingRecord() {
     const qc = useQueryClient();
 
@@ -218,17 +242,13 @@ function useUpdateTrainingRecord() {
             ojti: Record<string, boolean>;
             examiner: Record<string, boolean>;
         }) => {
-            const { error } = await supabase
-                .from('employee_training_records' as any)
-                .update({
-                    completion_dates: record.completion_dates,
-                    instructor_validity: record.instructor_validity,
-                    examiner_validity: record.examiner_validity,
-                    ojti: record.ojti,
-                    examiner: record.examiner,
-                } as any)
-                .eq('emp_id', record.emp_id);
-            if (error) throw error;
+            await invokeUpdateTrainingRecord(record.emp_id, {
+                completion_dates: record.completion_dates,
+                instructor_validity: record.instructor_validity,
+                examiner_validity: record.examiner_validity,
+                ojti: record.ojti,
+                examiner: record.examiner,
+            });
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['training-data'] });
@@ -244,15 +264,11 @@ function useUpdateElpaRecord() {
     const qc = useQueryClient();
     return useMutation({
         mutationFn: async (record: { emp_id: string; elpa_level: string | null; elpa_valid_upto: string | null; elpa_endorsed_upto: string | null }) => {
-            const { error } = await supabase
-                .from('employee_training_records' as any)
-                .update({
-                    elpa_level: record.elpa_level,
-                    elpa_valid_upto: record.elpa_valid_upto || null,
-                    elpa_endorsed_upto: record.elpa_endorsed_upto || null,
-                } as any)
-                .eq('emp_id', record.emp_id);
-            if (error) throw error;
+            await invokeUpdateTrainingRecord(record.emp_id, {
+                elpa_level: record.elpa_level,
+                elpa_valid_upto: record.elpa_valid_upto || null,
+                elpa_endorsed_upto: record.elpa_endorsed_upto || null,
+            });
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['elpa-data'] });
@@ -266,15 +282,11 @@ function useUpdateMedicalRecord() {
     const qc = useQueryClient();
     return useMutation({
         mutationFn: async (record: { emp_id: string; med_last_date: string | null; med_endorsed_upto: string | null; med_status: string | null }) => {
-            const { error } = await supabase
-                .from('employee_training_records' as any)
-                .update({
-                    med_last_date: record.med_last_date || null,
-                    med_endorsed_upto: record.med_endorsed_upto || null,
-                    med_status: record.med_status || null,
-                } as any)
-                .eq('emp_id', record.emp_id);
-            if (error) throw error;
+            await invokeUpdateTrainingRecord(record.emp_id, {
+                med_last_date: record.med_last_date || null,
+                med_endorsed_upto: record.med_endorsed_upto || null,
+                med_status: record.med_status || null,
+            });
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['medical-sync-data'] });
@@ -524,6 +536,28 @@ function parseTrainingDate(raw: string | undefined): string | null {
     return `${year}-${month}-${day}`;
 }
 
+function getTrainingRecordSummary(record: TrainingRecord, today: Date) {
+    const ojtiPositions = Object.entries(record.ojti || {}).filter(([, value]) => value).map(([key]) => key);
+    const examinerPositions = Object.entries(record.examiner || {}).filter(([, value]) => value).map(([key]) => key);
+    const validityDates = [...Object.values(record.instructor_validity || {}), ...Object.values(record.examiner_validity || {})]
+        .map((value) => parseTrainingDate(value))
+        .filter((value): value is string => Boolean(value));
+    const expiryOffsets = validityDates.map((value) => differenceInDays(new Date(value), today));
+    const nextExpiryDays = expiryOffsets.length > 0 ? Math.min(...expiryOffsets) : Number.POSITIVE_INFINITY;
+    const hasExpired = expiryOffsets.some((days) => days < 0);
+    const hasExpiringSoon = !hasExpired && Number.isFinite(nextExpiryDays) && nextExpiryDays <= 90;
+    const hasNoQualification = ojtiPositions.length === 0 && examinerPositions.length === 0;
+
+    return {
+        ojtiPositions,
+        examinerPositions,
+        hasExpired,
+        hasExpiringSoon,
+        hasNoQualification,
+        nextExpiryDays,
+    };
+}
+
 function ValidityBadge({ dateStr, label }: { dateStr?: string; label?: string }) {
     if (!dateStr) return <span className="text-xs text-muted-foreground">-</span>;
 
@@ -574,6 +608,7 @@ export default function LicenseManagement() {
 
     const [elpaSearch, setElpaSearch] = useState('');
     const [elpaSort, setElpaSort] = useState<'name' | 'expiry-soonest' | 'expiry-latest' | 'level-high' | 'level-low'>('expiry-soonest');
+    const [elpaLevelFilter, setElpaLevelFilter] = useState<'all' | '1' | '2' | '3' | '4' | '5' | '6'>('all');
     const [medSearch, setMedSearch] = useState('');
     const [medSort, setMedSort] = useState<'name' | 'severity' | 'expiry-soonest' | 'expiry-latest'>('severity');
     const [medFilter, setMedFilter] = useState<'all' | 'endorsement-pending' | 'pending' | 'tu' | 'ca35'>('all');
@@ -634,26 +669,6 @@ export default function LicenseManagement() {
         const query = trainingSearch.trim().toLowerCase();
         const today = startOfDay(new Date());
 
-        const getRecordSummary = (record: TrainingRecord) => {
-            const ojtiPositions = Object.entries(record.ojti || {}).filter(([, value]) => value).map(([key]) => key);
-            const examinerPositions = Object.entries(record.examiner || {}).filter(([, value]) => value).map(([key]) => key);
-            const validityDates = [...Object.values(record.instructor_validity || {}), ...Object.values(record.examiner_validity || {})]
-                .map((value) => parseTrainingDate(value))
-                .filter((value): value is string => Boolean(value));
-            const expiryOffsets = validityDates.map((value) => differenceInDays(new Date(value), today));
-            const nextExpiryDays = expiryOffsets.length > 0 ? Math.min(...expiryOffsets) : Number.POSITIVE_INFINITY;
-            const hasExpired = expiryOffsets.some((days) => days < 0);
-            const hasNoQualification = ojtiPositions.length === 0 && examinerPositions.length === 0;
-
-            return {
-                ojtiPositions,
-                examinerPositions,
-                hasExpired,
-                hasNoQualification,
-                nextExpiryDays,
-            };
-        };
-
         return [...trainingData]
             .filter((record) => {
                 if (query && !(
@@ -664,7 +679,7 @@ export default function LicenseManagement() {
                     return false;
                 }
 
-                const summary = getRecordSummary(record);
+                const summary = getTrainingRecordSummary(record, today);
 
                 switch (trainingFilter) {
                     case 'has-ojti':
@@ -680,8 +695,8 @@ export default function LicenseManagement() {
                 }
             })
             .sort((left, right) => {
-                const leftSummary = getRecordSummary(left);
-                const rightSummary = getRecordSummary(right);
+                const leftSummary = getTrainingRecordSummary(left, today);
+                const rightSummary = getTrainingRecordSummary(right, today);
 
                 if (trainingSort === 'expiry-soonest') {
                     if (leftSummary.nextExpiryDays !== rightSummary.nextExpiryDays) {
@@ -699,233 +714,84 @@ export default function LicenseManagement() {
             });
     }, [trainingData, trainingSearch, trainingFilter, trainingSort]);
 
-    // Expiry heatmap
-    const expiryStats = useMemo(() => {
+    const trainingSummaryCards = useMemo(() => {
         const today = startOfDay(new Date());
-        const all = [
-            ...licenses.map((l) => ({ type: 'rating', expiry: l.expiry_date, name: l.profile?.full_name })),
-            ...endorsements.map((e) => ({ type: 'endorsement', expiry: e.expiry_date, name: e.profile?.full_name })),
-        ];
-        const expired = all.filter((i) => i.expiry && new Date(i.expiry) < today);
-        const in30 = all.filter((i) => {
-            if (!i.expiry) return false;
-            const d = differenceInDays(new Date(i.expiry), today);
-            return d >= 0 && d <= 30;
-        });
-        const in90 = all.filter((i) => {
-            if (!i.expiry) return false;
-            const d = differenceInDays(new Date(i.expiry), today);
-            return d > 30 && d <= 90;
-        });
-        return { expired, in30, in90, total: all.length };
-    }, [licenses, endorsements]);
+        const summaries = trainingData.map((record) => getTrainingRecordSummary(record, today));
 
-
-
-    // Endorsement form
-    const [endDialogOpen, setEndDialogOpen] = useState(false);
-    const [endForm, setEndForm] = useState({ employee_id: '', airport: 'VECC', position: '', issue_date: '', expiry_date: '' });
-
-    // Profiles for dropdowns
-    const { data: profiles = [] } = useQuery({
-        queryKey: ['profiles-list'],
-        queryFn: async () => {
-            const { data } = await supabase.from('profiles').select('id, full_name, employee_id').order('full_name');
-            return (data || []) as { id: string; full_name: string; employee_id: string }[];
-        },
-        staleTime: 10 * 60 * 1000,
-    });
-
-    // Mutations
-
-
-    const addEndorsement = useMutation({
-        mutationFn: async (form: typeof endForm) => {
-            const { error } = await supabase.from('unit_endorsements' as any)
-                .upsert({
-                    employee_id: form.employee_id,
-                    airport: form.airport,
-                    position: form.position,
-                    issue_date: form.issue_date || null,
-                    expiry_date: form.expiry_date || null,
-                    status: 'valid',
-                } as any, { onConflict: 'employee_id,airport,position' });
-            if (error) throw error;
-        },
-        onSuccess: () => {
-            qc.invalidateQueries({ queryKey: ['all-endorsements'] });
-            toast.success('Endorsement saved');
-            setEndDialogOpen(false);
-        },
-        onError: (e: any) => toast.error(e.message),
-    });
+        return {
+            expired: summaries.filter((summary) => summary.hasExpired).length,
+            expiringSoon: summaries.filter((summary) => summary.hasExpiringSoon).length,
+            withOjti: summaries.filter((summary) => summary.ojtiPositions.length > 0).length,
+            withExaminer: summaries.filter((summary) => summary.examinerPositions.length > 0).length,
+        };
+    }, [trainingData]);
 
     return (
         <DashboardLayout role="supervisor">
             <div className="space-y-5">
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-                        <Shield className="h-6 w-6 text-indigo-600" />
-                        License Management
-                    </h1>
-                    <p className="text-muted-foreground text-sm">Ratings, medical certificates, unit endorsements and training data</p>
-                </div>
+                <Tabs defaultValue="training" className="w-full">
+                    <div className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-indigo-50/70 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.45)]">
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(99,102,241,0.16),_transparent_32%),radial-gradient(circle_at_bottom_left,_rgba(14,165,233,0.12),_transparent_28%)]" />
+                        <div className="absolute right-0 top-0 h-40 w-40 translate-x-10 -translate-y-10 rounded-full bg-indigo-200/30 blur-3xl" />
+                        <div className="absolute bottom-0 left-0 h-32 w-32 -translate-x-8 translate-y-8 rounded-full bg-sky-200/40 blur-3xl" />
 
-                {/* Expiry Heatmap */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <Card className="border-0 bg-gradient-to-br from-slate-700 to-slate-900 text-white">
-                        <CardContent className="flex items-center justify-between py-3">
-                            <div className="flex items-center gap-2 text-sm font-medium uppercase tracking-wide text-white/75">
-                                <Users className="h-4 w-4 opacity-70" />
-                                <span>Total Records</span>
+                        <div className="relative space-y-6 p-5 md:p-7">
+                            <div className="max-w-2xl space-y-3">
+                                    <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-indigo-700 shadow-sm backdrop-blur">
+                                        <Shield className="h-3.5 w-3.5" />
+                                        Supervisor Console
+                                    </div>
+                                    <div className="space-y-2">
+                                        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">License Management</h1>
+                                        <p className="max-w-xl text-sm leading-6 text-slate-600 md:text-[15px]">
+                                            Manage training credentials, ELPA validity, and medical readiness from a single operational dashboard.
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm">
+                                            {trainingData.length} training records
+                                        </Badge>
+                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm">
+                                            {elpaData.length} ELPA records
+                                        </Badge>
+                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm">
+                                            {medSyncData.length} medical records
+                                        </Badge>
+                                    </div>
                             </div>
-                            <div className="text-2xl font-bold">{expiryStats.total}</div>
-                        </CardContent>
-                    </Card>
-                    <Card className="border-red-900 bg-red-900/95">
-                        <CardContent className="flex items-center justify-between py-3">
-                            <div className="text-sm font-medium uppercase tracking-wide text-red-100">Expired</div>
-                            <div className="text-2xl font-bold text-white">{expiryStats.expired.length}</div>
-                        </CardContent>
-                    </Card>
-                    <Card className="border-rose-200 bg-rose-50">
-                        <CardContent className="flex items-center justify-between py-3">
-                            <div className="text-sm font-medium uppercase tracking-wide text-rose-500">Expiring ≤ 30 days</div>
-                            <div className="text-2xl font-bold text-rose-600">{expiryStats.in30.length}</div>
-                        </CardContent>
-                    </Card>
-                    <Card className="border-yellow-200 bg-yellow-50">
-                        <CardContent className="flex items-center justify-between py-3">
-                            <div className="text-sm font-medium uppercase tracking-wide text-yellow-600">Expiring ≤ 90 days</div>
-                            <div className="text-2xl font-bold text-yellow-700">{expiryStats.in90.length}</div>
-                        </CardContent>
-                    </Card>
-                </div>
 
-                {/* Tabs */}
-                <Tabs defaultValue="endorsements" className="w-full">
-                    <TabsList className="flex h-auto flex-wrap">
-                        <TabsTrigger value="endorsements">
-                            <MapPin className="h-3.5 w-3.5 mr-1" /> Endorsements ({endorsements.length})
-                        </TabsTrigger>
-                        <TabsTrigger value="training">
-                            <GraduationCap className="h-3.5 w-3.5 mr-1" /> Training ({trainingData.length})
-                        </TabsTrigger>
-                        <TabsTrigger value="elpa">
-                            <Languages className="h-3.5 w-3.5 mr-1" /> ELPA ({elpaData.length})
-                        </TabsTrigger>
-                        <TabsTrigger value="medical">
-                            <Stethoscope className="h-3.5 w-3.5 mr-1" /> Medical ({medSyncData.length})
-                        </TabsTrigger>
-                    </TabsList>
-
-                    {/* Endorsements Tab */}
-                    <TabsContent value="endorsements">
-                        <Card>
-                            <CardHeader className="py-2 px-4 flex flex-row items-center justify-between">
-                                <CardTitle className="text-sm font-semibold">Unit Endorsements</CardTitle>
-                                <Dialog open={endDialogOpen} onOpenChange={setEndDialogOpen}>
-                                    <DialogTrigger asChild>
-                                        <Button size="sm" onClick={() => setEndForm({ employee_id: '', airport: 'VECC', position: '', issue_date: '', expiry_date: '' })}>
-                                            <Plus className="h-3.5 w-3.5 mr-1" /> Add Endorsement
-                                        </Button>
-                                    </DialogTrigger>
-                                    <DialogContent>
-                                        <DialogHeader><DialogTitle>Add / Update Unit Endorsement</DialogTitle></DialogHeader>
-                                        <form onSubmit={(e) => { e.preventDefault(); addEndorsement.mutate(endForm); }} className="space-y-3">
-                                            <div className="space-y-1">
-                                                <Label>Employee</Label>
-                                                <Select value={endForm.employee_id} onValueChange={(v) => setEndForm({ ...endForm, employee_id: v })}>
-                                                    <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-                                                    <SelectContent>
-                                                        {profiles.map((p) => <SelectItem key={p.id} value={p.id}>{p.full_name} ({p.employee_id})</SelectItem>)}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div className="space-y-1">
-                                                    <Label>Airport (ICAO)</Label>
-                                                    <Input value={endForm.airport} onChange={(e) => setEndForm({ ...endForm, airport: e.target.value.toUpperCase() })} placeholder="VECC" />
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <Label>Position</Label>
-                                                    <Select value={endForm.position} onValueChange={(v) => setEndForm({ ...endForm, position: v })}>
-                                                        <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="TWR">TWR</SelectItem>
-                                                            <SelectItem value="APP">APP</SelectItem>
-                                                            <SelectItem value="ACC">ACC</SelectItem>
-                                                            <SelectItem value="SMC">SMC</SelectItem>
-                                                            <SelectItem value="GND">GND</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div className="space-y-1">
-                                                    <Label>Issue Date</Label>
-                                                    <Input type="date" value={endForm.issue_date} onChange={(e) => setEndForm({ ...endForm, issue_date: e.target.value })} />
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <Label>Expiry Date</Label>
-                                                    <Input type="date" value={endForm.expiry_date} onChange={(e) => setEndForm({ ...endForm, expiry_date: e.target.value })} />
-                                                </div>
-                                            </div>
-                                            <Button type="submit" className="w-full" disabled={addEndorsement.isPending || !endForm.employee_id || !endForm.position}>
-                                                {addEndorsement.isPending ? 'Saving...' : 'Save'}
-                                            </Button>
-                                        </form>
-                                    </DialogContent>
-                                </Dialog>
-                            </CardHeader>
-                            <CardContent className="p-0">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                        <thead>
-                                            <tr className="border-b bg-muted/50">
-                                                <th className="px-4 py-2 text-left font-medium">Employee</th>
-                                                <th className="px-4 py-2 text-left font-medium">Airport</th>
-                                                <th className="px-4 py-2 text-left font-medium">Position</th>
-                                                <th className="px-4 py-2 text-left font-medium">Issued</th>
-                                                <th className="px-4 py-2 text-left font-medium">Expires</th>
-                                                <th className="px-4 py-2 text-center font-medium">Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {endorsements.map((e) => (
-                                                <tr key={e.id} className="border-b hover:bg-muted/30">
-                                                    <td className="px-4 py-2.5">
-                                                        <div className="font-medium">{e.profile?.full_name || '—'}</div>
-                                                        <div className="text-xs text-muted-foreground">{e.profile?.employee_id}</div>
-                                                    </td>
-                                                    <td className="px-4 py-2.5">{e.airport}</td>
-                                                    <td className="px-4 py-2.5">{e.position}</td>
-                                                    <td className="px-4 py-2.5 text-muted-foreground">
-                                                        {e.issue_date ? format(new Date(e.issue_date), 'd MMM yyyy') : '—'}
-                                                    </td>
-                                                    <td className="px-4 py-2.5 text-muted-foreground">
-                                                        {e.expiry_date ? format(new Date(e.expiry_date), 'd MMM yyyy') : '—'}
-                                                    </td>
-                                                    <td className="px-4 py-2.5 text-center">{getExpiryBadge(e.expiry_date)}</td>
-                                                </tr>
-                                            ))}
-                                            {endorsements.length === 0 && (
-                                                <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">No endorsements</td></tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
+                            <div className="rounded-2xl border border-white/80 bg-white/80 p-1.5 shadow-sm backdrop-blur">
+                                <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-transparent p-0">
+                                    <TabsTrigger
+                                        value="training"
+                                        className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
+                                    >
+                                        <GraduationCap className="mr-1.5 h-3.5 w-3.5" /> Training ({trainingData.length})
+                                    </TabsTrigger>
+                                    <TabsTrigger
+                                        value="elpa"
+                                        className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
+                                    >
+                                        <Languages className="mr-1.5 h-3.5 w-3.5" /> ELPA ({elpaData.length})
+                                    </TabsTrigger>
+                                    <TabsTrigger
+                                        value="medical"
+                                        className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
+                                    >
+                                        <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Medical ({medSyncData.length})
+                                    </TabsTrigger>
+                                </TabsList>
+                            </div>
+                        </div>
+                    </div>
 
                     <TabsContent value="training">
                         <Card>
                             <CardHeader className="space-y-2.5 px-3 py-3 md:space-y-3 md:px-4">
                                 <CardTitle className="text-xs font-semibold md:text-base">OJTI & Examiner Training Records</CardTitle>
 
-                                <div className="flex flex-col gap-2 md:flex-row md:items-center">
-                                    <div className="relative flex-1">
+                                <div className="flex items-center gap-2 md:flex-row md:items-center">
+                                    <div className="relative min-w-0 flex-1">
                                         <Search className="absolute left-2.5 top-2 h-3 w-3 text-muted-foreground md:top-3 md:h-3.5 md:w-3.5" />
                                         <Input
                                             value={trainingSearch}
@@ -945,14 +811,14 @@ export default function LicenseManagement() {
                                             </Button>
                                         )}
                                     </div>
-                                    <Button size="sm" className="h-8 text-xs md:h-10 md:px-4 md:text-[15px]" onClick={() => syncTrainingData.mutate()} disabled={syncTrainingData.isPending}>
+                                    <Button size="sm" className="h-7 shrink-0 whitespace-nowrap px-3 text-xs md:h-10 md:px-4 md:text-[15px]" onClick={() => syncTrainingData.mutate()} disabled={syncTrainingData.isPending}>
                                         <RefreshCw className={`mr-1 h-3.5 w-3.5 ${syncTrainingData.isPending ? 'animate-spin' : ''}`} />
                                         {syncTrainingData.isPending ? 'Syncing...' : 'Fetch & Save'}
                                     </Button>
                                 </div>
 
-                                <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-end">
-                                    <div className="space-y-1 md:w-[190px]">
+                                <div className="grid grid-cols-3 gap-2 md:flex md:items-end md:justify-end">
+                                    <div className="min-w-0 space-y-1 md:w-[190px]">
                                         <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-[11px]">Filter</Label>
                                         <Select value={trainingFilter} onValueChange={(value) => setTrainingFilter(value as typeof trainingFilter)}>
                                             <SelectTrigger className="h-7 w-full text-xs md:h-9 md:text-[15px]">
@@ -967,7 +833,7 @@ export default function LicenseManagement() {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    <div className="space-y-1 md:w-[205px]">
+                                    <div className="min-w-0 space-y-1 md:w-[205px]">
                                         <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-[11px]">Sort</Label>
                                         <Select value={trainingSort} onValueChange={(value) => setTrainingSort(value as typeof trainingSort)}>
                                             <SelectTrigger className="h-7 w-full text-xs md:h-9 md:text-[15px]">
@@ -980,7 +846,7 @@ export default function LicenseManagement() {
                                             </SelectContent>
                                         </Select>
                                     </div>
-                                    <div className="space-y-1">
+                                    <div className="min-w-0 space-y-1">
                                         <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-[11px]">Actions</Label>
                                         <Button size="sm" variant="outline" className="h-8 w-full text-xs md:h-9 md:px-4 md:text-[15px]" onClick={() => refetchTraining()} disabled={trainingLoading}>
                                             <RefreshCw className={`mr-1 h-3.5 w-3.5 ${trainingLoading ? 'animate-spin' : ''}`} />
@@ -990,6 +856,39 @@ export default function LicenseManagement() {
                                 </div>
                             </CardHeader>
                             <CardContent className="p-3 md:p-5">
+                                <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-5 md:mb-5">
+                                    <Card className="border-0 bg-gradient-to-br from-slate-700 to-slate-900 text-white">
+                                        <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                            <span className="text-[9px] md:text-xs font-medium uppercase tracking-wide text-white/75">Total</span>
+                                            <span className="text-base md:text-xl font-bold">{trainingData.length}</span>
+                                        </CardContent>
+                                    </Card>
+                                    <Card className={trainingSummaryCards.expired > 0 ? 'border-red-900 bg-red-900/95' : 'border-muted'}>
+                                        <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                            <span className={`text-[9px] md:text-xs font-medium uppercase tracking-wide ${trainingSummaryCards.expired > 0 ? 'text-red-100' : 'text-muted-foreground'}`}>Expired</span>
+                                            <span className={`text-base md:text-xl font-bold ${trainingSummaryCards.expired > 0 ? 'text-white' : ''}`}>{trainingSummaryCards.expired}</span>
+                                        </CardContent>
+                                    </Card>
+                                    <Card className={trainingSummaryCards.expiringSoon > 0 ? 'border-amber-200 bg-amber-50' : 'border-muted'}>
+                                        <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                            <span className={`text-[9px] md:text-xs font-medium uppercase tracking-wide ${trainingSummaryCards.expiringSoon > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>≤ 90 days</span>
+                                            <span className={`text-base md:text-xl font-bold ${trainingSummaryCards.expiringSoon > 0 ? 'text-amber-700' : ''}`}>{trainingSummaryCards.expiringSoon}</span>
+                                        </CardContent>
+                                    </Card>
+                                    <Card className={trainingSummaryCards.withOjti > 0 ? 'border-indigo-200 bg-indigo-50' : 'border-muted'}>
+                                        <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                            <span className={`text-[9px] md:text-xs font-medium uppercase tracking-wide ${trainingSummaryCards.withOjti > 0 ? 'text-indigo-600' : 'text-muted-foreground'}`}>Has OJTI</span>
+                                            <span className={`text-base md:text-xl font-bold ${trainingSummaryCards.withOjti > 0 ? 'text-indigo-700' : ''}`}>{trainingSummaryCards.withOjti}</span>
+                                        </CardContent>
+                                    </Card>
+                                    <Card className={trainingSummaryCards.withExaminer > 0 ? 'border-violet-200 bg-violet-50' : 'border-muted'}>
+                                        <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                            <span className={`text-[9px] md:text-xs font-medium uppercase tracking-wide ${trainingSummaryCards.withExaminer > 0 ? 'text-violet-600' : 'text-muted-foreground'}`}>Has Examiner</span>
+                                            <span className={`text-base md:text-xl font-bold ${trainingSummaryCards.withExaminer > 0 ? 'text-violet-700' : ''}`}>{trainingSummaryCards.withExaminer}</span>
+                                        </CardContent>
+                                    </Card>
+                                </div>
+
                                 {trainingError ? (
                                     <div className="py-10 text-center text-sm text-red-600">
                                         <AlertTriangle className="mx-auto mb-2 h-5 w-5" />
@@ -1143,7 +1042,7 @@ export default function LicenseManagement() {
                                                             <>
                                                                 <Separator />
                                                                 <div>
-                                                                    <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground md:text-xs">Date of Completion</span>
+                                                                    <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground md:text-xs">Date of Completion of Course</span>
                                                                     <div className="flex flex-wrap gap-1 mt-1">
                                                                         {Object.entries(record.completion_dates).map(([key, val]) => {
                                                                             const parsed = parseTrainingDate(val);
@@ -1168,7 +1067,7 @@ export default function LicenseManagement() {
 
                         {/* View Details Dialog */}
                         <Dialog open={!!viewingRecord} onOpenChange={(open) => { if (!open) setViewingRecord(null); }}>
-                            <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
+                            <DialogContent className="w-[calc(100vw-1.5rem)] max-w-lg max-h-[85vh] overflow-hidden flex flex-col sm:w-full">
                                 <DialogHeader>
                                     <DialogTitle className="flex items-center gap-2">
                                         <GraduationCap className="h-5 w-5 text-indigo-600" />
@@ -1179,7 +1078,7 @@ export default function LicenseManagement() {
                                     </DialogDescription>
                                 </DialogHeader>
                                 {viewingRecord && (
-                                    <ScrollArea className="flex-1 -mx-6 px-6">
+                                    <ScrollArea className="flex-1 -mx-4 px-4 sm:-mx-6 sm:px-6">
                                         <div className="space-y-5 pb-4">
                                             {/* OJTI Qualifications */}
                                             <div>
@@ -1215,13 +1114,13 @@ export default function LicenseManagement() {
 
                                             <Separator />
 
-                                            {/* Completion Dates */}
+                                            {/* Date of Completion of Course */}
                                             <div>
                                                 <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
-                                                    <Calendar className="h-3.5 w-3.5" /> Completion Dates
+                                                    <Calendar className="h-3.5 w-3.5" /> Date of Completion of Course
                                                 </h4>
                                                 {Object.keys(viewingRecord.completion_dates || {}).length > 0 ? (
-                                                    <div className="grid grid-cols-2 gap-2">
+                                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                                         {Object.entries(viewingRecord.completion_dates).map(([key, val]) => {
                                                             const parsed = parseTrainingDate(val);
                                                             return (
@@ -1276,7 +1175,7 @@ export default function LicenseManagement() {
 
                         {/* Edit Dialog */}
                         <Dialog open={!!editingRecord} onOpenChange={(open) => { if (!open) { setEditingRecord(null); setEditForm(null); } }}>
-                            <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+                            <DialogContent className="w-[calc(100vw-1.5rem)] max-w-2xl max-h-[85vh] overflow-hidden flex flex-col sm:w-full">
                                 <DialogHeader>
                                     <DialogTitle className="flex items-center gap-2">
                                         <Pencil className="h-4 w-4 text-indigo-600" />
@@ -1287,7 +1186,7 @@ export default function LicenseManagement() {
                                     </DialogDescription>
                                 </DialogHeader>
                                 {editForm && editingRecord && (
-                                    <ScrollArea className="flex-1 -mx-6 px-6">
+                                    <ScrollArea className="flex-1 -mx-4 px-4 sm:-mx-6 sm:px-6">
                                         <div className="space-y-6 pb-4">
                                             {/* OJTI Toggles */}
                                             <div>
@@ -1329,12 +1228,12 @@ export default function LicenseManagement() {
 
                                             <Separator />
 
-                                            {/* Completion Dates */}
+                                            {/* Date of Completion of Course */}
                                             <div>
                                                 <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
-                                                    <Calendar className="h-3.5 w-3.5" /> Completion Dates
+                                                    <Calendar className="h-3.5 w-3.5" /> Date of Completion of Course
                                                 </h4>
-                                                <div className="grid grid-cols-2 gap-3">
+                                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                                     {Object.entries(editForm.completion_dates).map(([key, val]) => {
                                                         const parsed = parseTrainingDate(val);
                                                         return (
@@ -1394,7 +1293,7 @@ export default function LicenseManagement() {
                                                 <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
                                                     <Shield className="h-3.5 w-3.5" /> Instructor Validity
                                                 </h4>
-                                                <div className="grid grid-cols-2 gap-3">
+                                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                                     {Object.entries(editForm.instructor_validity).map(([key, val]) => {
                                                         const parsed = parseTrainingDate(val);
                                                         return (
@@ -1472,7 +1371,7 @@ export default function LicenseManagement() {
                                                 <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
                                                     <Shield className="h-3.5 w-3.5" /> Examiner Validity
                                                 </h4>
-                                                <div className="grid grid-cols-2 gap-3">
+                                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                                                     {Object.entries(editForm.examiner_validity).map(([key, val]) => {
                                                         const parsed = parseTrainingDate(val);
                                                         return (
@@ -1547,7 +1446,7 @@ export default function LicenseManagement() {
                                         </div>
                                     </ScrollArea>
                                 )}
-                                <div className="flex justify-end gap-2 pt-2 border-t">
+                                <div className="flex flex-col-reverse justify-end gap-2 border-t pt-2 sm:flex-row">
                                     <Button variant="outline" onClick={() => { setEditingRecord(null); setEditForm(null); setNewInstructorValidityKey(''); setNewInstructorValidityDate(''); setNewExaminerValidityKey(''); setNewExaminerValidityDate(''); }}>Cancel</Button>
                                     <Button onClick={handleSaveEdit} disabled={updateTrainingRecord.isPending}>
                                         <Save className="mr-1 h-3.5 w-3.5" />
@@ -1573,6 +1472,10 @@ export default function LicenseManagement() {
                                     if (!elpaSearch.trim()) return true;
                                     const q = elpaSearch.trim().toLowerCase();
                                     return r.name.toLowerCase().includes(q) || r.emp_id.toLowerCase().includes(q) || (r.level || '').toLowerCase().includes(q);
+                                })
+                                .filter((r) => {
+                                    if (elpaLevelFilter === 'all') return true;
+                                    return String(r.level || '') === elpaLevelFilter;
                                 })
                                 .sort((a, b) => {
                                     if (elpaSort === 'expiry-soonest') return getElpaDays(a) - getElpaDays(b);
@@ -1603,36 +1506,56 @@ export default function LicenseManagement() {
                                                 <Languages className="h-4 w-4 text-indigo-600" /> ELPA Data
                                             </h3>
                                         </div>
-                                        <div className="flex flex-col md:flex-row gap-2 items-stretch md:items-center">
-                                            <div className="relative flex-1 max-w-xs">
-                                                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                                        <div className="flex items-center gap-2 md:flex-row md:items-center">
+                                            <div className="relative min-w-0 flex-1">
+                                                <Search className="absolute left-2.5 top-2 h-3 w-3 text-muted-foreground md:top-3 md:h-3.5 md:w-3.5" />
                                                 <Input
-                                                    placeholder="Search name or ID..."
+                                                    placeholder="Search name, ID or level"
                                                     value={elpaSearch}
                                                     onChange={(e) => setElpaSearch(e.target.value)}
-                                                    className="pl-7 h-7 md:h-8 text-xs md:text-sm"
+                                                    className="h-7 w-full pl-7 pr-8 text-xs md:h-10 md:pl-8 md:text-[15px]"
                                                 />
                                                 {elpaSearch && (
-                                                    <Button variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5" onClick={() => setElpaSearch('')}>
-                                                        <X className="h-3 w-3" />
+                                                    <Button
+                                                        type="button"
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        className="absolute right-1 top-0.5 h-6 w-6 text-muted-foreground hover:text-foreground md:top-1.5 md:h-7 md:w-7"
+                                                        onClick={() => setElpaSearch('')}
+                                                    >
+                                                        <X className="h-3 w-3 md:h-3.5 md:w-3.5" />
                                                     </Button>
                                                 )}
                                             </div>
                                             <Button
                                                 size="sm"
-                                                className="h-7 md:h-8 text-xs md:text-sm gap-1"
+                                                className="h-7 shrink-0 whitespace-nowrap px-3 text-xs md:h-10 md:px-4 md:text-[15px]"
                                                 onClick={() => syncElpaData.mutate()}
                                                 disabled={syncElpaData.isPending}
                                             >
-                                                <RefreshCw className={`h-3 w-3 ${syncElpaData.isPending ? 'animate-spin' : ''}`} />
+                                                <RefreshCw className={`mr-1 h-3.5 w-3.5 ${syncElpaData.isPending ? 'animate-spin' : ''}`} />
                                                 {syncElpaData.isPending ? 'Syncing...' : 'Fetch & Save'}
                                             </Button>
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex items-center gap-1">
-                                                <Label className="text-[10px] md:text-xs text-muted-foreground w-8 md:w-10">Sort</Label>
+                                        <div className="grid grid-cols-2 gap-2 md:flex md:items-end md:justify-end">
+                                            <div className="min-w-0 space-y-1 md:w-[180px]">
+                                                <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-[11px]">Filter</Label>
+                                                <Select value={elpaLevelFilter} onValueChange={(v) => setElpaLevelFilter(v as typeof elpaLevelFilter)}>
+                                                    <SelectTrigger className="h-7 w-full text-xs md:h-9 md:text-[15px]">
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="all">All ELPA levels</SelectItem>
+                                                        {['1', '2', '3', '4', '5', '6'].map((level) => (
+                                                            <SelectItem key={level} value={level}>Level {level}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="min-w-0 space-y-1 md:w-[205px]">
+                                                <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-[11px]">Sort</Label>
                                                 <Select value={elpaSort} onValueChange={(v) => setElpaSort(v as typeof elpaSort)}>
-                                                    <SelectTrigger className="h-6 md:h-7 text-[10px] md:text-xs w-[130px] md:w-[150px]">
+                                                    <SelectTrigger className="h-7 w-full text-xs md:h-9 md:text-[15px]">
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
@@ -1644,30 +1567,34 @@ export default function LicenseManagement() {
                                                     </SelectContent>
                                                 </Select>
                                             </div>
-                                            <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7" onClick={() => refetchElpa()}>
-                                                <RefreshCw className="h-3 w-3" />
-                                            </Button>
+                                            <div className="min-w-0 space-y-1 md:w-[160px]">
+                                                <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-[11px]">Actions</Label>
+                                                <Button size="sm" variant="outline" className="h-8 w-full text-xs md:h-9 md:px-4 md:text-[15px]" onClick={() => refetchElpa()} disabled={elpaLoading}>
+                                                    <RefreshCw className={`mr-1 h-3.5 w-3.5 ${elpaLoading ? 'animate-spin' : ''}`} />
+                                                    Reload
+                                                </Button>
+                                            </div>
                                         </div>
                                     </div>
 
                                     {/* ELPA Summary Cards */}
                                     <div className="grid grid-cols-3 gap-2">
                                         <Card className="border-0 bg-gradient-to-br from-slate-700 to-slate-900 text-white">
-                                            <CardContent className="flex items-center justify-between py-2 px-3">
-                                                <span className="text-[10px] md:text-xs font-medium uppercase tracking-wide text-white/75">Total</span>
-                                                <span className="text-lg md:text-xl font-bold">{elpaData.length}</span>
+                                            <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                                <span className="text-[9px] md:text-xs font-medium uppercase tracking-wide text-white/75">Total</span>
+                                                <span className="text-base md:text-xl font-bold">{elpaData.length}</span>
                                             </CardContent>
                                         </Card>
                                         <Card className={elpaExpired > 0 ? 'border-red-900 bg-red-900/95' : 'border-muted'}>
-                                            <CardContent className="flex items-center justify-between py-2 px-3">
-                                                <span className={`text-[10px] md:text-xs font-medium uppercase tracking-wide ${elpaExpired > 0 ? 'text-red-100' : 'text-muted-foreground'}`}>Expired</span>
-                                                <span className={`text-lg md:text-xl font-bold ${elpaExpired > 0 ? 'text-white' : ''}`}>{elpaExpired}</span>
+                                            <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                                <span className={`text-[9px] md:text-xs font-medium uppercase tracking-wide ${elpaExpired > 0 ? 'text-red-100' : 'text-muted-foreground'}`}>Expired</span>
+                                                <span className={`text-base md:text-xl font-bold ${elpaExpired > 0 ? 'text-white' : ''}`}>{elpaExpired}</span>
                                             </CardContent>
                                         </Card>
                                         <Card className={elpaExpiring > 0 ? 'border-amber-200 bg-amber-50' : 'border-muted'}>
-                                            <CardContent className="flex items-center justify-between py-2 px-3">
-                                                <span className={`text-[10px] md:text-xs font-medium uppercase tracking-wide ${elpaExpiring > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>≤ 90 days</span>
-                                                <span className={`text-lg md:text-xl font-bold ${elpaExpiring > 0 ? 'text-amber-700' : ''}`}>{elpaExpiring}</span>
+                                            <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                                <span className={`text-[9px] md:text-xs font-medium uppercase tracking-wide ${elpaExpiring > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>≤ 90 days</span>
+                                                <span className={`text-base md:text-xl font-bold ${elpaExpiring > 0 ? 'text-amber-700' : ''}`}>{elpaExpiring}</span>
                                             </CardContent>
                                         </Card>
                                     </div>
@@ -1869,36 +1796,42 @@ export default function LicenseManagement() {
                                                 <Stethoscope className="h-4 w-4 text-indigo-600" /> Medical Data
                                             </h3>
                                         </div>
-                                        <div className="flex flex-col md:flex-row gap-2 items-stretch md:items-center">
-                                            <div className="relative flex-1 max-w-xs">
-                                                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                                        <div className="flex items-center gap-2 md:flex-row md:items-center">
+                                            <div className="relative min-w-0 flex-1">
+                                                <Search className="absolute left-2.5 top-2 h-3 w-3 text-muted-foreground md:top-3 md:h-3.5 md:w-3.5" />
                                                 <Input
-                                                    placeholder="Search name or ID..."
+                                                    placeholder="Search name, ID or status"
                                                     value={medSearch}
                                                     onChange={(e) => setMedSearch(e.target.value)}
-                                                    className="pl-7 h-7 md:h-8 text-xs md:text-sm"
+                                                    className="h-7 w-full pl-7 pr-8 text-xs md:h-10 md:pl-8 md:text-[15px]"
                                                 />
                                                 {medSearch && (
-                                                    <Button variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5" onClick={() => setMedSearch('')}>
-                                                        <X className="h-3 w-3" />
+                                                    <Button
+                                                        type="button"
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        className="absolute right-1 top-0.5 h-6 w-6 text-muted-foreground hover:text-foreground md:top-1.5 md:h-7 md:w-7"
+                                                        onClick={() => setMedSearch('')}
+                                                    >
+                                                        <X className="h-3 w-3 md:h-3.5 md:w-3.5" />
                                                     </Button>
                                                 )}
                                             </div>
                                             <Button
                                                 size="sm"
-                                                className="h-7 md:h-8 text-xs md:text-sm gap-1"
+                                                className="h-7 shrink-0 whitespace-nowrap px-3 text-xs md:h-10 md:px-4 md:text-[15px]"
                                                 onClick={() => syncMedicalData.mutate()}
                                                 disabled={syncMedicalData.isPending}
                                             >
-                                                <RefreshCw className={`h-3 w-3 ${syncMedicalData.isPending ? 'animate-spin' : ''}`} />
+                                                <RefreshCw className={`mr-1 h-3.5 w-3.5 ${syncMedicalData.isPending ? 'animate-spin' : ''}`} />
                                                 {syncMedicalData.isPending ? 'Syncing...' : 'Fetch & Save'}
                                             </Button>
                                         </div>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <div className="flex items-center gap-1">
-                                                <Label className="text-[10px] md:text-xs text-muted-foreground w-8 md:w-10">Filter</Label>
+                                        <div className="grid grid-cols-3 gap-2 md:flex md:items-end md:justify-end">
+                                            <div className="min-w-0 space-y-1 md:w-[190px]">
+                                                <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-[11px]">Filter</Label>
                                                 <Select value={medFilter} onValueChange={(v) => setMedFilter(v as typeof medFilter)}>
-                                                    <SelectTrigger className="h-6 md:h-7 text-[10px] md:text-xs w-[150px] md:w-[170px]">
+                                                    <SelectTrigger className="h-7 w-full text-xs md:h-9 md:text-[15px]">
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
@@ -1910,10 +1843,10 @@ export default function LicenseManagement() {
                                                     </SelectContent>
                                                 </Select>
                                             </div>
-                                            <div className="flex items-center gap-1">
-                                                <Label className="text-[10px] md:text-xs text-muted-foreground w-8 md:w-10">Sort</Label>
+                                            <div className="min-w-0 space-y-1 md:w-[205px]">
+                                                <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-[11px]">Sort</Label>
                                                 <Select value={medSort} onValueChange={(v) => setMedSort(v as typeof medSort)}>
-                                                    <SelectTrigger className="h-6 md:h-7 text-[10px] md:text-xs w-[130px] md:w-[150px]">
+                                                    <SelectTrigger className="h-7 w-full text-xs md:h-9 md:text-[15px]">
                                                         <SelectValue />
                                                     </SelectTrigger>
                                                     <SelectContent>
@@ -1924,42 +1857,46 @@ export default function LicenseManagement() {
                                                     </SelectContent>
                                                 </Select>
                                             </div>
-                                            <Button variant="ghost" size="icon" className="h-6 w-6 md:h-7 md:w-7" onClick={() => refetchMedSync()}>
-                                                <RefreshCw className="h-3 w-3" />
-                                            </Button>
+                                            <div className="min-w-0 space-y-1 md:w-[160px]">
+                                                <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground md:text-[11px]">Actions</Label>
+                                                <Button size="sm" variant="outline" className="h-8 w-full text-xs md:h-9 md:px-4 md:text-[15px]" onClick={() => refetchMedSync()} disabled={medSyncLoading}>
+                                                    <RefreshCw className={`mr-1 h-3.5 w-3.5 ${medSyncLoading ? 'animate-spin' : ''}`} />
+                                                    Reload
+                                                </Button>
+                                            </div>
                                         </div>
                                     </div>
 
                                     {/* Medical Summary Cards */}
-                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                                         <Card className="border-0 bg-gradient-to-br from-slate-700 to-slate-900 text-white">
-                                            <CardContent className="flex items-center justify-between py-2 px-3">
-                                                <span className="text-[10px] md:text-xs font-medium uppercase tracking-wide text-white/75">Total</span>
-                                                <span className="text-lg md:text-xl font-bold">{medSyncData.length}</span>
+                                            <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                                <span className="text-[9px] md:text-xs font-medium uppercase tracking-wide text-white/75">Total</span>
+                                                <span className="text-base md:text-xl font-bold">{medSyncData.length}</span>
                                             </CardContent>
                                         </Card>
                                         <Card className={medExpired > 0 ? 'border-red-900 bg-red-900/95' : 'border-muted'}>
-                                            <CardContent className="flex items-center justify-between py-2 px-3">
-                                                <span className={`text-[10px] md:text-xs font-medium uppercase tracking-wide ${medExpired > 0 ? 'text-red-100' : 'text-muted-foreground'}`}>Expired</span>
-                                                <span className={`text-lg md:text-xl font-bold ${medExpired > 0 ? 'text-white' : ''}`}>{medExpired}</span>
+                                            <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                                <span className={`text-[9px] md:text-xs font-medium uppercase tracking-wide ${medExpired > 0 ? 'text-red-100' : 'text-muted-foreground'}`}>Expired</span>
+                                                <span className={`text-base md:text-xl font-bold ${medExpired > 0 ? 'text-white' : ''}`}>{medExpired}</span>
                                             </CardContent>
                                         </Card>
                                         <Card className={medDocPending > 0 ? 'border-amber-400 bg-amber-100' : 'border-muted'}>
-                                            <CardContent className="flex items-center justify-between py-2 px-3">
-                                                <span className={`text-[10px] md:text-xs font-medium uppercase tracking-wide ${medDocPending > 0 ? 'text-amber-700' : 'text-muted-foreground'}`}>Doc Pending</span>
-                                                <span className={`text-lg md:text-xl font-bold ${medDocPending > 0 ? 'text-amber-800' : ''}`}>{medDocPending}</span>
+                                            <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                                <span className={`text-[9px] md:text-xs font-medium uppercase tracking-wide ${medDocPending > 0 ? 'text-amber-700' : 'text-muted-foreground'}`}>Doc Pending</span>
+                                                <span className={`text-base md:text-xl font-bold ${medDocPending > 0 ? 'text-amber-800' : ''}`}>{medDocPending}</span>
                                             </CardContent>
                                         </Card>
                                         <Card className={medExpiring > 0 ? 'border-amber-200 bg-amber-50' : 'border-muted'}>
-                                            <CardContent className="flex items-center justify-between py-2 px-3">
-                                                <span className={`text-[10px] md:text-xs font-medium uppercase tracking-wide ${medExpiring > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>≤ 90 days</span>
-                                                <span className={`text-lg md:text-xl font-bold ${medExpiring > 0 ? 'text-amber-700' : ''}`}>{medExpiring}</span>
+                                            <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                                <span className={`text-[9px] md:text-xs font-medium uppercase tracking-wide ${medExpiring > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>≤ 90 days</span>
+                                                <span className={`text-base md:text-xl font-bold ${medExpiring > 0 ? 'text-amber-700' : ''}`}>{medExpiring}</span>
                                             </CardContent>
                                         </Card>
                                         <Card className={medUnfit > 0 ? 'border-rose-200 bg-rose-50' : 'border-muted'}>
-                                            <CardContent className="flex items-center justify-between py-2 px-3">
-                                                <span className={`text-[10px] md:text-xs font-medium uppercase tracking-wide ${medUnfit > 0 ? 'text-rose-600' : 'text-muted-foreground'}`}>Not FIT</span>
-                                                <span className={`text-lg md:text-xl font-bold ${medUnfit > 0 ? 'text-rose-700' : ''}`}>{medUnfit}</span>
+                                            <CardContent className="flex items-center justify-between py-1.5 px-2.5 md:py-2 md:px-3">
+                                                <span className={`text-[9px] md:text-xs font-medium uppercase tracking-wide ${medUnfit > 0 ? 'text-rose-600' : 'text-muted-foreground'}`}>Not FIT</span>
+                                                <span className={`text-base md:text-xl font-bold ${medUnfit > 0 ? 'text-rose-700' : ''}`}>{medUnfit}</span>
                                             </CardContent>
                                         </Card>
                                     </div>
@@ -2008,30 +1945,30 @@ export default function LicenseManagement() {
                                                         <div className="flex items-center justify-between">
                                                             <div className="flex items-center gap-1">
                                                                 {isCA35 ? (
-                                                                    <Badge className="text-[9px] md:text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700 border-amber-300">
+                                                                    <Badge className="text-[10px] md:text-[11px] px-1.5 py-0 bg-amber-100 text-amber-700 border-amber-300">
                                                                         Endorsement Pending
                                                                     </Badge>
                                                                 ) : (hasExpired || hasCritical || hasWarning) && (
-                                                                    <Badge className={`text-[9px] md:text-[10px] px-1.5 py-0 ${hasExpired ? 'bg-red-700 text-white border-red-800' : hasCritical ? 'bg-red-100 text-red-700 border-red-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
+                                                                        <Badge className={`text-[10px] md:text-[11px] px-1.5 py-0 ${hasExpired ? 'bg-red-700 text-white border-red-800' : hasCritical ? 'bg-red-100 text-red-700 border-red-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
                                                                         {hasExpired ? `Expired ${formatDays(days)} ago` : `${formatDays(days)} left`}
                                                                     </Badge>
                                                                 )}
                                                             </div>
-                                                            <Badge className={`${statusCls} text-[9px] md:text-[10px] px-1.5 py-0`}>
+                                                                <Badge className={`${statusCls} text-[10px] md:text-[11px] px-1.5 py-0`}>
                                                                 {record.status || '-'}
                                                             </Badge>
                                                         </div>
 
                                                         {/* Name + ID */}
-                                                        <div>
-                                                            <p className="text-xs md:text-sm font-semibold leading-tight truncate">{record.name}</p>
-                                                            <p className="text-[10px] md:text-xs text-muted-foreground">{record.emp_id}</p>
+                                                            <div>
+                                                                <p className="text-sm md:text-base font-semibold leading-tight truncate">{record.name}</p>
+                                                                <p className="text-[11px] md:text-sm text-muted-foreground">{record.emp_id}</p>
                                                         </div>
 
                                                         <Separator />
 
                                                         {/* Dates */}
-                                                        <div className="space-y-1 text-[10px] md:text-xs">
+                                                        <div className="space-y-1 text-[11px] md:text-sm">
                                                             <div className="flex justify-between">
                                                                 <span className="text-muted-foreground">Last Medical</span>
                                                                 <span className="font-medium">
@@ -2049,16 +1986,16 @@ export default function LicenseManagement() {
                                                         {/* History peek + view/edit buttons */}
                                                         <Separator />
                                                         <div className="flex items-center justify-between">
-                                                            <span className="text-[10px] md:text-xs text-muted-foreground">
+                                                            <span className="text-[11px] md:text-sm text-muted-foreground">
                                                                 {historyEntries.length > 0 ? `${historyEntries.length} medical record${historyEntries.length !== 1 ? 's' : ''}` : ''}
                                                             </span>
                                                             <div className="flex items-center gap-1">
                                                                 {historyEntries.length > 0 && (
-                                                                    <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px]" onClick={() => setViewingMedRecord(record)}>
+                                                                    <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px] md:h-7 md:text-xs" onClick={() => setViewingMedRecord(record)}>
                                                                         <Eye className="h-3 w-3 mr-0.5" /> View
                                                                     </Button>
                                                                 )}
-                                                                <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px]" onClick={() => {
+                                                                <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px] md:h-7 md:text-xs" onClick={() => {
                                                                     setEditingMed(record);
                                                                     setMedEditForm({
                                                                         last_medical: record.last_medical || '',

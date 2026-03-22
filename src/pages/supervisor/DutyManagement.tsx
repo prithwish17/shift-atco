@@ -180,6 +180,7 @@ export default function DutyManagement() {
                 const { data, error } = await supabase
                     .from("profiles")
                     .select("id, employee_id, full_name, current_shift")
+                    .neq("is_hidden" as any, true)
                     .order("full_name")
                     .range(from, from + PAGE_SIZE - 1);
                 if (error) throw error;

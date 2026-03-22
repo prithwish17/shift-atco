@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,9 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, ShieldAlert, Users } from "lucide-react";
-import { addMonths, eachDayOfInterval, endOfMonth, format, parseISO, startOfMonth, subMonths } from "date-fns";
+import { addMonths, differenceInCalendarDays, eachDayOfInterval, endOfMonth, format, parseISO, startOfMonth, subMonths } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { ResponsiveContainer, BarChart, Bar, CartesianGrid, Cell, LabelList, Tooltip, XAxis, YAxis } from "recharts";
+import { useElTotalAvailed } from "@/hooks/useElData";
 import { useLeaveData } from "@/hooks/useLeaveData";
 import { useAllLeaveRequests } from "@/hooks/useLeaveRequests";
 import { EmployeeLeaveTable } from "@/components/leave/EmployeeLeaveTable";
@@ -37,11 +39,50 @@ const TEAM_COLORS: Record<string, string> = {
 };
 const TEAM_COLOR_DEFAULT = "#64748B"; // slate for any extra teams
 
+/* ── Shift rotation (mirrors SupervisorDashboard.tsx) ── */
+const DUTY_CYCLE: Array<"M" | "A" | "N" | "NO" | "CO"> = ["M", "A", "N", "NO", "CO"];
+const TODAY_TEAM_DUTY_BASE: Record<string, "M" | "A" | "N" | "NO" | "CO"> = {
+  A: "N",
+  B: "A",
+  C: "M",
+  D: "CO",
+  E: "NO",
+};
+const DUTY_ROTATION_ANCHOR_DATE_IST = "2026-03-09";
+const SHIFT_LABELS: Record<string, string> = {
+  M: "Morning",
+  A: "Afternoon",
+  N: "Night",
+  NO: "Night Off",
+  CO: "Clear Off",
+};
+const SHIFT_COLORS: Record<string, string> = {
+  M: "#F59E0B",   // amber — morning
+  A: "#3B82F6",   // blue  — afternoon
+  N: "#6366F1",   // indigo — night
+  NO: "#94A3B8",  // slate — night off
+  CO: "#10B981",  // emerald — clear off
+};
+
+function getTeamDutyForDate(teamKey: string, dateKey: string): "M" | "A" | "N" | "NO" | "CO" {
+  const base = TODAY_TEAM_DUTY_BASE[teamKey];
+  if (!base) return "CO";
+  const baseIndex = DUTY_CYCLE.indexOf(base);
+  const offset = differenceInCalendarDays(parseISO(dateKey), parseISO(DUTY_ROTATION_ANCHOR_DATE_IST));
+  const idx = (baseIndex + (offset % DUTY_CYCLE.length) + DUTY_CYCLE.length) % DUTY_CYCLE.length;
+  return DUTY_CYCLE[idx];
+}
+
+const OFF_DUTY_CODES_SET = new Set(["NO", "CO", "SAT", "SUN", "CH", "NH", "NA", "SL", "GO", "TR", "LEAVE"]);
+function isOnActiveDuty(dutyCode: string | null | undefined): boolean {
+  if (!dutyCode) return false;
+  const tokens = dutyCode.toUpperCase().split("+").map((t) => t.trim()).filter(Boolean);
+  return tokens.length > 0 && tokens.some((t) => !OFF_DUTY_CODES_SET.has(t));
+}
+
 type AvailabilityCard = {
   label: string;
   value: number;
-  total: number;
-  color: string;
   helper: string;
 };
 
@@ -95,11 +136,6 @@ const TYPE_SHORT_LABELS: Record<string, string> = {
   OTHER: "Oth",
 };
 
-function clampPercent(value: number) {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, Math.round(value)));
-}
-
 function resolveCalendarType(leaveType: string) {
   const normalized = leaveType.toUpperCase();
   if (normalized.startsWith("CL")) return "CL";
@@ -151,6 +187,12 @@ function formatRequestRange(startDate: string, endDate: string) {
 }
 
 export default function SupervisorLeaveDashboard() {
+  const isMobile = useIsMobile();
+  const chartFontSize = isMobile ? 10 : 12;
+  const chartMargin = isMobile
+    ? { top: 16, right: 4, left: -24, bottom: 0 }
+    : { top: 8, right: 4, left: -16, bottom: 0 };
+  const chartBarSize = isMobile ? 22 : 34;
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const { data, leaveQuery } = useLeaveData(selectedYear);
   const { data: leaveRequests = [], isLoading: requestsLoading, error: requestsError } = useAllLeaveRequests();
@@ -204,6 +246,8 @@ export default function SupervisorLeaveDashboard() {
     return ids;
   }, [data]);
 
+  const { data: totalElAvailed = 0 } = useElTotalAvailed(selectedYear);
+
   const availabilityCards = useMemo<AvailabilityCard[]>(() => {
     const activeCount = activeEmployees.length;
     const totalCasualAllowance = activeCount * 12;
@@ -219,42 +263,37 @@ export default function SupervisorLeaveDashboard() {
 
     return [
       {
-        label: "Casual Balance",
+        label: "Earned Leave Availed",
+        value: totalElAvailed,
+        helper: `Earned leave days used in ${selectedYear}`,
+      },
+      {
+        label: "Casual Balance Left",
         value: casualRemaining,
-        total: Math.max(totalCasualAllowance, 1),
-        color: "#67C8C1",
         helper: `${casualUsed} used across ${activeCount || 0} active employees`,
       },
       {
-        label: "Reserved Holiday",
+        label: "Reserved Holiday Left",
         value: restrictedRemaining,
-        total: Math.max(totalReservedAllowance, 1),
-        color: "#F4C66A",
         helper: `${restrictedUsed} used this year`,
       },
       {
         label: "Comp-Off Left",
         value: compOffRemaining,
-        total: Math.max(compOffEarned, compOffRemaining, 1),
-        color: "#89A3F6",
         helper: `${compOffUsed} used${compOffExpired ? ` · ${compOffExpired} expired` : ""}`,
       },
       {
         label: "Comp-Off Earned",
         value: compOffEarned,
-        total: Math.max(compOffEarned, 1),
-        color: "#F58D8F",
         helper: `${compOffRemaining} still available`,
       },
       {
         label: "Active Staff",
         value: stats.active,
-        total: Math.max(stats.total, 1),
-        color: "#7FC0F7",
         helper: `${stats.inactive} inactive records`,
       },
     ];
-  }, [activeEmployees, stats.active, stats.inactive, stats.total]);
+  }, [activeEmployees, selectedYear, stats.active, stats.inactive, stats.total, totalElAvailed]);
 
   const pendingApprovals = useMemo(
     () => leaveRequests.filter((request) => request.status === "Pending Supervisor" || request.status === "Pending WSO").slice(0, 5),
@@ -322,51 +361,112 @@ export default function SupervisorLeaveDashboard() {
     },
   });
 
-  const { data: dayTeamLeaveTrack = [], isLoading: dayTeamLeaveTrackLoading } = useQuery({
-    queryKey: ["schedule", "day-team-leave-track", selectedTrackDate],
+  type DailyLeaveEmployee = {
+    employeeCode: string;
+    employeeName: string;
+    team: string;
+  };
+
+  const { data: dailyLeaveEmployees = [], isLoading: dailyLeaveEmployeesLoading } = useQuery({
+    queryKey: ["schedule", "daily-leave-employees", selectedTrackDate],
     ...SCHEDULE_QUERY_OPTIONS,
-    queryFn: async () => {
-      const { data: leaveSchedules, error: leaveSchedulesError } = await supabase
+    queryFn: async (): Promise<DailyLeaveEmployee[]> => {
+      const { data: leaveSchedules, error } = await supabase
         .from("employee_schedules" as any)
-        .select("employee_code")
+        .select("employee_code, employee_name")
         .eq("duty_code", "LEAVE")
         .eq("duty_date", selectedTrackDate);
 
-      if (leaveSchedulesError) throw leaveSchedulesError;
+      if (error) throw error;
 
-      const uniqueEmployeeCodes = Array.from(
-        new Set(
-          ((leaveSchedules || []) as Array<{ employee_code: string | null }>)
-            .map((r) => String(r.employee_code || "").trim())
-            .filter(Boolean),
-        ),
+      const rows = (leaveSchedules || []) as Array<{ employee_code: string; employee_name: string | null }>;
+      if (rows.length === 0) return [];
+
+      const codes = [...new Set(rows.map((r) => r.employee_code).filter(Boolean))];
+
+      const { data: profiles } = await supabase
+        .from("profiles" as any)
+        .select("employee_id, full_name, current_shift")
+        .in("employee_id", codes);
+
+      const profileMap = new Map(
+        ((profiles || []) as Array<{ employee_id: string; full_name: string | null; current_shift: string | null }>)
+          .map((p) => [p.employee_id, p]),
       );
 
-      const teamCounts = new Map<string, number>();
-      TEAM_ORDER.forEach((t) => teamCounts.set(t, 0));
+      return rows
+        .map((r) => {
+          const profile = profileMap.get(r.employee_code);
+          const rawTeam = profile?.current_shift?.toUpperCase() || "-";
+          return {
+            employeeCode: r.employee_code,
+            employeeName: profile?.full_name || r.employee_name || r.employee_code,
+            team: rawTeam === "GENERAL" ? "G" : rawTeam,
+          };
+        })
+        .sort((a, b) => a.team.localeCompare(b.team) || a.employeeName.localeCompare(b.employeeName));
+    },
+  });
+
+  const { data: dayTeamLeaveTrack = [], isLoading: dayTeamLeaveTrackLoading } = useQuery({
+    queryKey: ["schedule", "day-team-leave-track-v3", selectedTrackDate],
+    ...SCHEDULE_QUERY_OPTIONS,
+    queryFn: async () => {
+      // Fetch ALL schedule rows for the selected date
+      const { data: allSchedules, error } = await supabase
+        .from("employee_schedules" as any)
+        .select("employee_code, duty_code")
+        .eq("duty_date", selectedTrackDate);
+      if (error) throw error;
+
+      const rows = (allSchedules || []) as Array<{ employee_code: string | null; duty_code: string | null }>;
+
+      // Count per shift code exactly like SupervisorDashboard's shiftCounts
+      const shiftCounts: Record<string, number> = { M: 0, A: 0, N: 0, NO: 0, CO: 0 };
+      let leaveCount = 0;
+      rows.forEach((s) => {
+        if (!s.duty_code) return;
+        const upper = s.duty_code.toUpperCase().trim();
+        if (upper === "LEAVE") { leaveCount++; return; }
+        const tokens = upper.split("+").map((t) => t.trim());
+        tokens.forEach((t) => { if (t in shiftCounts) shiftCounts[t]++; });
+      });
+
+      // Build team → shift mapping for the selected date (same rotation logic)
+      // Also count LEAVE per team via profiles
+      const uniqueEmployeeCodes = [...new Set(
+        rows.filter((r) => r.duty_code?.toUpperCase().trim() === "LEAVE")
+          .map((r) => String(r.employee_code || "").trim())
+          .filter(Boolean)
+      )];
+
+      const teamLeaveCounts = new Map<string, number>();
+      TEAM_ORDER.forEach((t) => teamLeaveCounts.set(t, 0));
 
       if (uniqueEmployeeCodes.length > 0) {
-        const { data: profiles, error: profilesError } = await supabase
+        const { data: profiles } = await supabase
           .from("profiles" as any)
           .select("employee_id, current_shift")
           .in("employee_id", uniqueEmployeeCodes);
-        if (profilesError) throw profilesError;
-
         ((profiles || []) as Array<{ employee_id: string | null; current_shift: string | null }>).forEach((p) => {
-          const empId = String(p.employee_id || "").trim();
-          const team = String(p.current_shift || "").trim().toUpperCase();
-          if (!empId || !team) return;
-          const normalizedTeam = team === "GENERAL" ? "G" : team;
-          if (teamCounts.has(normalizedTeam)) {
-            teamCounts.set(normalizedTeam, (teamCounts.get(normalizedTeam) || 0) + 1);
-          }
+          const rawTeam = String(p.current_shift || "").trim().toUpperCase();
+          const team = rawTeam === "GENERAL" ? "G" : rawTeam;
+          if (teamLeaveCounts.has(team)) teamLeaveCounts.set(team, (teamLeaveCounts.get(team) || 0) + 1);
         });
       }
 
-      return TEAM_ORDER.map((team) => ({
-        team: `Team ${team}`,
-        leaveCount: teamCounts.get(team) || 0,
-      }));
+      return TEAM_ORDER.map((team) => {
+        const shiftCode = getTeamDutyForDate(team, selectedTrackDate);
+        return {
+          team: `Team ${team}`,
+          teamKey: team,
+          shiftCode,
+          shiftLabel: SHIFT_LABELS[shiftCode] ?? shiftCode,
+          // On-duty count = total employees with that shift duty_code (exact same number as Today's Shifts card)
+          onDutyCount: shiftCounts[shiftCode] ?? 0,
+          leaveCount: teamLeaveCounts.get(team) || 0,
+        };
+      });
     },
   });
 
@@ -669,27 +769,18 @@ export default function SupervisorLeaveDashboard() {
                 <Badge variant="secondary" className="hidden sm:inline-flex">{stats.active} active employees</Badge>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
                 {availabilityCards.map((card) => {
-                  const percent = clampPercent((card.value / Math.max(card.total, 1)) * 100);
-
                   return (
                     <Card key={card.label} className="shadow-sm">
                       <CardContent className="flex items-center justify-between gap-4 p-4">
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-muted-foreground">Available</div>
-                          <div className="mt-1 text-[28px] font-black tracking-tight text-slate-900">{card.value}</div>
-                          <div className="text-xl font-bold tracking-tight text-slate-900">{card.label}</div>
+                          <div className="text-lg font-bold tracking-tight text-slate-900">{card.label}</div>
                           <div className="mt-1 text-xs text-muted-foreground">{card.helper}</div>
                         </div>
-                        <div
-                          className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full"
-                          style={{
-                            background: `conic-gradient(${card.color} ${percent}%, #E8EEF6 0)`,
-                          }}
-                        >
-                          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-lg font-bold text-slate-900">
-                            {percent}%
+                        <div className="shrink-0 text-right">
+                          <div className="text-[30px] font-black tracking-tight text-slate-900 sm:text-[34px]">
+                            {card.value}
                           </div>
                         </div>
                       </CardContent>
@@ -701,35 +792,69 @@ export default function SupervisorLeaveDashboard() {
 
             <div className="grid gap-4 xl:grid-cols-[1.15fr_1fr]">
               <Card className="shadow-sm">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">Leave Approval</CardTitle>
-                  <CardDescription>Pending requests awaiting supervisor or WSO review</CardDescription>
+                <CardHeader className="gap-3 pb-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle className="text-lg">Employees on Leave</CardTitle>
+                    <CardDescription>
+                      Staff marked LEAVE in schedule for{" "}
+                      {selectedTrackDate ? format(parseISO(selectedTrackDate), "dd MMM yyyy") : "selected date"}
+                      {" "}· {dailyLeaveEmployees.length} employee{dailyLeaveEmployees.length !== 1 ? "s" : ""}
+                    </CardDescription>
+                  </div>
+                  <div className="shrink-0">
+                    <input
+                      type="date"
+                      value={selectedTrackDate}
+                      onChange={(e) => setSelectedTrackDate(e.target.value)}
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  {pendingApprovals.length === 0 ? (
+                <CardContent>
+                  {dailyLeaveEmployeesLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" />
+                    </div>
+                  ) : dailyLeaveEmployees.length === 0 ? (
                     <div className="flex items-center gap-2 rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
                       <AlertTriangle className="h-4 w-4" />
-                      No pending leave requests.
+                      No employees marked LEAVE on this date.
                     </div>
                   ) : (
-                    pendingApprovals.map((request) => {
-                      const statusInfo = getLeaveStatusInfo(request.status);
-                      return (
-                        <div key={request.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-slate-900 sm:text-base">{request.employee_name || "Unknown"}</div>
-                            <div className="mt-1 text-sm text-slate-700">{getLeaveTypeLabel(request.leave_type)}</div>
-                            <div className="mt-1 text-xs text-muted-foreground">{formatRequestRange(request.start_date, request.end_date)}</div>
-                          </div>
-                          <div className="flex items-center gap-2 sm:flex-col sm:items-end">
-                            <Badge className={statusInfo.color}>{request.status}</Badge>
-                            <Button asChild size="sm" variant="outline">
-                              <Link to="/supervisor/leaves">Review</Link>
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })
+                    <div className="max-h-[320px] overflow-y-auto overflow-x-auto rounded-lg border border-slate-200">
+                      <table className="w-full text-sm">
+                        <thead className="sticky top-0 z-10">
+                          <tr className="border-b bg-slate-50 text-xs font-semibold text-slate-600">
+                            <th className="px-3 py-2.5 text-left">#</th>
+                            <th className="px-3 py-2.5 text-left">Name</th>
+                            <th className="px-3 py-2.5 text-left">ID</th>
+                            <th className="px-3 py-2.5 text-left">Team</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dailyLeaveEmployees.map((emp, idx) => (
+                            <tr key={emp.employeeCode} className="border-b last:border-0 hover:bg-slate-50/60 transition-colors">
+                              <td className="px-3 py-2 text-xs text-muted-foreground">{idx + 1}</td>
+                              <td className="px-3 py-2 font-medium text-slate-900">{emp.employeeName}</td>
+                              <td className="px-3 py-2 font-mono text-xs text-slate-500">{emp.employeeCode}</td>
+                              <td className="px-3 py-2">
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs"
+                                  style={{
+                                    backgroundColor: (TEAM_COLORS[`Team ${emp.team}`] ?? TEAM_COLOR_DEFAULT) + "22",
+                                    color: TEAM_COLORS[`Team ${emp.team}`] ?? TEAM_COLOR_DEFAULT,
+                                    borderColor: (TEAM_COLORS[`Team ${emp.team}`] ?? TEAM_COLOR_DEFAULT) + "55",
+                                  }}
+                                >
+                                  {emp.team !== "-" ? `Team ${emp.team}` : "-"}
+                                </Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -754,23 +879,23 @@ export default function SupervisorLeaveDashboard() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="h-[280px] w-full">
+                  <div className="h-[200px] sm:h-[280px] w-full">
                     {teamLeaveTrackLoading ? (
                       <div className="flex h-full items-center justify-center">
                         <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-primary" />
                       </div>
                     ) : (
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={teamLeaveTrack} margin={{ top: 8, right: 4, left: -16, bottom: 0 }}>
+                        <BarChart data={teamLeaveTrack} margin={chartMargin}>
                           <CartesianGrid strokeDasharray="4 4" stroke="#D8E4F5" vertical={false} />
-                          <XAxis dataKey="team" tickLine={false} axisLine={false} fontSize={12} />
-                          <YAxis tickLine={false} axisLine={false} fontSize={12} allowDecimals={false} />
+                          <XAxis dataKey="team" tickLine={false} axisLine={false} fontSize={chartFontSize} />
+                          <YAxis tickLine={false} axisLine={false} fontSize={chartFontSize} allowDecimals={false} width={isMobile ? 24 : 40} />
                           <Tooltip cursor={{ fill: "rgba(37, 99, 235, 0.06)" }} formatter={(value) => [`${value} members`, "On Leave"]} />
-                          <Bar dataKey="leaveCount" radius={[8, 8, 0, 0]} maxBarSize={34}>
+                          <Bar dataKey="leaveCount" radius={[6, 6, 0, 0]} maxBarSize={chartBarSize}>
                             {teamLeaveTrack.map((entry) => (
                               <Cell key={entry.team} fill={TEAM_COLORS[entry.team] ?? TEAM_COLOR_DEFAULT} />
                             ))}
-                            <LabelList dataKey="leaveCount" position="top" fontSize={12} fontWeight={700} fill="#1E3A8A" />
+                            <LabelList dataKey="leaveCount" position="top" fontSize={chartFontSize} fontWeight={700} fill="#1E3A8A" />
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
@@ -783,9 +908,9 @@ export default function SupervisorLeaveDashboard() {
             <Card className="shadow-sm">
               <CardHeader className="gap-4 pb-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <CardTitle className="text-lg">Daily Leave Track by Team</CardTitle>
+                  <CardTitle className="text-lg">Daily Duty vs Leave by Team</CardTitle>
                   <CardDescription>
-                    Team-wise leave count for{" "}
+                    On-duty and on-leave counts per team for{" "}
                     {selectedTrackDate ? format(parseISO(selectedTrackDate), "dd MMM yyyy") : "selected date"}
                   </CardDescription>
                 </div>
@@ -799,27 +924,112 @@ export default function SupervisorLeaveDashboard() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="h-[280px] w-full">
+                {/* Per-team shift badges */}
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {dayTeamLeaveTrack
+                    .filter((e) => e.teamKey in TODAY_TEAM_DUTY_BASE)
+                    .map((e) => (
+                      <span
+                        key={e.teamKey}
+                        className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium"
+                        style={{
+                          backgroundColor: (SHIFT_COLORS[e.shiftCode] ?? "#94A3B8") + "22",
+                          color: SHIFT_COLORS[e.shiftCode] ?? "#94A3B8",
+                          borderColor: (SHIFT_COLORS[e.shiftCode] ?? "#94A3B8") + "55",
+                        }}
+                      >
+                        <span
+                          className="h-1.5 w-1.5 rounded-full"
+                          style={{ backgroundColor: SHIFT_COLORS[e.shiftCode] ?? "#94A3B8" }}
+                        />
+                        {e.team}: {e.shiftLabel}
+                      </span>
+                    ))}
+                </div>
+                <div className="h-[220px] sm:h-[300px] w-full">
                   {dayTeamLeaveTrackLoading ? (
                     <div className="flex h-full items-center justify-center">
                       <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-primary" />
                     </div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={dayTeamLeaveTrack} margin={{ top: 8, right: 4, left: -16, bottom: 0 }}>
+                      <BarChart
+                        data={dayTeamLeaveTrack}
+                        margin={isMobile ? { top: 16, right: 4, left: -24, bottom: 0 } : { top: 16, right: 8, left: -16, bottom: 0 }}
+                        barCategoryGap="28%"
+                        barGap={3}
+                      >
                         <CartesianGrid strokeDasharray="4 4" stroke="#D8E4F5" vertical={false} />
-                        <XAxis dataKey="team" tickLine={false} axisLine={false} fontSize={12} />
-                        <YAxis tickLine={false} axisLine={false} fontSize={12} allowDecimals={false} />
-                        <Tooltip cursor={{ fill: "rgba(37, 99, 235, 0.06)" }} formatter={(value) => [`${value} members`, "On Leave"]} />
-                        <Bar dataKey="leaveCount" radius={[8, 8, 0, 0]} maxBarSize={34}>
+                        <XAxis
+                          dataKey="team"
+                          tickLine={false}
+                          axisLine={false}
+                          fontSize={chartFontSize}
+                          tickFormatter={(v: string) => v.replace("Team ", "")}
+                        />
+                        <YAxis tickLine={false} axisLine={false} fontSize={chartFontSize} allowDecimals={false} width={isMobile ? 24 : 32} />
+                        <Tooltip
+                          cursor={{ fill: "rgba(37, 99, 235, 0.05)" }}
+                          content={({ active, payload, label }) => {
+                            if (!active || !payload?.length) return null;
+                            const entry = dayTeamLeaveTrack.find((e) => e.team === label);
+                            return (
+                              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-md text-xs">
+                                <div className="mb-1.5 font-semibold text-slate-800">{label}</div>
+                                {entry && (
+                                  <div
+                                    className="mb-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-medium"
+                                    style={{
+                                      backgroundColor: (SHIFT_COLORS[entry.shiftCode] ?? "#94A3B8") + "22",
+                                      color: SHIFT_COLORS[entry.shiftCode] ?? "#64748B",
+                                    }}
+                                  >
+                                    {entry.shiftLabel} shift
+                                  </div>
+                                )}
+                                {payload.map((p) => (
+                                  <div key={p.name} className="flex items-center gap-2">
+                                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color as string }} />
+                                    <span className="text-slate-600">{p.name}:</span>
+                                    <span className="font-semibold text-slate-900">{p.value}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          }}
+                        />
+                        {/* On Duty bar — coloured by team */}
+                        <Bar dataKey="onDutyCount" name="On Duty" radius={[4, 4, 0, 0]} maxBarSize={isMobile ? 18 : 28}>
                           {dayTeamLeaveTrack.map((entry) => (
-                            <Cell key={entry.team} fill={TEAM_COLORS[entry.team] ?? TEAM_COLOR_DEFAULT} />
+                            <Cell
+                              key={`duty-${entry.team}`}
+                              fill={TEAM_COLORS[entry.team] ?? TEAM_COLOR_DEFAULT}
+                              opacity={0.8}
+                            />
                           ))}
-                          <LabelList dataKey="leaveCount" position="top" fontSize={12} fontWeight={700} fill="#1E3A8A" />
+                          <LabelList dataKey="onDutyCount" position="top" fontSize={chartFontSize - 1} fontWeight={700} fill="#1E3A8A" />
+                        </Bar>
+                        {/* On Leave bar — red */}
+                        <Bar dataKey="leaveCount" name="On Leave" radius={[4, 4, 0, 0]} maxBarSize={isMobile ? 18 : 28}>
+                          {dayTeamLeaveTrack.map((entry) => (
+                            <Cell key={`leave-${entry.team}`} fill="#EF4444" opacity={0.75} />
+                          ))}
+                          <LabelList dataKey="leaveCount" position="top" fontSize={chartFontSize - 1} fontWeight={700} fill="#991B1B" />
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
                   )}
+                </div>
+                {/* Bottom legend */}
+                <div className="mt-2 flex justify-center gap-5 text-xs text-slate-600">
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-blue-500 opacity-80" />
+                    On Duty
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-red-500 opacity-75" />
+                    On Leave
+                  </span>
                 </div>
               </CardContent>
             </Card>

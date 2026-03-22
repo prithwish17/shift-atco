@@ -140,9 +140,40 @@ Deno.serve(async (req) => {
 
         let upserted = 0;
         if (records.length > 0) {
+            // Fetch existing records to merge (preserve manual edits)
+            const empIds = records.map((r) => r.emp_id);
+            const existingMap = new Map<string, Record<string, any>>();
+            const FETCH_BATCH = 500;
+            for (let i = 0; i < empIds.length; i += FETCH_BATCH) {
+                const batch = empIds.slice(i, i + FETCH_BATCH);
+                const { data: existingRows } = await adminClient
+                    .from("employee_training_records")
+                    .select("emp_id, ojti, examiner, completion_dates, instructor_validity, examiner_validity")
+                    .in("emp_id", batch);
+                for (const row of existingRows || []) {
+                    existingMap.set(row.emp_id, row);
+                }
+            }
+
+            // Merge incoming data with existing, preserving manual edits
+            // For each JSONB field: existing (manual) values take precedence over incoming API values
+            const mergedRecords = records.map((record) => {
+                const existing = existingMap.get(record.emp_id);
+                if (!existing) return record;
+
+                return {
+                    ...record,
+                    ojti: { ...(record.ojti as Record<string, any>), ...(existing.ojti || {}) },
+                    examiner: { ...(record.examiner as Record<string, any>), ...(existing.examiner || {}) },
+                    completion_dates: { ...(record.completion_dates as Record<string, any>), ...(existing.completion_dates || {}) },
+                    instructor_validity: { ...(record.instructor_validity as Record<string, any>), ...(existing.instructor_validity || {}) },
+                    examiner_validity: { ...(record.examiner_validity as Record<string, any>), ...(existing.examiner_validity || {}) },
+                };
+            });
+
             const BATCH_SIZE = 500;
-            for (let i = 0; i < records.length; i += BATCH_SIZE) {
-                const batch = records.slice(i, i + BATCH_SIZE);
+            for (let i = 0; i < mergedRecords.length; i += BATCH_SIZE) {
+                const batch = mergedRecords.slice(i, i + BATCH_SIZE);
                 const { error: upsertError } = await adminClient
                     .from("employee_training_records")
                     .upsert(batch, { onConflict: "emp_id" });

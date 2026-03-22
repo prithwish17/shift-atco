@@ -153,9 +153,67 @@ Deno.serve(async (req) => {
 
         let upserted = 0;
         if (records.length > 0) {
+            // Fetch existing records to merge (preserve manual edits)
+            const empIds = records.map((r) => r.emp_id);
+            const existingMap = new Map<string, Record<string, any>>();
+            const FETCH_BATCH = 500;
+            for (let i = 0; i < empIds.length; i += FETCH_BATCH) {
+                const batch = empIds.slice(i, i + FETCH_BATCH);
+                const { data: existingRows } = await adminClient
+                    .from("employee_training_records")
+                    .select("emp_id, rating_data")
+                    .in("emp_id", batch);
+                for (const row of existingRows || []) {
+                    if (row.rating_data && typeof row.rating_data === "object" && Object.keys(row.rating_data).length > 0) {
+                        existingMap.set(row.emp_id, row.rating_data);
+                    }
+                }
+            }
+
+            // Merge incoming data with existing, preserving manual proficiency_history edits
+            const mergedRecords = records.map((record) => {
+                const existingRatings = existingMap.get(record.emp_id);
+                if (!existingRatings) return record;
+
+                const incomingRatings = record.rating_data as Record<string, any>;
+                const merged: Record<string, any> = {};
+
+                // Get all rating keys from both sources
+                const allKeys = new Set([
+                    ...Object.keys(existingRatings),
+                    ...Object.keys(incomingRatings),
+                ]);
+
+                for (const key of allKeys) {
+                    const existing = existingRatings[key];
+                    const incoming = incomingRatings[key];
+
+                    if (!existing) {
+                        merged[key] = incoming;
+                    } else if (!incoming) {
+                        merged[key] = existing;
+                    } else {
+                        // Merge: API is authoritative for scalar fields,
+                        // but proficiency_history entries from DB (manual edits) take precedence
+                        merged[key] = {
+                            status: incoming.status ?? existing.status,
+                            rating_date: incoming.rating_date ?? existing.rating_date,
+                            endorsement_date: incoming.endorsement_date ?? existing.endorsement_date,
+                            last_proficiency: incoming.last_proficiency || existing.last_proficiency,
+                            proficiency_history: {
+                                ...(incoming.proficiency_history || {}),
+                                ...(existing.proficiency_history || {}), // existing (manual) overrides incoming
+                            },
+                        };
+                    }
+                }
+
+                return { ...record, rating_data: merged };
+            });
+
             const BATCH_SIZE = 500;
-            for (let i = 0; i < records.length; i += BATCH_SIZE) {
-                const batch = records.slice(i, i + BATCH_SIZE);
+            for (let i = 0; i < mergedRecords.length; i += BATCH_SIZE) {
+                const batch = mergedRecords.slice(i, i + BATCH_SIZE);
                 const { error: upsertError } = await adminClient
                     .from("employee_training_records")
                     .upsert(batch, { onConflict: "emp_id" });

@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UserPlus, Search, MoreHorizontal, Edit, Trash2, Eye, CheckCircle, ShieldCheck, Upload, FileSpreadsheet, AlertCircle } from "lucide-react";
+import { UserPlus, Search, MoreHorizontal, Edit, Trash2, Eye, EyeOff, CheckCircle, ShieldCheck, Upload, FileSpreadsheet, AlertCircle } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -23,6 +23,7 @@ export default function UserManagement() {
   const [roleFilter, setRoleFilter] = useState("all");
   const [shiftFilter, setShiftFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [visibilityFilter, setVisibilityFilter] = useState("visible");
   const [changeRoleUser, setChangeRoleUser] = useState<UserWithRole | null>(null);
   const [selectedNewRole, setSelectedNewRole] = useState("");
 
@@ -35,7 +36,7 @@ export default function UserManagement() {
   const [importProgress, setImportProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { users, isLoading, approveUser, deleteUser, updateUserRole, isApproving, isDeleting, isUpdatingRole } = useUsers();
+  const { users, isLoading, approveUser, deleteUser, updateUserRole, toggleHideUser, isApproving, isDeleting, isUpdatingRole, isTogglingHide } = useUsers();
 
   const filteredUsers = useMemo(() => {
     if (!users) return [];
@@ -50,10 +51,13 @@ export default function UserManagement() {
       const matchesStatus = statusFilter === "all" ||
         (statusFilter === "pending" && !user.approved) ||
         (statusFilter === "active" && user.approved);
+      const matchesVisibility = visibilityFilter === "all" ||
+        (visibilityFilter === "visible" && !user.is_hidden) ||
+        (visibilityFilter === "hidden" && user.is_hidden);
 
-      return matchesSearch && matchesRole && matchesShift && matchesStatus;
+      return matchesSearch && matchesRole && matchesShift && matchesStatus && matchesVisibility;
     });
-  }, [users, searchQuery, roleFilter, shiftFilter, statusFilter]);
+  }, [users, searchQuery, roleFilter, shiftFilter, statusFilter, visibilityFilter]);
 
   const getRoleBadgeVariant = (role: string) => {
     switch (role) {
@@ -170,7 +174,7 @@ export default function UserManagement() {
             <CardDescription>Find and filter users</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -218,6 +222,17 @@ export default function UserManagement() {
                   <SelectItem value="active">Active</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={visibilityFilter} onValueChange={setVisibilityFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Filter by visibility" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Users</SelectItem>
+                  <SelectItem value="visible">Visible</SelectItem>
+                  <SelectItem value="hidden">Hidden</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -272,6 +287,11 @@ export default function UserManagement() {
                           <Badge variant={getStatusBadgeVariant(user.approved ? "active" : "pending")}>
                             {user.approved ? "Active" : "Pending"}
                           </Badge>
+                          {user.is_hidden && (
+                            <Badge variant="destructive" className="ml-1 text-[10px] px-1">
+                              Hidden
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
@@ -295,6 +315,13 @@ export default function UserManagement() {
                                   Approve
                                 </DropdownMenuItem>
                               )}
+                              <DropdownMenuItem onClick={() => toggleHideUser({ userId: user.id, hidden: !user.is_hidden })}>
+                                {user.is_hidden ? (
+                                  <><Eye className="mr-2 h-4 w-4" />Unhide User</>
+                                ) : (
+                                  <><EyeOff className="mr-2 h-4 w-4" />Hide User</>
+                                )}
+                              </DropdownMenuItem>
                               {user.role !== "admin" && (
                                 <DropdownMenuItem onClick={() => {
                                   setChangeRoleUser(user);
