@@ -57,6 +57,7 @@ const menuItems = {
     { title: "Shift Duty Roster", url: "/wso/atc-grid", icon: Table2 },
     { title: "BA Test Management", url: "/wso/ba-test", icon: Shield },
     { title: "Leave Requests", url: "/wso/leaves", icon: FileText },
+    { title: "Duty Exchange", url: "/wso/duty-exchange", icon: ArrowLeftRight },
     { title: "Roster Data", url: "/wso/roster", icon: Calendar },
     { title: "Profile Settings", url: "/wso/profile", icon: UserCog },
   ],

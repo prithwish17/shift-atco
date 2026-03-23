@@ -11,7 +11,7 @@ export interface HolidayInfo {
 export interface HolidayConflict {
     date: string;
     holiday: HolidayInfo;
-    type: 'block' | 'warn';
+    type: 'warn';
     message: string;
 }
 
@@ -25,9 +25,7 @@ export function isHoliday(date: Date, holidays: HolidayInfo[]): HolidayInfo | nu
 
 /**
  * Validate a leave date range against the holiday calendar.
- * - NH (National Holiday) → block: leave not required
- * - CH (Closed Holiday) → block: office closed
- * - RH (Restricted Holiday) → warn: counts against RH quota
+ * Holiday dates are surfaced as informational notices so employees can make an informed choice before submitting.
  */
 export function validateLeaveAgainstHolidays(
     startDate: Date,
@@ -48,16 +46,16 @@ export function validateLeaveAgainstHolidays(
                 conflicts.push({
                     date: dateStr,
                     holiday,
-                    type: 'block',
-                    message: `${holiday.name} (${format(day, 'd MMM')}) is a National Holiday — leave not required.`,
+                    type: 'warn',
+                    message: `${holiday.name} (${format(day, 'd MMM')}) is a National Holiday within the selected dates.`,
                 });
                 break;
             case 'CH':
                 conflicts.push({
                     date: dateStr,
                     holiday,
-                    type: 'block',
-                    message: `${holiday.name} (${format(day, 'd MMM')}) is a Closed Holiday — office is closed.`,
+                    type: 'warn',
+                    message: `${holiday.name} (${format(day, 'd MMM')}) is a Closed Holiday within the selected dates.`,
                 });
                 break;
             case 'RH':
@@ -65,7 +63,7 @@ export function validateLeaveAgainstHolidays(
                     date: dateStr,
                     holiday,
                     type: 'warn',
-                    message: `${holiday.name} (${format(day, 'd MMM')}) is a Restricted Holiday — will be deducted from your RH quota.`,
+                    message: `${holiday.name} (${format(day, 'd MMM')}) is a Restricted Holiday within the selected dates.`,
                 });
                 break;
         }

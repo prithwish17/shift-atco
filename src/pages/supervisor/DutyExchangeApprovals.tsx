@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useDutyExchanges, useUpdateDutyExchange } from "@/hooks/useDutyExchanges";
+import { useDutyExchanges, useProcessExchangeApproval, useExchangeApprovals } from "@/hooks/useDutyExchanges";
+import { DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,88 +10,133 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeftRight, Calendar, CheckCircle, XCircle, Clock } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { ArrowLeftRight, Calendar, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { format } from "date-fns";
 
-export default function DutyExchangeApprovals() {
+type ApprovalPortalRole = "supervisor" | "wso";
+
+function getDutyLabel(dutyType?: string | null) {
+  const normalized = dutyType?.trim().toUpperCase() || "";
+  if (!normalized) return "Unknown Duty";
+  if (normalized === "OFF") return "Off Duty";
+  if (normalized === "OPE") return "Operational Duty";
+  return DUTY_DESCRIPTIONS[normalized] || normalized;
+}
+
+function ApprovalSteps({ requestId }: { requestId: string }) {
+  const { data: steps, isLoading } = useExchangeApprovals(requestId);
+  if (isLoading) return <p className="text-xs text-muted-foreground">Loading…</p>;
+  if (!steps?.length) return null;
+
+  const LABELS: Record<number, string> = { 1: "Partner", 2: "Requester WSO", 3: "Partner WSO", 4: "Supervisor" };
+
+  return (
+    <div className="mt-3 space-y-1.5">
+      {steps.map((s) => (
+        <div key={s.id} className={cn(
+          "flex items-center gap-2 rounded-lg border px-3 py-2 text-xs",
+          s.status === "approved" ? "border-emerald-200 bg-emerald-50/60" : s.status === "rejected" ? "border-red-200 bg-red-50/60" : "border-slate-200 bg-slate-50/60"
+        )}>
+          {s.status === "approved" ? <CheckCircle className="h-3.5 w-3.5 text-emerald-600" /> : s.status === "rejected" ? <XCircle className="h-3.5 w-3.5 text-red-600" /> : <Clock className="h-3.5 w-3.5 text-slate-400" />}
+          <span className="font-medium">{LABELS[s.sequence_order] || `Step ${s.sequence_order}`}</span>
+          <span className="text-muted-foreground">· {s.approver_name || "Pending"}</span>
+          {s.action_at && <span className="text-muted-foreground ml-auto">{format(new Date(s.action_at), "dd MMM, HH:mm")}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function DutyExchangeApprovals({ portalRole = "supervisor" }: { portalRole?: ApprovalPortalRole }) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const { data: exchanges, isLoading } = useDutyExchanges();
-  const updateExchange = useUpdateDutyExchange();
+  const { data: exchanges, isLoading, refetch: refetchExchanges } = useDutyExchanges();
+  const processApproval = useProcessExchangeApproval();
 
   const [selectedExchange, setSelectedExchange] = useState<any>(null);
   const [comments, setComments] = useState("");
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [action, setAction] = useState<"approve" | "reject">("approve");
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const pageTitle = portalRole === "wso" ? "Duty Exchange Review" : "Duty Exchange Approvals";
+  const pageDescription = portalRole === "wso"
+    ? "Review duty exchange requests that require WSO action"
+    : "Review and approve duty exchange requests";
+  const actionablePendingStatus = portalRole === "wso" ? "pending_wso" : "pending_supervisor";
 
-  const handleAction = async () => {
-    if (!user || !selectedExchange) return;
-
-    const isWSOApproval = selectedExchange.status === "pending_wso";
-    const isSupervisorApproval = selectedExchange.status === "pending_supervisor";
-
-    const updates: any = {};
-
-    if (action === "approve") {
-      if (isWSOApproval) {
-        updates.status = "pending_supervisor";
-        updates.wso_approved_by = user.id;
-        updates.wso_approved_at = new Date().toISOString();
-        updates.wso_comments = comments;
-      } else if (isSupervisorApproval) {
-        updates.status = "approved";
-        updates.supervisor_approved_by = user.id;
-        updates.supervisor_approved_at = new Date().toISOString();
-        updates.supervisor_comments = comments;
-      }
-    } else {
-      updates.status = "rejected";
-      if (isWSOApproval) {
-        updates.wso_approved_by = user.id;
-        updates.wso_approved_at = new Date().toISOString();
-        updates.wso_comments = comments;
-      } else {
-        updates.supervisor_approved_by = user.id;
-        updates.supervisor_approved_at = new Date().toISOString();
-        updates.supervisor_comments = comments;
-      }
-    }
-
+  // Direct approve — no dialog needed
+  const handleApprove = async (exchange: any) => {
+    if (!user) return;
     try {
-      await updateExchange.mutateAsync({ id: selectedExchange.id, ...updates });
+      await processApproval.mutateAsync({
+        request_id: exchange.id,
+        approver_id: user.id,
+        action: "approve",
+      });
+      await refetchExchanges();
 
       toast({
-        title: action === "approve" ? "Exchange approved" : "Exchange rejected",
-        description: `Duty exchange has been ${action === "approve" ? "approved" : "rejected"}`,
+        title: "Exchange approved",
+        description: portalRole === "wso"
+          ? "Duty exchange has been approved at your level."
+          : "Duty exchange has been approved at your level.",
       });
-
-      setDialogOpen(false);
-      setComments("");
-      setSelectedExchange(null);
     } catch (error: any) {
+      const msg = error?.message || "Something went wrong";
       toast({
         title: "Error",
-        description: error.message,
+        description: msg.includes("different WSO")
+          ? "This step is assigned to the other team's WSO."
+          : msg,
         variant: "destructive",
       });
     }
   };
 
-  const openApprovalDialog = (exchange: any, actionType: "approve" | "reject") => {
-    setSelectedExchange(exchange);
-    setAction(actionType);
-    setDialogOpen(true);
+  // Reject — opens dialog to capture remarks
+  const handleRejectSubmit = async () => {
+    if (!user || !selectedExchange) return;
+    try {
+      await processApproval.mutateAsync({
+        request_id: selectedExchange.id,
+        approver_id: user.id,
+        action: "reject",
+        remarks: comments || undefined,
+      });
+
+      toast({
+        title: "Exchange rejected",
+        description: "Duty exchange has been rejected at your level.",
+      });
+
+      setRejectDialogOpen(false);
+      setComments("");
+      setSelectedExchange(null);
+      await refetchExchanges();
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
   };
 
-  const pendingExchanges = exchanges?.filter((e: any) => 
-    e.status === "pending_wso" || e.status === "pending_supervisor"
-  );
-  const approvedExchanges = exchanges?.filter((e: any) => e.status === "approved");
+  const openRejectDialog = (exchange: any) => {
+    setSelectedExchange(exchange);
+    setRejectDialogOpen(true);
+  };
+
+  const pendingExchanges = exchanges?.filter((e: any) => {
+    if (e.status !== actionablePendingStatus) return false;
+    // For WSO: only show exchanges where this WSO is the assigned approver for the current step
+    if (portalRole === "wso" && e.current_step_approver_id && e.current_step_approver_id !== user?.id) {
+      return false;
+    }
+    return true;
+  });
+  const approvedExchanges = exchanges?.filter((e: any) => e.status === "approved" || e.status === "completed");
   const rejectedExchanges = exchanges?.filter((e: any) => e.status === "rejected" || e.status === "cancelled");
 
   if (isLoading) {
     return (
-      <DashboardLayout role="supervisor">
+      <DashboardLayout role={portalRole}>
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
         </div>
@@ -98,99 +144,121 @@ export default function DutyExchangeApprovals() {
     );
   }
 
-  const ExchangeCard = ({ exchange }: { exchange: any }) => (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <ArrowLeftRight className="h-5 w-5" />
-            Duty Exchange
-          </CardTitle>
-          <Badge variant={exchange.status.includes("pending") ? "secondary" : exchange.status === "approved" ? "default" : "destructive"}>
-            {exchange.status.replace(/_/g, " ").toUpperCase()}
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Requesting Employee</p>
-            <div className="text-sm">
-              <p className="font-medium">{exchange.requesting_user?.full_name}</p>
-              <p className="text-muted-foreground">{exchange.requesting_user?.employee_id}</p>
+  const ExchangeCard = ({ exchange }: { exchange: any }) => {
+    const isExpanded = expandedId === exchange.id;
+    const isPending = exchange.status === actionablePendingStatus;
+
+    return (
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <ArrowLeftRight className="h-5 w-5" />
+              Duty Exchange
+              {exchange.duty_date && (
+                <span className="text-sm font-normal text-muted-foreground ml-1">
+                  — {format(new Date(exchange.duty_date), "dd MMM yyyy")}
+                </span>
+              )}
+            </CardTitle>
+            <Badge variant={isPending ? "secondary" : exchange.status === "approved" || exchange.status === "completed" ? "default" : "destructive"}>
+              {exchange.status.replace(/_/g, " ").toUpperCase()}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Requesting Employee</p>
+              <div className="text-sm">
+                <p className="font-medium">{exchange.requesting_user?.full_name}</p>
+                <p className="text-muted-foreground">{exchange.requesting_user?.employee_id}</p>
+              </div>
+              {(exchange.requesting_shift || exchange.requesting_schedule) ? (
+                <>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Calendar className="h-4 w-4" />
+                    <span>{format(new Date(exchange.requesting_shift?.shift_date || exchange.duty_date), "dd MMM yyyy")}</span>
+                  </div>
+                  <Badge variant="outline">{getDutyLabel(exchange.requesting_schedule?.duty_code || exchange.requesting_shift?.duty_type)}</Badge>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No duty data</p>
+              )}
             </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Calendar className="h-4 w-4" />
-              <span>{format(new Date(exchange.requesting_shift?.shift_date), "dd MMM yyyy")}</span>
+
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Exchange Partner</p>
+              <div className="text-sm">
+                <p className="font-medium">{exchange.exchange_partner?.full_name}</p>
+                <p className="text-muted-foreground">{exchange.exchange_partner?.employee_id}</p>
+              </div>
+              {(exchange.partner_shift || exchange.partner_schedule) ? (
+                <>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Calendar className="h-4 w-4" />
+                    <span>{format(new Date(exchange.partner_shift?.shift_date || exchange.duty_date), "dd MMM yyyy")}</span>
+                  </div>
+                  <Badge variant="outline">{getDutyLabel(exchange.partner_schedule?.duty_code || exchange.partner_shift?.duty_type)}</Badge>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No duty data</p>
+              )}
             </div>
-            <Badge variant="outline">{exchange.requesting_shift?.duty_type}</Badge>
           </div>
 
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Exchange Partner</p>
-            <div className="text-sm">
-              <p className="font-medium">{exchange.exchange_partner?.full_name}</p>
-              <p className="text-muted-foreground">{exchange.exchange_partner?.employee_id}</p>
+          <div className="text-sm">
+            <p className="font-medium mb-1">Reason:</p>
+            <p className="text-muted-foreground">{exchange.reason}</p>
+          </div>
+
+          {/* Expandable approval timeline */}
+          <button
+            type="button"
+            className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+            onClick={() => setExpandedId(isExpanded ? null : exchange.id)}
+          >
+            {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {isExpanded ? "Hide" : "Show"} Approval Steps
+          </button>
+
+          {isExpanded && <ApprovalSteps requestId={exchange.id} />}
+
+          {isPending && (
+            <div className="flex gap-2 pt-2">
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => handleApprove(exchange)}
+                disabled={processApproval.isPending}
+                className="flex-1"
+              >
+                <CheckCircle className="h-4 w-4 mr-1" />
+                {processApproval.isPending ? "Approving…" : "Approve"}
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => openRejectDialog(exchange)}
+                disabled={processApproval.isPending}
+                className="flex-1"
+              >
+                <XCircle className="h-4 w-4 mr-1" />
+                Reject
+              </Button>
             </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Calendar className="h-4 w-4" />
-              <span>{format(new Date(exchange.partner_shift?.shift_date), "dd MMM yyyy")}</span>
-            </div>
-            <Badge variant="outline">{exchange.partner_shift?.duty_type}</Badge>
-          </div>
-        </div>
-
-        <div className="text-sm">
-          <p className="font-medium mb-1">Reason:</p>
-          <p className="text-muted-foreground">{exchange.reason}</p>
-        </div>
-
-        {exchange.wso_comments && (
-          <div className="text-sm bg-secondary/50 p-3 rounded">
-            <p className="font-medium mb-1">WSO Comments:</p>
-            <p className="text-muted-foreground">{exchange.wso_comments}</p>
-          </div>
-        )}
-
-        {exchange.supervisor_comments && (
-          <div className="text-sm bg-secondary/50 p-3 rounded">
-            <p className="font-medium mb-1">Supervisor Comments:</p>
-            <p className="text-muted-foreground">{exchange.supervisor_comments}</p>
-          </div>
-        )}
-
-        {(exchange.status === "pending_wso" || exchange.status === "pending_supervisor") && (
-          <div className="flex gap-2 pt-2">
-            <Button
-              size="sm"
-              variant="default"
-              onClick={() => openApprovalDialog(exchange, "approve")}
-              className="flex-1"
-            >
-              <CheckCircle className="h-4 w-4 mr-1" />
-              Approve
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => openApprovalDialog(exchange, "reject")}
-              className="flex-1"
-            >
-              <XCircle className="h-4 w-4 mr-1" />
-              Reject
-            </Button>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
-    <DashboardLayout role="supervisor">
+    <DashboardLayout role={portalRole}>
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold">Duty Exchange Approvals</h1>
-          <p className="text-muted-foreground">Review and approve duty exchange requests</p>
+          <h1 className="text-3xl font-bold">{pageTitle}</h1>
+          <p className="text-muted-foreground">{pageDescription}</p>
         </div>
 
         <Tabs defaultValue="pending" className="space-y-4">
@@ -210,7 +278,7 @@ export default function DutyExchangeApprovals() {
               <Card>
                 <CardContent className="text-center py-12 text-muted-foreground">
                   <Clock className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>No pending duty exchange requests</p>
+                  <p>{portalRole === "wso" ? "No duty exchange requests pending WSO review" : "No duty exchange requests pending supervisor review"}</p>
                 </CardContent>
               </Card>
             )}
@@ -245,33 +313,31 @@ export default function DutyExchangeApprovals() {
           </TabsContent>
         </Tabs>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>
-                {action === "approve" ? "Approve" : "Reject"} Duty Exchange
-              </DialogTitle>
+              <DialogTitle>Reject Duty Exchange</DialogTitle>
               <DialogDescription>
-                Add comments for the {action === "approve" ? "approval" : "rejection"}
+                Optionally add a reason for rejection (visible to both employees).
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <Textarea
                 value={comments}
                 onChange={(e) => setComments(e.target.value)}
-                placeholder="Enter your comments..."
+                placeholder="Reason for rejection (optional)..."
                 rows={4}
               />
               <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
                   Cancel
                 </Button>
                 <Button
-                  variant={action === "approve" ? "default" : "destructive"}
-                  onClick={handleAction}
-                  disabled={updateExchange.isPending}
+                  variant="destructive"
+                  onClick={handleRejectSubmit}
+                  disabled={processApproval.isPending}
                 >
-                  {updateExchange.isPending ? "Processing..." : action === "approve" ? "Approve" : "Reject"}
+                  {processApproval.isPending ? "Rejecting…" : "Confirm Reject"}
                 </Button>
               </div>
             </div>

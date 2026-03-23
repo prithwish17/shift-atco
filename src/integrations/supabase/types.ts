@@ -109,6 +109,7 @@ export type Database = {
       duty_exchanges: {
         Row: {
           created_at: string
+          duty_date: string | null
           exchange_partner_id: string
           exchange_partner_shift_id: string
           id: string
@@ -126,6 +127,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          duty_date?: string | null
           exchange_partner_id: string
           exchange_partner_shift_id: string
           id?: string
@@ -143,6 +145,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          duty_date?: string | null
           exchange_partner_id?: string
           exchange_partner_shift_id?: string
           id?: string
@@ -171,6 +174,50 @@ export type Database = {
             columns: ["requesting_user_shift_id"]
             isOneToOne: false
             referencedRelation: "shifts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      duty_exchange_approvals: {
+        Row: {
+          id: string
+          request_id: string
+          approver_id: string | null
+          approver_role: string
+          sequence_order: number
+          status: string
+          remarks: string | null
+          action_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          request_id: string
+          approver_id?: string | null
+          approver_role: string
+          sequence_order: number
+          status?: string
+          remarks?: string | null
+          action_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          request_id?: string
+          approver_id?: string | null
+          approver_role?: string
+          sequence_order?: number
+          status?: string
+          remarks?: string | null
+          action_at?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "duty_exchange_approvals_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "duty_exchanges"
             referencedColumns: ["id"]
           },
         ]
@@ -445,10 +492,12 @@ export type Database = {
           id: string
           is_ope: boolean
           notes: string | null
+          schedule_status: string
           shift_date: string
           shift_type: Database["public"]["Enums"]["shift_type"]
           updated_at: string
           user_id: string
+          wso_id: string | null
         }
         Insert: {
           created_at?: string
@@ -458,10 +507,12 @@ export type Database = {
           id?: string
           is_ope?: boolean
           notes?: string | null
+          schedule_status?: string
           shift_date: string
           shift_type: Database["public"]["Enums"]["shift_type"]
           updated_at?: string
           user_id: string
+          wso_id?: string | null
         }
         Update: {
           created_at?: string
@@ -471,10 +522,12 @@ export type Database = {
           id?: string
           is_ope?: boolean
           notes?: string | null
+          schedule_status?: string
           shift_date?: string
           shift_type?: Database["public"]["Enums"]["shift_type"]
           updated_at?: string
           user_id?: string
+          wso_id?: string | null
         }
         Relationships: []
       }
@@ -524,6 +577,48 @@ export type Database = {
         }
         Returns: boolean
       }
+      create_duty_exchange_request: {
+        Args: {
+          p_requester_id: string
+          p_partner_id: string
+          p_requester_shift_id: string
+          p_partner_shift_id: string
+          p_duty_date: string
+          p_reason: string
+        }
+        Returns: string
+      }
+      process_exchange_approval: {
+        Args: {
+          p_request_id: string
+          p_approver_id: string
+          p_action: string
+          p_remarks?: string
+        }
+        Returns: Json
+      }
+      get_exchange_approvals: {
+        Args: {
+          p_request_id: string
+        }
+        Returns: {
+          id: string
+          request_id: string
+          approver_id: string | null
+          approver_role: string
+          sequence_order: number
+          status: string
+          remarks: string | null
+          action_at: string | null
+          approver_name: string | null
+        }[]
+      }
+      execute_duty_swap: {
+        Args: {
+          p_request_id: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "supervisor" | "wso" | "employee"
@@ -531,11 +626,13 @@ export type Database = {
       duty_position: "RDR" | "APP" | "PLR" | "ADC" | "ALPHA" | "OCC"
       duty_type: "M" | "A" | "N" | "NO" | "CO" | "OFF" | "OPE"
       exchange_status:
+      | "pending_partner"
       | "pending_wso"
       | "pending_supervisor"
       | "approved"
       | "rejected"
       | "cancelled"
+      | "completed"
       holiday_type: "NH" | "RH" | "CH"
       leave_status:
       | "pending_wso"
@@ -677,11 +774,13 @@ export const Constants = {
       duty_position: ["RDR", "APP", "PLR", "ADC", "ALPHA", "OCC"],
       duty_type: ["M", "A", "N", "NO", "CO", "OFF", "OPE"],
       exchange_status: [
+        "pending_partner",
         "pending_wso",
         "pending_supervisor",
         "approved",
         "rejected",
         "cancelled",
+        "completed",
       ],
       holiday_type: ["NH", "RH", "CH"],
       leave_status: [

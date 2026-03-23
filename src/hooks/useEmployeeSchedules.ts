@@ -253,3 +253,42 @@ export function useUpdateSchedule() {
         },
     });
 }
+
+/**
+ * Lightweight hook: employee directory via SECURITY DEFINER RPC.
+ * Returns id, employee_code, full_name, current_shift for all employees.
+ * Always works regardless of profiles RLS.
+ */
+export function useEmployeeDirectory() {
+    return useQuery({
+        queryKey: ['employee_directory'],
+        staleTime: 10 * 60_000,
+        queryFn: async () => {
+            const { data, error } = await supabase.rpc('get_employee_directory');
+            if (error) {
+                // Fallback: if RPC doesn't exist yet, try reading employee_schedules
+                const { data: schedData, error: schedError } = await supabase
+                    .from('employee_schedules' as any)
+                    .select('employee_code, employee_name')
+                    .order('employee_name');
+                if (schedError) throw schedError;
+
+                const seen = new Set<string>();
+                const directory: { id: string; employee_code: string; full_name: string; current_shift: string }[] = [];
+                for (const row of (schedData || []) as any[]) {
+                    if (row.employee_code && !seen.has(row.employee_code)) {
+                        seen.add(row.employee_code);
+                        directory.push({
+                            id: '',
+                            employee_code: row.employee_code,
+                            full_name: row.employee_name || row.employee_code,
+                            current_shift: '',
+                        });
+                    }
+                }
+                return directory;
+            }
+            return (data || []) as { id: string; employee_code: string; full_name: string; current_shift: string }[];
+        },
+    });
+}

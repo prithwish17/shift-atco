@@ -286,48 +286,39 @@ export default function LeaveHistory() {
                                             } ${req.status === 'Approved' && isUpcoming ? 'border-l-4 border-l-green-400' : ''}`}
                                         onClick={() => setDetailRequest(req)}
                                     >
-                                        <CardContent className="py-3 px-4">
-                                            <div className="flex items-start justify-between gap-3">
-                                                {/* Left */}
-                                                <div className="flex items-start gap-3 min-w-0">
-                                                    <div className="mt-0.5">{getStatusIcon(req.status)}</div>
-                                                    <div className="min-w-0">
-                                                        <div className="flex items-center gap-2 flex-wrap">
-                                                            <Badge variant="outline" className="text-xs font-medium">
-                                                                {getLeaveTypeLabel(req.leave_type)}
-                                                            </Badge>
-                                                            <Badge className={`text-[10px] font-medium border ${statusInfo.color}`}>
-                                                                {statusInfo.label}
-                                                            </Badge>
+                                        <CardContent className="p-4">
+                                            <div className="space-y-3">
+                                                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                    <div className="flex items-start gap-3 min-w-0">
+                                                        <div className="mt-0.5">{getStatusIcon(req.status)}</div>
+                                                        <div className="min-w-0 space-y-2">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <Badge variant="outline" className="text-xs font-medium">
+                                                                    {getLeaveTypeLabel(req.leave_type)}
+                                                                </Badge>
+                                                                <Badge className={`text-[10px] font-medium border ${statusInfo.color}`}>
+                                                                    {statusInfo.label}
+                                                                </Badge>
+                                                                <Badge variant="outline" className="text-[10px] font-medium">
+                                                                    {req.total_days} {req.total_days === 1 ? 'day' : 'days'}
+                                                                </Badge>
+                                                            </div>
+                                                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm text-muted-foreground">
+                                                                <span className="inline-flex items-center gap-1.5">
+                                                                    <Calendar className="h-3.5 w-3.5" />
+                                                                    {format(startDate, 'dd MMM yyyy')}
+                                                                    {req.start_date !== req.end_date && ` — ${format(endDate, 'dd MMM yyyy')}`}
+                                                                </span>
+                                                                <span>Applied {format(parseISO(req.applied_at), 'dd MMM yyyy')}</span>
+                                                            </div>
                                                         </div>
-                                                        <div className="flex items-center gap-1.5 mt-1 text-sm">
-                                                            <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                                                            <span className="font-medium">
-                                                                {format(startDate, 'dd MMM yyyy')}
-                                                                {req.start_date !== req.end_date && ` — ${format(endDate, 'dd MMM yyyy')}`}
-                                                            </span>
-                                                            <span className="text-muted-foreground">
-                                                                ({req.total_days} {req.total_days === 1 ? 'day' : 'days'})
-                                                            </span>
-                                                        </div>
-                                                        {req.reason && (
-                                                            <p className="text-xs text-muted-foreground mt-1 truncate max-w-[400px]">
-                                                                {req.reason}
-                                                            </p>
-                                                        )}
                                                     </div>
-                                                </div>
 
-                                                {/* Right */}
-                                                <div className="flex flex-col items-end gap-1 shrink-0">
-                                                    <span className="text-[10px] text-muted-foreground">
-                                                        Applied {format(parseISO(req.applied_at), 'dd MMM yyyy')}
-                                                    </span>
                                                     {isPending && (
                                                         <Button
                                                             size="sm"
                                                             variant="ghost"
-                                                            className="h-6 text-[10px] text-destructive hover:text-destructive"
+                                                            className="h-7 self-start px-2.5 text-[11px] text-destructive hover:text-destructive"
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 setCancelTarget(req.id);
@@ -338,6 +329,14 @@ export default function LeaveHistory() {
                                                         </Button>
                                                     )}
                                                 </div>
+
+                                                {(req.reason || req.status === 'Pending Supervisor') && (
+                                                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-xs leading-5 text-muted-foreground dark:border-neutral-800 dark:bg-neutral-900/60 sm:text-sm">
+                                                        {req.status === 'Pending Supervisor'
+                                                            ? 'Approved by WSO, awaiting supervisor final approval.'
+                                                            : req.reason}
+                                                    </div>
+                                                )}
                                             </div>
                                         </CardContent>
                                     </Card>

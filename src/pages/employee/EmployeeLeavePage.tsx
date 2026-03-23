@@ -13,11 +13,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ChevronLeft, ChevronRight, RefreshCw, CalendarDays } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, CalendarDays, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
 import { useLeaveData } from "@/hooks/useLeaveData";
+import { useMyLeaveRequests } from "@/hooks/useLeaveRequests";
+import { useMySchedule } from "@/hooks/useEmployeeSchedules";
 import type { CompOffHistoryEntry } from "@/utils/leaveCalculations";
+import { eachDayOfInterval, endOfMonth, format, isAfter, isBefore, parseISO, startOfMonth } from "date-fns";
 
 function formatDate(value: unknown): string | null {
   if (!value || typeof value !== "string") return null;
@@ -54,33 +57,6 @@ function extractDates(items: unknown[], fields: string[]): string[] {
     }
   }
   return Array.from(new Set(out));
-}
-
-// Extract ISO date strings (YYYY-MM-DD) from items for calendar matching
-function extractIsoDates(items: unknown[], fields: string[]): string[] {
-  const out: string[] = [];
-  for (const item of items) {
-    if (typeof item === "string") {
-      try {
-        const d = new Date(item);
-        if (!isNaN(d.getTime())) out.push(d.toISOString().split("T")[0]);
-      } catch { /* skip */ }
-      continue;
-    }
-    if (item && typeof item === "object") {
-      if ((item as any).hideDates) continue;
-      for (const field of fields) {
-        const val = (item as any)[field];
-        if (typeof val === "string") {
-          try {
-            const d = new Date(val);
-            if (!isNaN(d.getTime())) out.push(d.toISOString().split("T")[0]);
-          } catch { /* skip */ }
-        }
-      }
-    }
-  }
-  return out;
 }
 
 function getCompOffSourceLabel(sourceType?: string, sourceLabel?: string): string {
@@ -222,47 +198,17 @@ type CalendarLeaveStyle = {
 };
 
 const CALENDAR_LEAVE_STYLES: Record<string, CalendarLeaveStyle> = {
-  CL: {
-    label: "CL",
-    legend: "CL",
-    cellClass: "bg-teal-100 text-teal-900",
-    badgeClass: "bg-teal-200 text-teal-900",
-  },
-  RH: {
-    label: "RH",
-    legend: "RH",
-    cellClass: "bg-amber-100 text-amber-900",
+  REQ: {
+    label: "REQ",
+    legend: "Applied",
+    cellClass: "bg-amber-50 text-amber-900 ring-1 ring-amber-200",
     badgeClass: "bg-amber-200 text-amber-900",
   },
-  NH: {
-    label: "NH",
-    legend: "NH",
-    cellClass: "bg-sky-100 text-sky-900",
-    badgeClass: "bg-sky-200 text-sky-900",
-  },
-  CH: {
-    label: "CH",
-    legend: "CH",
-    cellClass: "bg-violet-100 text-violet-900",
-    badgeClass: "bg-violet-200 text-violet-900",
-  },
-  COFF: {
-    label: "C-OFF",
-    legend: "C-OFF",
-    cellClass: "bg-rose-100 text-rose-900",
-    badgeClass: "bg-rose-200 text-rose-900",
-  },
-  OPE: {
-    label: "OPE",
-    legend: "OPE",
-    cellClass: "bg-orange-100 text-orange-900",
-    badgeClass: "bg-orange-200 text-orange-900",
-  },
-  EL: {
-    label: "EL",
-    legend: "EL",
-    cellClass: "bg-blue-100 text-blue-900",
-    badgeClass: "bg-blue-200 text-blue-900",
+  APR: {
+    label: "LEAVE",
+    legend: "Approved",
+    cellClass: "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200",
+    badgeClass: "bg-emerald-200 text-emerald-900",
   },
 };
 
@@ -273,8 +219,16 @@ export default function EmployeeLeavePage() {
   const [compOffView, setCompOffView] = useState<"available" | "all">("available");
   const employeeEmpId = profile?.employee_id ? String(profile.employee_id) : null;
   const { data, leaveQuery, refresh } = useLeaveData(selectedYear, employeeEmpId);
+  const { data: myLeaveRequests = [], isLoading: leaveRequestsLoading } = useMyLeaveRequests(user?.id);
 
   const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const calendarMonthStart = format(startOfMonth(calendarDate), "yyyy-MM-dd");
+  const calendarMonthEnd = format(endOfMonth(calendarDate), "yyyy-MM-dd");
+  const { data: monthlySchedule = [], isLoading: monthlyScheduleLoading } = useMySchedule(
+    employeeEmpId || undefined,
+    calendarMonthStart,
+    calendarMonthEnd
+  );
 
   const employeeRecord = useMemo(() => {
     const empId = employeeEmpId || "";
@@ -282,7 +236,7 @@ export default function EmployeeLeavePage() {
     return data.find((record) => record.empId === empId) || null;
   }, [data, employeeEmpId]);
 
-  const isLoading = profileLoading || leaveQuery.isLoading;
+  const isLoading = profileLoading || leaveQuery.isLoading || leaveRequestsLoading || monthlyScheduleLoading;
 
   const compOffLedgerRows = useMemo(() => {
     if (!employeeRecord) return [] as CompOffHistoryEntry[];
@@ -358,35 +312,53 @@ export default function EmployeeLeavePage() {
 
   // Calendar data: map of ISO date -> leave style
   const calendarLeaves = useMemo(() => {
-    if (!employeeRecord) return new Map<string, CalendarLeaveStyle>();
     const map = new Map<string, CalendarLeaveStyle>();
 
-    const addDates = (dates: string[], style: CalendarLeaveStyle) => {
-      dates.forEach((d) => {
-        if (!map.has(d)) map.set(d, style);
+    const monthStartDate = parseISO(calendarMonthStart);
+    const monthEndDate = parseISO(calendarMonthEnd);
+
+    myLeaveRequests
+      .filter((request) => request.status === "Pending WSO" || request.status === "Pending Supervisor")
+      .forEach((request) => {
+        const requestStart = parseISO(request.start_date);
+        const requestEnd = parseISO(request.end_date);
+        if (isAfter(requestStart, monthEndDate) || isBefore(requestEnd, monthStartDate)) return;
+
+        const boundedStart = isBefore(requestStart, monthStartDate) ? monthStartDate : requestStart;
+        const boundedEnd = isAfter(requestEnd, monthEndDate) ? monthEndDate : requestEnd;
+
+        eachDayOfInterval({ start: boundedStart, end: boundedEnd }).forEach((day) => {
+          map.set(format(day, "yyyy-MM-dd"), CALENDAR_LEAVE_STYLES.REQ);
+        });
       });
-    };
 
-    const clDates = extractIsoDates(employeeRecord.casualLeave, []);
-    addDates(clDates, CALENDAR_LEAVE_STYLES.CL);
+    let approvedCount = 0;
+    monthlySchedule.forEach((entry) => {
+      if (entry.duty_code === "LEAVE") {
+        map.set(entry.duty_date, CALENDAR_LEAVE_STYLES.APR);
+        approvedCount++;
+      }
+    });
 
-    const rhDates = extractIsoDates(employeeRecord.restrictedHolidays, ["date"]);
-    addDates(rhDates, CALENDAR_LEAVE_STYLES.RH);
+    if (approvedCount === 0) {
+      myLeaveRequests
+        .filter((request) => request.status === "Approved")
+        .forEach((request) => {
+          const requestStart = parseISO(request.start_date);
+          const requestEnd = parseISO(request.end_date);
+          if (isAfter(requestStart, monthEndDate) || isBefore(requestEnd, monthStartDate)) return;
 
-    const nhDates = extractIsoDates(employeeRecord.nationalHolidays, []);
-    addDates(nhDates, CALENDAR_LEAVE_STYLES.NH);
+          const boundedStart = isBefore(requestStart, monthStartDate) ? monthStartDate : requestStart;
+          const boundedEnd = isAfter(requestEnd, monthEndDate) ? monthEndDate : requestEnd;
 
-    const chDates = extractIsoDates(employeeRecord.closedHolidays, ["leaveApplied"]);
-    addDates(chDates, CALENDAR_LEAVE_STYLES.CH);
-
-    const coDates = extractIsoDates(employeeRecord.compOffUsedEntries, ["leaveApplied"]);
-    addDates(coDates, CALENDAR_LEAVE_STYLES.COFF);
-
-    const opeDates = extractIsoDates(employeeRecord.opeDuty, ["opeDutyDate"]);
-    addDates(opeDates, CALENDAR_LEAVE_STYLES.OPE);
+          eachDayOfInterval({ start: boundedStart, end: boundedEnd }).forEach((day) => {
+            map.set(format(day, "yyyy-MM-dd"), CALENDAR_LEAVE_STYLES.APR);
+          });
+        });
+    }
 
     return map;
-  }, [employeeRecord]);
+  }, [calendarMonthEnd, calendarMonthStart, monthlySchedule, myLeaveRequests]);
 
   // Calendar grid calculation
   const calendarGrid = useMemo(() => {
@@ -722,7 +694,19 @@ export default function EmployeeLeavePage() {
 
         <Card className="shadow-sm">
           <CardHeader>
-            <CardTitle className="text-base">Leave Calendar</CardTitle>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle className="text-base">Leave Calendar</CardTitle>
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300 md:text-xs">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 font-medium text-amber-800 ring-1 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/50">
+                  <span className="inline-flex rounded-sm bg-amber-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-900 dark:bg-amber-900/70 dark:text-amber-100">REQ</span>
+                  Applied
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 font-medium text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/50">
+                  <span className="inline-flex rounded-sm bg-emerald-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-900 dark:bg-emerald-900/70 dark:text-emerald-100">APR</span>
+                  Approved
+                </span>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-3">
@@ -753,8 +737,9 @@ export default function EmployeeLeavePage() {
                           <div
                             className={`mt-1 flex flex-1 items-end rounded-md px-1.5 py-1 ${leaveStyle.cellClass}`}
                           >
-                            <span className={`inline-flex rounded-sm px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${leaveStyle.badgeClass}`}>
+                            <span className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${leaveStyle.badgeClass}`}>
                               {leaveStyle.label}
+                              {leaveStyle.label === "LEAVE" ? <CheckCircle2 className="h-3 w-3" /> : null}
                             </span>
                           </div>
                         )}

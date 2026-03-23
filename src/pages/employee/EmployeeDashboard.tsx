@@ -1,16 +1,17 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Calendar, CalendarDays, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye, Phone, MapPin, Hash, FileCheck, Globe, Star } from "lucide-react";
+import { Calendar, CalendarDays, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye, Phone, MapPin, Hash, FileCheck, Globe, Star, ChevronLeft, ChevronRight, ArrowLeftRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
 import { useLeaveBalances } from "@/hooks/useLeaves";
-import { useLeaveData } from "@/hooks/useLeaveData";
 import { useShifts } from "@/hooks/useShifts";
 import { useMyRoster } from "@/hooks/useRosters";
 import { useMySchedule, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
+import { useMyLeaveRequests } from "@/hooks/useLeaveRequests";
+import { useDutyExchanges } from "@/hooks/useDutyExchanges";
 import { buildEmployeeLicenseHealth, type LicenseWithExtras } from "@/hooks/useLicenseDashboard";
-import { format, addDays, isSameDay, parse, parseISO, differenceInDays } from "date-fns";
+import { format, addDays, isSameDay, parse, parseISO, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, isAfter, isBefore } from "date-fns";
 
 const DOUBLE_DUTY_CODES = new Set(["M+A", "A+M"]);
 
@@ -100,69 +101,34 @@ function sortRosterEntriesByShift<T extends { shift: string }>(entries: T[]): T[
   });
 }
 
-function formatLeaveDate(value: unknown): string | null {
-  if (!value || typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  const monthMatch = trimmed.match(/\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\b\s+(\d{1,2})\s+(\d{4})/i);
-  if (monthMatch) {
-    const formattedMonth = monthMatch[1].charAt(0).toUpperCase() + monthMatch[1].slice(1).toLowerCase();
-    return `${formattedMonth} ${monthMatch[2].padStart(2, "0")} ${monthMatch[3]}`;
-  }
-
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.getTime())) return trimmed;
-  return date
-    .toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
-    .replace(",", "");
-}
-
-function extractLeaveDates(items: unknown[], fields: string[]): string[] {
-  const out: string[] = [];
-  for (const item of items) {
-    if (typeof item === "string") {
-      const formatted = formatLeaveDate(item);
-      if (formatted) out.push(formatted);
-      continue;
-    }
-    if (item && typeof item === "object") {
-      if ((item as any).hideDates) continue;
-      for (const field of fields) {
-        const formatted = formatLeaveDate((item as any)[field]);
-        if (formatted) out.push(formatted);
-      }
-    }
-  }
-  return Array.from(new Set(out));
-}
-
-function getLeaveTypeHighlightClass(type: string): string {
-  switch (type) {
-    case "Casual Leave":
-      return "border-l-teal-500 bg-teal-50/80 text-teal-900";
-    case "Earned Leave":
-      return "border-l-blue-500 bg-blue-50/80 text-blue-900";
-    case "Compensatory Off":
-      return "border-l-rose-500 bg-rose-50/80 text-rose-900";
-    case "Reserved Holiday":
-      return "border-l-amber-500 bg-amber-50/80 text-amber-900";
-    default:
-      return "border-l-slate-400 bg-slate-50 text-slate-900";
-  }
-}
+const DASHBOARD_LEAVE_CALENDAR_STYLES = {
+  applied: {
+    label: "REQ",
+    legend: "Applied",
+    cellClass: "bg-amber-50 text-amber-900 ring-1 ring-amber-200",
+    badgeClass: "bg-amber-200 text-amber-900",
+  },
+  approved: {
+    label: "LEAVE",
+    legend: "Approved",
+    cellClass: "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200",
+    badgeClass: "bg-emerald-200 text-emerald-900",
+  },
+} as const;
 
 export default function EmployeeDashboard() {
   const { user, userRole } = useAuth();
   const { profile, isLoading: profileLoading } = useUserProfile(user?.id);
   const currentYear = new Date().getFullYear();
+  const [currentMonthDate, setCurrentMonthDate] = useState(() => new Date());
+  const currentMonthStart = format(startOfMonth(currentMonthDate), "yyyy-MM-dd");
+  const currentMonthEnd = format(endOfMonth(currentMonthDate), "yyyy-MM-dd");
 
   const today = format(new Date(), "yyyy-MM-dd");
   const weekEnd = format(addDays(new Date(), 9), "yyyy-MM-dd");
   const employeeEmpId = profile?.employee_id ? String(profile.employee_id) : null;
 
   const { data: balances, isLoading: balancesLoading } = useLeaveBalances(user?.id);
-  const { data: leaveData, leaveQuery } = useLeaveData(currentYear, employeeEmpId);
   const { shifts, isLoading: shiftsLoading } = useShifts(user?.id, today, weekEnd);
   const { data: myRoster, isLoading: rosterLoading } = useMyRoster(profile?.full_name);
   const { data: mySchedule = [], isLoading: scheduleLoading } = useMySchedule(
@@ -170,6 +136,21 @@ export default function EmployeeDashboard() {
     today,
     format(addDays(new Date(), 9), 'yyyy-MM-dd')
   );
+  const { data: monthlySchedule = [], isLoading: monthlyScheduleLoading } = useMySchedule(
+    employeeEmpId || undefined,
+    currentMonthStart,
+    currentMonthEnd
+  );
+  const { data: myLeaveRequests = [], isLoading: leaveRequestsLoading } = useMyLeaveRequests(user?.id);
+  const { data: myExchanges = [] } = useDutyExchanges(user?.id);
+
+  const pendingExchanges = useMemo(() => {
+    return myExchanges.filter((ex: any) => {
+      const isPendingPartner = ex.status === "pending_partner" && ex.exchange_partner_id === user?.id;
+      const isPendingOther = ["pending_wso", "pending_supervisor"].includes(ex.status);
+      return isPendingPartner || isPendingOther;
+    });
+  }, [myExchanges, user?.id]);
 
   const yearBalances = balances?.filter(b => b.year === currentYear) || [];
   const clBalance = yearBalances.find(b => b.leave_type === "cl");
@@ -197,28 +178,94 @@ export default function EmployeeDashboard() {
   const todaySchedule = mySchedule.find(s => s.duty_date === today);
   const tomorrowSchedule = mySchedule.find(s => s.duty_date === tomorrowStr);
 
-  const employeeLeaveRecord = useMemo(() => {
-    const empId = employeeEmpId || "";
-    if (!empId) return null;
-    return leaveData.find((record) => record.empId === empId) || null;
-  }, [leaveData, employeeEmpId]);
+  const dashboardCalendarCells = useMemo(() => {
+    const year = currentMonthDate.getFullYear();
+    const month = currentMonthDate.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const cells: { day: number | null; iso: string | null }[] = [];
 
-  const leaveSummaryRows = useMemo(() => {
-    if (!employeeLeaveRecord) return [] as Array<{ type: string; dates: string[] }>;
+    for (let i = 0; i < firstDay; i++) {
+      cells.push({ day: null, iso: null });
+    }
 
-    const casualDates = extractLeaveDates(employeeLeaveRecord.casualLeave, []);
-    const reservedDates = extractLeaveDates(employeeLeaveRecord.restrictedHolidays, ["date", "leaveApplied"]);
-    const compOffDates = extractLeaveDates(employeeLeaveRecord.compOffUsedEntries, ["leaveApplied"]);
+    for (let day = 1; day <= daysInMonth; day++) {
+      cells.push({
+        day,
+        iso: `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+      });
+    }
 
-    return [
-      { type: "Casual Leave", dates: casualDates },
-      { type: "Earned Leave", dates: [] },
-      { type: "Compensatory Off", dates: compOffDates },
-      { type: "Reserved Holiday", dates: reservedDates },
-    ];
-  }, [employeeLeaveRecord]);
+    return cells;
+  }, [currentMonthDate]);
 
-  const isLoading = profileLoading || balancesLoading || shiftsLoading || leaveQuery.isLoading;
+  const approvedLeaveDates = useMemo(() => {
+    const dates = new Set<string>();
+    monthlySchedule.forEach((entry) => {
+      if (entry.duty_code === "LEAVE") dates.add(entry.duty_date);
+    });
+
+    if (dates.size > 0) return dates;
+
+    const monthStartDate = parseISO(currentMonthStart);
+    const monthEndDate = parseISO(currentMonthEnd);
+
+    myLeaveRequests
+      .filter((request) => request.status === "Approved")
+      .forEach((request) => {
+        const requestStart = parseISO(request.start_date);
+        const requestEnd = parseISO(request.end_date);
+        if (isAfter(requestStart, monthEndDate) || isBefore(requestEnd, monthStartDate)) return;
+
+        const boundedStart = isBefore(requestStart, monthStartDate) ? monthStartDate : requestStart;
+        const boundedEnd = isAfter(requestEnd, monthEndDate) ? monthEndDate : requestEnd;
+
+        eachDayOfInterval({ start: boundedStart, end: boundedEnd }).forEach((day) => {
+          dates.add(format(day, "yyyy-MM-dd"));
+        });
+      });
+
+    return dates;
+  }, [currentMonthEnd, currentMonthStart, monthlySchedule, myLeaveRequests]);
+
+  const appliedLeaveDates = useMemo(() => {
+    const dates = new Set<string>();
+    const monthStartDate = parseISO(currentMonthStart);
+    const monthEndDate = parseISO(currentMonthEnd);
+
+    myLeaveRequests
+      .filter((request) => request.status === "Pending WSO" || request.status === "Pending Supervisor")
+      .forEach((request) => {
+        const requestStart = parseISO(request.start_date);
+        const requestEnd = parseISO(request.end_date);
+        if (isAfter(requestStart, monthEndDate) || isBefore(requestEnd, monthStartDate)) return;
+
+        const boundedStart = isBefore(requestStart, monthStartDate) ? monthStartDate : requestStart;
+        const boundedEnd = isAfter(requestEnd, monthEndDate) ? monthEndDate : requestEnd;
+
+        eachDayOfInterval({ start: boundedStart, end: boundedEnd }).forEach((day) => {
+          dates.add(format(day, "yyyy-MM-dd"));
+        });
+      });
+
+    return dates;
+  }, [currentMonthEnd, currentMonthStart, myLeaveRequests]);
+
+  const dashboardLeaveCalendar = useMemo(() => {
+    const map = new Map<string, (typeof DASHBOARD_LEAVE_CALENDAR_STYLES)[keyof typeof DASHBOARD_LEAVE_CALENDAR_STYLES]>();
+
+    appliedLeaveDates.forEach((date) => {
+      map.set(date, DASHBOARD_LEAVE_CALENDAR_STYLES.applied);
+    });
+
+    approvedLeaveDates.forEach((date) => {
+      map.set(date, DASHBOARD_LEAVE_CALENDAR_STYLES.approved);
+    });
+
+    return map;
+  }, [appliedLeaveDates, approvedLeaveDates]);
+
+  const isLoading = profileLoading || balancesLoading || shiftsLoading || monthlyScheduleLoading || leaveRequestsLoading;
 
   const currentShift = profile?.current_shift ? `${profile.current_shift.toUpperCase()} Shift` : "—";
   const licenseHealth = buildEmployeeLicenseHealth(profile, ((profile?.licenses || []) as LicenseWithExtras[]));
@@ -232,6 +279,42 @@ export default function EmployeeDashboard() {
   return (
     <DashboardLayout role="employee">
       <div className="space-y-4 md:space-y-6">
+
+        {/* ─── Pending Duty Exchange Banner ─── */}
+        {pendingExchanges.length > 0 && (
+          <Link to="/employee/duty-exchange" className="block">
+            <div className="bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 rounded-xl p-4 md:p-5">
+              <div className="flex items-start gap-3">
+                <div className="size-9 bg-amber-100 dark:bg-amber-800/50 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                  <ArrowLeftRight className="size-4 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                    {pendingExchanges.length} Pending Duty Exchange{pendingExchanges.length > 1 ? "s" : ""}
+                  </p>
+                  <div className="mt-1.5 space-y-1">
+                    {pendingExchanges.slice(0, 3).map((ex: any) => {
+                      const isPartnerAction = ex.status === "pending_partner" && ex.exchange_partner_id === user?.id;
+                      const partnerName = ex.requesting_user?.full_name || "Someone";
+                      const requesterName = ex.exchange_partner?.full_name || "Partner";
+                      return (
+                        <p key={ex.id} className="text-xs text-amber-700 dark:text-amber-300">
+                          {isPartnerAction
+                            ? `${partnerName} has requested a duty exchange with you${ex.duty_date ? ` on ${format(new Date(ex.duty_date), "dd MMM")}` : ""} — action required`
+                            : `Exchange with ${ex.requesting_user_id === user?.id ? requesterName : partnerName}${ex.duty_date ? ` on ${format(new Date(ex.duty_date), "dd MMM")}` : ""} — awaiting ${ex.status.replace("pending_", "").toUpperCase()} approval`}
+                        </p>
+                      );
+                    })}
+                    {pendingExchanges.length > 3 && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">+{pendingExchanges.length - 3} more</p>
+                    )}
+                  </div>
+                </div>
+                <span className="text-xs font-medium text-amber-600 dark:text-amber-400 shrink-0">View &rarr;</span>
+              </div>
+            </div>
+          </Link>
+        )}
 
         {/* ─── Duty Overview Card ─── */}
         <div className="bg-white dark:bg-gray-900 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700">
@@ -630,66 +713,91 @@ export default function EmployeeDashboard() {
         <div className="bg-white dark:bg-gray-900 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between gap-3 mb-4">
             <div>
-              <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm md:text-base">My Leave Summary</h3>
-              <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">Synced from backend leave records for {currentYear}</p>
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm md:text-base">Leave Calendar</h3>
+              <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">Applied requests vs approved leave from schedule for {format(currentMonthDate, "MMMM yyyy")}</p>
             </div>
-            <Link to="/employee/leave-dashboard" className="text-xs md:text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline">
-              View full leave summary
-            </Link>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCurrentMonthDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                aria-label="Previous month"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <div className="min-w-[110px] text-center text-xs font-semibold text-slate-700 dark:text-slate-200 md:min-w-[130px] md:text-sm">
+                {format(currentMonthDate, "MMMM yyyy")}
+              </div>
+              <button
+                type="button"
+                onClick={() => setCurrentMonthDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                aria-label="Next month"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+              <Link to="/employee/leave-dashboard" className="text-xs md:text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                View full leave summary
+              </Link>
+            </div>
           </div>
 
-          {leaveQuery.error ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
-              {(leaveQuery.error as Error).message || "Failed to load leave summary from backend"}
-            </div>
-          ) : !employeeEmpId ? (
+          {!employeeEmpId ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-              Your profile does not have an employee ID yet, so backend leave data cannot be linked.
-            </div>
-          ) : !employeeLeaveRecord ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
-              No leave records were found in the backend for employee ID {employeeEmpId}.
+              Your profile does not have an employee ID yet, so approved leave cannot be matched from schedule.
             </div>
           ) : (
-            <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-100/90 dark:border-slate-800 dark:bg-slate-900/80">
-                    <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-[0.14em] text-slate-700 dark:text-slate-300 md:px-4 md:py-3 md:text-xs">Leave Type</th>
-                    <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-[0.14em] text-slate-700 dark:text-slate-300 md:px-4 md:py-3 md:text-xs">Leave Used On</th>
-                    <th className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-[0.14em] text-slate-700 dark:text-slate-300 md:px-4 md:py-3 md:text-xs">Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leaveSummaryRows.map((row, idx) => (
-                    <tr key={row.type} className={idx % 2 === 0 ? "bg-white dark:bg-gray-900" : "bg-slate-50/70 dark:bg-slate-950/40"}>
-                      <td className="px-3 py-2 md:px-4 md:py-3">
-                        <span className={`inline-flex min-h-7 items-center border-l-4 px-2 py-1 text-[10px] font-semibold leading-snug md:min-h-10 md:px-3 md:text-sm ${getLeaveTypeHighlightClass(row.type)}`}>
-                          {row.type}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 md:px-4 md:py-3">
-                        <div className="flex flex-wrap gap-1.5 md:gap-2">
-                          {row.dates.length > 0 ? (
-                            row.dates.map((date) => (
-                              <span key={date} className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200 md:text-xs">
-                                {date}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-[10px] text-slate-500 dark:text-slate-400 md:text-xs">No records</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 md:px-4 md:py-3">
-                        <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300 md:text-xs">
-                          {row.dates.length}
-                        </span>
-                      </td>
-                    </tr>
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600 dark:text-slate-300 md:text-xs">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 font-medium text-amber-800 ring-1 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/50">
+                  <span className="inline-flex rounded-sm bg-amber-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-900 dark:bg-amber-900/70 dark:text-amber-100">REQ</span>
+                  Applied requests: {appliedLeaveDates.size}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 font-medium text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/50">
+                  <span className="inline-flex rounded-sm bg-emerald-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-900 dark:bg-emerald-900/70 dark:text-emerald-100">APR</span>
+                  Approved in schedule: {approvedLeaveDates.size}
+                </span>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
+                <div className="grid grid-cols-7 gap-px bg-slate-200/70 dark:bg-slate-800/80 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-700 dark:text-slate-300 md:text-xs">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                    <div key={day} className="bg-slate-100/90 px-1 py-2 text-center dark:bg-slate-900/80">
+                      {day}
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+                <div className="grid grid-cols-7 gap-px bg-slate-200/70 dark:bg-slate-800/80">
+                  {dashboardCalendarCells.map((cell, idx) => {
+                    const leaveStyle = cell.iso ? dashboardLeaveCalendar.get(cell.iso) : undefined;
+                    const todayIso = format(new Date(), "yyyy-MM-dd");
+                    const isTodayCell = cell.iso === todayIso;
+
+                    return (
+                      <div
+                        key={`${cell.iso || 'pad'}-${idx}`}
+                        className={`min-h-[64px] bg-white p-1.5 dark:bg-gray-900 md:min-h-[88px] md:p-2 ${!cell.day ? 'bg-slate-50/80 dark:bg-slate-950/60' : ''}`}
+                      >
+                        {cell.day ? (
+                          <div className="flex h-full flex-col">
+                            <div className={`text-[11px] font-semibold md:text-xs ${isTodayCell ? 'text-blue-600 dark:text-blue-400' : 'text-slate-600 dark:text-slate-300'}`}>
+                              {cell.day}
+                            </div>
+                            {leaveStyle && (
+                              <div className={`mt-1 flex flex-1 items-end rounded-md px-1 py-1 md:px-1.5 ${leaveStyle.cellClass}`}>
+                                <span className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${leaveStyle.badgeClass}`}>
+                                  {leaveStyle.label}
+                                  {leaveStyle.label === "LEAVE" ? <CheckCircle className="h-3 w-3" /> : null}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
         </div>

@@ -229,6 +229,8 @@ export default function EmployeeCompOffPage() {
     return [...filtered].sort(compareCompOffRows);
   }, [activeFilter, compOffLedgerRows]);
 
+  const useTwoColumnCardLayout = filteredCompOffRows.length > 4;
+
   return (
     <DashboardLayout role="employee">
       <div className="space-y-6">
@@ -362,7 +364,7 @@ export default function EmployeeCompOffPage() {
                   ))}
                 </div>
 
-                <div className="space-y-3">
+                <div className={useTwoColumnCardLayout ? "grid gap-3 xl:grid-cols-2 xl:items-start" : "space-y-3"}>
                   {filteredCompOffRows.length ? (
                     filteredCompOffRows.map((row) => (
                       <div

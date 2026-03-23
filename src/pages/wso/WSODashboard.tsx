@@ -166,7 +166,7 @@ export default function WSODashboard() {
                         Duty Exchange: {exchange.reason}
                       </p>
                     </div>
-                    <Link to="/supervisor/duty-exchange">
+                    <Link to="/wso/duty-exchange">
                       <Button size="sm" variant="outline">Review</Button>
                     </Link>
                   </div>

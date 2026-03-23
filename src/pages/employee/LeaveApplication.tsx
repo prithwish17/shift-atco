@@ -16,8 +16,60 @@ import { Calendar, Clock3, CheckCircle2, AlertCircle, Send, Ban, Sparkles, Arrow
 import { format, differenceInDays, isBefore, startOfDay } from 'date-fns';
 import { LEAVE_TYPES, getLeaveTypeLabel, getLeaveStatusInfo } from '@/lib/leaveConstants';
 import { useMyLeaveRequests, useCreateLeaveRequest, useCancelLeaveRequest } from '@/hooks/useLeaveRequests';
+import { useLeaveBalances } from '@/hooks/useLeaves';
 import { useHolidaysByYear } from '@/hooks/useHolidayDashboard';
 import { validateLeaveAgainstHolidays, type HolidayConflict } from '@/lib/holidayRules';
+
+function getBalanceBucket(leaveType: string): 'cl' | 'rh' | 'comp_off' | null {
+  if (!leaveType) return null;
+
+  if (['CL', 'CL_CON', 'CL_1ST', 'CL_1ST_CON', 'CL_2ND', 'CL_2ND_CON'].includes(leaveType)) {
+    return 'cl';
+  }
+
+  if (leaveType === 'RH') return 'rh';
+  if (leaveType === 'COMP_OFF') return 'comp_off';
+
+  // EL, NEE, HPL, COMM — balances not reliably updated yet, skip enforcement
+  return null;
+}
+
+function getBalanceBucketLabel(bucket: 'cl' | 'rh' | 'comp_off' | null): string | null {
+  switch (bucket) {
+    case 'cl':
+      return 'Casual Leave';
+    case 'rh':
+      return 'Restricted Holiday';
+    case 'comp_off':
+      return 'Comp Off';
+    default:
+      return null;
+  }
+}
+
+const CL_LEAVE_TYPES = ['CL', 'CL_CON', 'CL_1ST', 'CL_1ST_CON', 'CL_2ND', 'CL_2ND_CON'];
+const RH_LEAVE_TYPES = ['RH'];
+const COMP_OFF_LEAVE_TYPES = ['COMP_OFF'];
+
+function getLeaveTypesForBucket(bucket: 'cl' | 'rh' | 'comp_off' | null): string[] {
+  switch (bucket) {
+    case 'cl': return CL_LEAVE_TYPES;
+    case 'rh': return RH_LEAVE_TYPES;
+    case 'comp_off': return COMP_OFF_LEAVE_TYPES;
+    default: return [];
+  }
+}
+
+function getHolidayNoticeTone(holidayType: 'NH' | 'RH' | 'CH'): string {
+  switch (holidayType) {
+    case 'CH':
+      return 'border-emerald-200 bg-emerald-50/90 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300';
+    case 'RH':
+      return 'border-amber-200 bg-amber-50/90 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300';
+    default:
+      return 'border-sky-200 bg-sky-50/90 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300';
+  }
+}
 
 function getStatusTone(status: string): string {
   switch (status) {
@@ -76,6 +128,7 @@ export default function LeaveApplication() {
   }, [user?.id]);
 
   const { data: myRequests = [], isLoading } = useMyLeaveRequests(user?.id);
+  const { data: leaveBalances = [], isLoading: leaveBalancesLoading } = useLeaveBalances(user?.id);
   const createRequest = useCreateLeaveRequest();
   const cancelRequest = useCancelLeaveRequest();
 
@@ -110,7 +163,69 @@ export default function LeaveApplication() {
       holidays
     );
   }, [formData.start_date, formData.end_date, holidays]);
-  const hasBlockingConflict = holidayConflicts.some((c) => c.type === 'block');
+  const requestedDays = isHalfDay ? 0.5 : totalDays;
+  const balanceBucket = useMemo(() => getBalanceBucket(formData.leave_type), [formData.leave_type]);
+  const matchingBalanceEntries = useMemo(() => {
+    if (!balanceBucket) return null;
+
+    const normalizedMatches = leaveBalances.filter(
+      (balance) => String(balance.leave_type).toLowerCase() === balanceBucket
+    );
+
+    if (normalizedMatches.length === 0) return null;
+
+    const currentYearMatches = normalizedMatches.filter((balance) => balance.year === currentYear);
+    if (currentYearMatches.length > 0) return currentYearMatches;
+
+    const latestYear = Math.max(...normalizedMatches.map((balance) => balance.year));
+    return normalizedMatches.filter((balance) => balance.year === latestYear);
+  }, [balanceBucket, currentYear, leaveBalances]);
+  const DEFAULT_CL_BALANCE = 12;
+  const availableBalance = useMemo(() => {
+    if (!matchingBalanceEntries || matchingBalanceEntries.length === 0) {
+      // CL defaults to 12 when no balance record exists
+      if (balanceBucket === 'cl') return DEFAULT_CL_BALANCE;
+      return null;
+    }
+
+    return matchingBalanceEntries.reduce((total, balance) => total + Number(balance.balance || 0), 0);
+  }, [matchingBalanceEntries, balanceBucket]);
+  const balanceYear = matchingBalanceEntries?.[0]?.year ?? null;
+  const balanceLabel = getBalanceBucketLabel(balanceBucket);
+
+  // Tally already-applied days (pending + approved) for the same leave-type bucket in current year
+  const alreadyAppliedDays = useMemo(() => {
+    if (!balanceBucket) return 0;
+    const bucketLeaveTypes = getLeaveTypesForBucket(balanceBucket);
+    return myRequests
+      .filter((req) => {
+        if (!bucketLeaveTypes.includes(req.leave_type)) return false;
+        const status = req.status;
+        if (status !== 'Pending WSO' && status !== 'Pending Supervisor' && status !== 'Approved') return false;
+        const reqYear = new Date(req.start_date).getFullYear();
+        return reqYear === currentYear;
+      })
+      .reduce((sum, req) => sum + (req.total_days || 0), 0);
+  }, [balanceBucket, myRequests, currentYear]);
+
+  const effectiveBalance = typeof availableBalance === 'number' ? availableBalance - alreadyAppliedDays : null;
+  const hasApplicableBalanceCheck = Boolean(balanceBucket && formData.leave_type && typeof effectiveBalance === 'number');
+  const hasInsufficientBalance = Boolean(
+    hasApplicableBalanceCheck &&
+    !leaveBalancesLoading &&
+    requestedDays > 0 &&
+    typeof effectiveBalance === 'number' &&
+    effectiveBalance < requestedDays
+  );
+  const balanceMessage = hasApplicableBalanceCheck
+    ? leaveBalancesLoading
+      ? 'Checking your available leave balance.'
+      : hasInsufficientBalance
+        ? `${balanceLabel} balance is insufficient. Total: ${availableBalance ?? 0}, already applied: ${alreadyAppliedDays}, remaining: ${effectiveBalance ?? 0}. You are requesting ${requestedDays} day${requestedDays === 1 ? '' : 's'}. Please correct your leave application.`
+        : typeof effectiveBalance === 'number'
+          ? `${balanceLabel} balance: ${availableBalance ?? 0}${balanceYear && balanceYear !== currentYear ? ` (from ${balanceYear})` : ''}, applied: ${alreadyAppliedDays}, remaining: ${effectiveBalance}. Requesting: ${requestedDays}.`
+          : null
+    : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,10 +249,13 @@ export default function LeaveApplication() {
       return;
     }
 
-    // Holiday validation
-    if (hasBlockingConflict) {
-      const blockers = holidayConflicts.filter((c) => c.type === 'block');
-      toast.error(blockers[0].message);
+    if (hasApplicableBalanceCheck && leaveBalancesLoading) {
+      toast.error('Leave balance is still loading. Please try again in a moment.');
+      return;
+    }
+
+    if (hasInsufficientBalance) {
+      toast.error(balanceMessage || 'Insufficient leave balance for this request.');
       return;
     }
 
@@ -149,7 +267,7 @@ export default function LeaveApplication() {
         leave_type: formData.leave_type,
         start_date: formData.start_date,
         end_date: formData.end_date,
-        total_days: isHalfDay ? 0.5 : totalDays,
+        total_days: requestedDays,
         reason: formData.reason || null,
       });
 
@@ -183,7 +301,7 @@ export default function LeaveApplication() {
       .sort((left, right) => left.start_date.localeCompare(right.start_date))[0] ?? null;
   }, [myRequests]);
   const selectedLeaveTypeLabel = formData.leave_type ? getLeaveTypeLabel(formData.leave_type) : 'Not selected';
-  const submitDisabled = createRequest.isPending || !formData.leave_type || !formData.start_date || !formData.end_date || hasBlockingConflict;
+  const submitDisabled = createRequest.isPending || !formData.leave_type || !formData.start_date || !formData.end_date || (Boolean(balanceBucket && formData.leave_type) && leaveBalancesLoading) || hasInsufficientBalance;
   const timelineRequests = [...myRequests]
     .sort((left, right) => right.applied_at.localeCompare(left.applied_at))
     .slice(0, 6);
@@ -201,7 +319,48 @@ export default function LeaveApplication() {
   return (
     <DashboardLayout role="employee">
       <div className="space-y-6 sm:space-y-8">
-        <section className="relative overflow-hidden rounded-[24px] border border-slate-200/70 bg-[radial-gradient(circle_at_top_left,_rgba(20,184,166,0.16),_transparent_30%),linear-gradient(135deg,_rgba(255,255,255,0.98),_rgba(241,245,249,0.92))] p-4 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.12),_transparent_28%),linear-gradient(135deg,_rgba(15,23,42,0.96),_rgba(2,6,23,0.92))] sm:rounded-[28px] sm:p-7 lg:p-8">
+        <section className="sm:hidden rounded-[22px] border border-slate-200/80 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+                <Sparkles className="h-3 w-3 text-teal-600 dark:text-teal-400" />
+                Leave Desk
+              </div>
+              <h1 className="text-xl font-black tracking-[-0.04em] text-slate-950 dark:text-slate-50">
+                Apply for leave quickly.
+              </h1>
+              <p className="text-[13px] leading-5 text-slate-600 dark:text-slate-300">
+                The request form starts right below. History and extra insights stay further down.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-2xl bg-slate-100 px-3 py-2.5 dark:bg-slate-900">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Total</div>
+                <div className="mt-1 text-lg font-black text-slate-950 dark:text-slate-50">{myRequests.length}</div>
+              </div>
+              <div className="rounded-2xl bg-amber-50 px-3 py-2.5 dark:bg-amber-950/30">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">Pending</div>
+                <div className="mt-1 text-lg font-black text-amber-700 dark:text-amber-300">{pendingCount}</div>
+              </div>
+              <div className="rounded-2xl bg-emerald-50 px-3 py-2.5 dark:bg-emerald-950/30">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">Approved</div>
+                <div className="mt-1 text-lg font-black text-emerald-700 dark:text-emerald-300">{approvedCount}</div>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button asChild className="h-10 flex-1 rounded-full text-[13px]">
+                <Link to="/employee/leave-history">History</Link>
+              </Button>
+              <Button asChild variant="outline" className="h-10 flex-1 rounded-full text-[13px]">
+                <Link to="/employee/leave-dashboard">Register</Link>
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        <section className="hidden sm:block relative overflow-hidden rounded-[24px] border border-slate-200/70 bg-[radial-gradient(circle_at_top_left,_rgba(20,184,166,0.16),_transparent_30%),linear-gradient(135deg,_rgba(255,255,255,0.98),_rgba(241,245,249,0.92))] p-4 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.12),_transparent_28%),linear-gradient(135deg,_rgba(15,23,42,0.96),_rgba(2,6,23,0.92))] sm:rounded-[28px] sm:p-7 lg:p-8">
           <div className="absolute -right-16 top-0 h-40 w-40 rounded-full bg-amber-200/40 blur-3xl dark:bg-amber-500/10" />
           <div className="absolute bottom-0 left-0 h-32 w-32 rounded-full bg-teal-300/30 blur-3xl dark:bg-teal-500/10" />
           <div className="relative grid gap-6 lg:grid-cols-[1.3fr_0.9fr] lg:items-start">
@@ -437,26 +596,50 @@ export default function LeaveApplication() {
                   </div>
                 </div>
 
-                {holidayConflicts.length > 0 && (
-                  <div className="grid gap-2">
-                    {holidayConflicts.map((conflict, index) => (
-                      <div
-                        key={index}
-                        className={`flex items-start gap-3 rounded-2xl border px-3.5 py-3 text-[13px] ${conflict.type === 'block'
-                          ? 'border-rose-200 bg-rose-50/90 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300'
-                          : 'border-amber-200 bg-amber-50/90 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300'
-                          } sm:px-4 sm:text-sm`}
-                      >
-                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                        <span>{conflict.message}</span>
-                      </div>
-                    ))}
+                {(() => {
+                  const rhConflicts = holidayConflicts.filter(c => c.holiday.type === 'RH');
+                  const otherConflicts = holidayConflicts.filter(c => c.holiday.type !== 'RH');
+                  if (holidayConflicts.length === 0) return null;
+                  return (
+                    <div className="grid gap-2">
+                      {otherConflicts.map((conflict, index) => (
+                        <div
+                          key={`other-${index}`}
+                          className={`flex items-start gap-3 rounded-2xl border px-3.5 py-3 text-[13px] sm:px-4 sm:text-sm ${getHolidayNoticeTone(conflict.holiday.type)}`}
+                        >
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>{conflict.message}</span>
+                        </div>
+                      ))}
+                      {rhConflicts.length > 0 && (
+                        <div className={`flex items-start gap-3 rounded-2xl border px-3.5 py-3 text-[13px] sm:px-4 sm:text-sm ${getHolidayNoticeTone('RH')}`}>
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>
+                            {rhConflicts.length === 1
+                              ? rhConflicts[0].message
+                              : `Restricted Holidays within the selected dates: ${rhConflicts.map(c => `${c.holiday.name} (${format(new Date(c.date), 'd MMM')})`).join(', ')}.`}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {balanceMessage && (
+                  <div className={`flex items-start gap-3 rounded-2xl border px-3.5 py-3 text-[13px] sm:px-4 sm:text-sm ${hasInsufficientBalance
+                    ? 'border-rose-200 bg-rose-50/90 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300'
+                    : 'border-emerald-200 bg-emerald-50/90 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300'
+                    }`}>
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{balanceMessage}</span>
                   </div>
                 )}
 
                 <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 dark:border-slate-800 sm:pt-5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-[13px] text-slate-500 dark:text-slate-400 sm:text-sm">
-                    {hasBlockingConflict ? 'Resolve blocking holiday conflicts before you submit.' : 'Your request will be sent to the approval chain immediately after submission.'}
+                    {hasInsufficientBalance
+                      ? 'Available leave balance must cover the requested days before submission.'
+                      : 'Holiday and RH matches are shown as review notes. Your request will be sent to the approval chain immediately after submission.'}
                   </div>
                   <Button type="submit" className="h-11 rounded-full px-5 text-[13px] font-semibold shadow-lg shadow-slate-900/10 sm:h-12 sm:px-6 sm:text-sm" disabled={submitDisabled}>
                     {createRequest.isPending ? 'Submitting...' : 'Submit request'}
@@ -479,7 +662,7 @@ export default function LeaveApplication() {
                   Use the reason box for operational context. Short, precise explanations get reviewed faster.
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3.5 dark:border-slate-700 dark:bg-slate-900/70 sm:p-4">
-                  Conflict alerts highlight holidays or blocked dates before the request reaches approvers.
+                  Holiday and RH alerts are informational only, so you can still submit after reviewing them.
                 </div>
               </CardContent>
             </Card>
@@ -499,8 +682,29 @@ export default function LeaveApplication() {
                 </div>
                 <div className="flex items-center justify-between rounded-2xl bg-slate-100/80 px-3.5 py-2.5 dark:bg-slate-900/80 sm:px-4 sm:py-3">
                   <span className="text-[13px] text-slate-500 dark:text-slate-400 sm:text-sm">Holiday check</span>
-                  <span className={`text-[13px] font-semibold ${hasBlockingConflict ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'} sm:text-sm`}>
-                    {hasBlockingConflict ? 'Action needed' : holidayConflicts.length > 0 ? 'Review notes' : 'Clear'}
+                  <span className={`text-[13px] font-semibold ${holidayConflicts.length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'} sm:text-sm`}>
+                    {holidayConflicts.length > 0 ? 'Review notes' : 'Clear'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl bg-slate-100/80 px-3.5 py-2.5 dark:bg-slate-900/80 sm:px-4 sm:py-3">
+                  <span className="text-[13px] text-slate-500 dark:text-slate-400 sm:text-sm">Balance check</span>
+                  <span className={`text-[13px] font-semibold sm:text-sm ${hasApplicableBalanceCheck
+                    ? leaveBalancesLoading
+                      ? 'text-slate-600 dark:text-slate-300'
+                      : hasInsufficientBalance
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-slate-500 dark:text-slate-400'
+                    }`}>
+                    {hasApplicableBalanceCheck
+                      ? leaveBalancesLoading
+                        ? 'Checking'
+                        : hasInsufficientBalance
+                          ? 'Insufficient'
+                          : 'Available'
+                      : balanceBucket
+                        ? 'Not found'
+                        : 'Not required'}
                   </span>
                 </div>
               </CardContent>
@@ -529,60 +733,60 @@ export default function LeaveApplication() {
 
               return (
                 <Card key={req.id} className={`rounded-[22px] border ${getRequestBorderTone(req.status)} shadow-[0_18px_60px_-45px_rgba(15,23,42,0.45)] sm:rounded-[26px]`}>
-                  <CardContent className="p-4 sm:p-6">
-                    <div className="flex flex-col gap-3.5 sm:gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="min-w-0 space-y-2.5 sm:space-y-3">
+                  <CardContent className="p-4 sm:p-5">
+                    <div className="space-y-3 sm:space-y-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div className="flex flex-wrap items-center gap-2">
                           <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-[13px] font-medium text-slate-700 dark:bg-slate-900 dark:text-slate-200 sm:text-sm">
                             {getRequestStatusIcon(req.status)}
                             {getLeaveTypeLabel(req.leave_type)}
                           </div>
-                          <Badge className={`rounded-full border px-3 py-1 text-[10px] font-medium sm:text-[11px] ${statusInfo.color}`}>
-                            {statusInfo.label}
-                          </Badge>
                           <Badge variant="outline" className="rounded-full px-3 py-1 text-[10px] font-medium sm:text-[11px]">
                             {req.total_days} day{req.total_days === 1 ? '' : 's'}
                           </Badge>
                         </div>
 
-                        <div className="grid gap-2.5 sm:grid-cols-3 sm:gap-3">
-                          <div className="rounded-2xl bg-slate-50/90 p-3 dark:bg-slate-900/80 sm:p-4">
-                            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400 sm:text-[11px] sm:tracking-[0.2em]">Applied on</div>
-                            <div className="mt-1 text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">{format(new Date(req.applied_at), 'dd MMM yyyy')}</div>
-                          </div>
-                          <div className="rounded-2xl bg-slate-50/90 p-3 dark:bg-slate-900/80 sm:p-4">
-                            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400 sm:text-[11px] sm:tracking-[0.2em]">Start</div>
-                            <div className="mt-1 text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">{format(new Date(req.start_date), 'dd MMM yyyy')}</div>
-                          </div>
-                          <div className="rounded-2xl bg-slate-50/90 p-3 dark:bg-slate-900/80 sm:p-4">
-                            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400 sm:text-[11px] sm:tracking-[0.2em]">End</div>
-                            <div className="mt-1 text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">{format(new Date(req.end_date), 'dd MMM yyyy')}</div>
-                          </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-[13px] leading-5 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 sm:px-4 sm:text-sm sm:leading-6">
-                          {req.status === 'Pending Supervisor'
-                            ? 'Approved by WSO, awaiting supervisor final approval.'
-                            : req.remarks || req.reason || 'No remarks added for this request.'}
+                        <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                          <Badge className={`rounded-full border px-3 py-1 text-[10px] font-medium sm:text-[11px] ${statusInfo.color}`}>
+                            {statusInfo.label}
+                          </Badge>
+                          {cancelable && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-9 rounded-full border-rose-200 px-4 text-[12px] text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30 sm:h-10 sm:text-sm"
+                              onClick={() => { setCancelTarget(req.id); setCancelDialogOpen(true); }}
+                            >
+                              <Ban className="mr-2 h-4 w-4" />
+                              Cancel request
+                            </Button>
+                          )}
                         </div>
                       </div>
 
-                      <div className="flex shrink-0 flex-col gap-2.5 sm:gap-3 lg:w-[180px] lg:items-end">
-                        <div className={`inline-flex items-center gap-2 self-start rounded-full border px-3 py-1.5 text-[13px] font-medium lg:self-end sm:text-sm ${getStatusTone(req.status)}`}>
-                          {getRequestStatusIcon(req.status)}
-                          {statusInfo.label}
+                      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4 sm:gap-3">
+                        <div className="rounded-2xl bg-slate-50/90 p-3 dark:bg-slate-900/80 sm:p-4">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400 sm:text-[11px] sm:tracking-[0.2em]">Applied on</div>
+                          <div className="mt-1 text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">{format(new Date(req.applied_at), 'dd MMM yyyy')}</div>
                         </div>
-                        {cancelable && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-9 rounded-full border-rose-200 px-4 text-[13px] text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30 sm:h-10 sm:text-sm"
-                            onClick={() => { setCancelTarget(req.id); setCancelDialogOpen(true); }}
-                          >
-                            <Ban className="mr-2 h-4 w-4" />
-                            Cancel request
-                          </Button>
-                        )}
+                        <div className="rounded-2xl bg-slate-50/90 p-3 dark:bg-slate-900/80 sm:p-4">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400 sm:text-[11px] sm:tracking-[0.2em]">Start</div>
+                          <div className="mt-1 text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">{format(new Date(req.start_date), 'dd MMM yyyy')}</div>
+                        </div>
+                        <div className="rounded-2xl bg-slate-50/90 p-3 dark:bg-slate-900/80 sm:p-4">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400 sm:text-[11px] sm:tracking-[0.2em]">End</div>
+                          <div className="mt-1 text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">{format(new Date(req.end_date), 'dd MMM yyyy')}</div>
+                        </div>
+                        <div className="rounded-2xl bg-slate-50/90 p-3 dark:bg-slate-900/80 sm:p-4">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400 sm:text-[11px] sm:tracking-[0.2em]">Request</div>
+                          <div className="mt-1 text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">{getLeaveTypeLabel(req.leave_type)}</div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-[13px] leading-5 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 sm:px-4 sm:text-sm sm:leading-6">
+                        {req.status === 'Pending Supervisor'
+                          ? 'Approved by WSO, awaiting supervisor final approval.'
+                          : req.remarks || req.reason || 'No remarks added for this request.'}
                       </div>
                     </div>
                   </CardContent>

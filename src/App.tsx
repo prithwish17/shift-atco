@@ -43,6 +43,7 @@ const WSODashboard = lazy(() => import("./pages/wso/WSODashboard"));
 const WsoRosterManagement = lazy(() => import("./pages/wso/WsoRosterManagement"));
 const WSOAttendance = lazy(() => import("./pages/wso/WSOAttendance"));
 const BATestManagement = lazy(() => import("./pages/wso/BATestManagement"));
+const WSODutyExchangeApprovals = lazy(() => import("./pages/wso/WSODutyExchangeApprovals"));
 
 // Employee
 const EmployeeDashboard = lazy(() => import("./pages/employee/EmployeeDashboard"));
@@ -113,6 +114,7 @@ const App = () => (
                   <Route path="/supervisor/leaves" element={<ProtectedRoute allowedRoles={['supervisor', 'wso']}><LeaveApprovals /></ProtectedRoute>} />
                   <Route path="/supervisor/leave-dashboard" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorLeaveDashboard /></ProtectedRoute>} />
                   <Route path="/supervisor/leave-discrepancy" element={<ProtectedRoute allowedRoles={['supervisor']}><LeaveDiscrepancyPage /></ProtectedRoute>} />
+                  <Route path="/supervisor/duty-exchange" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyExchangeApprovals /></ProtectedRoute>} />
                   <Route path="/supervisor/duty-exchanges" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyExchangeApprovals /></ProtectedRoute>} />
                   <Route path="/supervisor/holidays" element={<ProtectedRoute allowedRoles={['supervisor']}><HolidayManagement /></ProtectedRoute>} />
                   <Route path="/supervisor/ope-assignments" element={<ProtectedRoute allowedRoles={['supervisor']}><OPEAssignments /></ProtectedRoute>} />
@@ -127,6 +129,7 @@ const App = () => (
                   <Route path="/wso/attendance" element={<ProtectedRoute allowedRoles={['wso']}><WSOAttendance /></ProtectedRoute>} />
                   <Route path="/wso/ba-test" element={<ProtectedRoute allowedRoles={['wso']}><BATestManagement /></ProtectedRoute>} />
                   <Route path="/wso/leaves" element={<ProtectedRoute allowedRoles={['wso']}><LeaveApprovals /></ProtectedRoute>} />
+                  <Route path="/wso/duty-exchange" element={<ProtectedRoute allowedRoles={['wso']}><WSODutyExchangeApprovals /></ProtectedRoute>} />
 
                   {/* Employee Routes */}
                   <Route path="/employee" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeDashboard /></ProtectedRoute>} />

@@ -36,29 +36,29 @@ function getStatusIcon(status: HealthStatus) {
 
 function MetricCard({ label, value, hint }: { label: string; value: string; hint: string }) {
     return (
-        <div className="rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-sm">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-white/70">{label}</p>
-            <p className="mt-2 text-2xl font-semibold tracking-tight text-white">{value}</p>
-            <p className="mt-1 text-sm text-white/70">{hint}</p>
+        <div className="rounded-xl border border-white/20 bg-white/10 p-3 backdrop-blur-sm sm:rounded-2xl sm:p-4">
+            <p className="text-[10px] uppercase tracking-[0.16em] text-white/70 sm:text-[11px] sm:tracking-[0.22em]">{label}</p>
+            <p className="mt-1.5 break-words text-lg font-semibold tracking-tight text-white sm:mt-2 sm:text-2xl">{value}</p>
+            <p className="mt-1 text-xs leading-5 text-white/70 sm:text-sm">{hint}</p>
         </div>
     );
 }
 
 function WatchItem({ item }: { item: LicenseHealthItem }) {
     return (
-        <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm shadow-slate-200/60 dark:border-slate-800 dark:bg-slate-900/80 dark:shadow-black/20">
+        <div className="rounded-xl border border-slate-200 bg-white/90 p-3 shadow-sm shadow-slate-200/60 sm:rounded-2xl sm:p-4 dark:border-slate-800 dark:bg-slate-900/80 dark:shadow-black/20">
             <div className="flex items-start justify-between gap-3">
-                <div>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{item.label}</p>
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.subtitle}</p>
+                <div className="min-w-0 flex-1">
+                    <p className="break-words text-[13px] font-semibold text-slate-900 sm:text-sm dark:text-slate-100">{item.label}</p>
+                    <p className="mt-1 break-words text-[11px] leading-4 text-slate-500 sm:text-xs dark:text-slate-400">{item.subtitle}</p>
                 </div>
-                <Badge variant="outline" className={getStatusBadgeClasses(item.status)}>
+                <Badge variant="outline" className={`${getStatusBadgeClasses(item.status)} shrink-0 text-[10px] sm:text-[11px]`}>
                     {getHealthStatusLabel(item)}
                 </Badge>
             </div>
-            <div className="mt-4 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                <span>{item.kind.toUpperCase()}</span>
-                <span>{formatDisplayDate(item.expiryDate)}</span>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 sm:mt-4 sm:text-xs dark:text-slate-400">
+                <span className="break-words">{item.kind.toUpperCase()}</span>
+                <span className="break-words text-right">{formatDisplayDate(item.expiryDate)}</span>
             </div>
         </div>
     );
@@ -83,55 +83,55 @@ export default function EmployeeLicenses() {
 
     return (
         <DashboardLayout role="employee">
-            <div className="space-y-6">
-                <section className="relative overflow-hidden rounded-[30px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_45%,#14b8a6_100%)] shadow-xl shadow-sky-200/40 dark:border-slate-800 dark:shadow-black/30">
+            <div className="space-y-4 sm:space-y-6">
+                <section className="relative overflow-hidden rounded-[22px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_45%,#14b8a6_100%)] shadow-xl shadow-sky-200/40 sm:rounded-[30px] dark:border-slate-800 dark:shadow-black/30">
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.2),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.18),transparent_26%)]" />
-                    <div className="relative grid gap-6 p-6 md:p-8 xl:grid-cols-[1.35fr_0.95fr]">
-                        <div className="space-y-5">
-                            <div className="space-y-3">
-                                <div className="flex items-center gap-3 text-white">
-                                    <Shield className="h-6 w-6" />
-                                    <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">License Status</h1>
+                    <div className="relative grid gap-4 p-4 sm:gap-6 sm:p-6 md:p-8 xl:grid-cols-[1.35fr_0.95fr]">
+                        <div className="space-y-4 sm:space-y-5">
+                            <div className="space-y-2 sm:space-y-3">
+                                <div className="flex items-center gap-2.5 text-white sm:gap-3">
+                                    <Shield className="h-5 w-5 sm:h-6 sm:w-6" />
+                                    <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl md:text-4xl">License Status</h1>
                                 </div>
-                                <p className="max-w-2xl text-sm leading-6 text-white/75 md:text-base">
+                                <p className="max-w-2xl text-xs leading-5 text-white/75 sm:text-sm sm:leading-6 md:text-base">
                                     Find all the details of license, ratings, expiry dates, and related validity records.
                                 </p>
                             </div>
 
-                            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                            <div className="grid gap-2.5 sm:gap-3 sm:grid-cols-2 xl:grid-cols-4">
                                 <MetricCard label="License Number" value={health.licenseNumber} hint="Stored in training records" />
-                                <MetricCard label="Highest Rating" value={health.highestRating} hint="Latest backend-linked rating" />
+                                <MetricCard label="Highest Rating" value={health.highestRating} hint="" />
                                 <MetricCard label="Active Ratings" value={String(health.activeRatingsCount)} hint="Operational rating cards below" />
                                 <MetricCard label="Next Review" value={health.nextExpiry ? formatDisplayDate(health.nextExpiry.expiryDate) : 'No date'} hint={health.nextExpiry ? health.nextExpiry.label : 'Nothing scheduled yet'} />
                             </div>
                         </div>
 
-                        <div className="rounded-[26px] border border-white/20 bg-white/12 p-5 backdrop-blur-md">
-                            <div className="flex items-center justify-between gap-3">
+                        <div className="rounded-[18px] border border-white/20 bg-white/12 p-4 backdrop-blur-md sm:rounded-[26px] sm:p-5">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <p className="text-[11px] uppercase tracking-[0.22em] text-white/70">Overall Readiness</p>
-                                    <p className="mt-2 text-3xl font-semibold text-white">{health.overallLabel}</p>
+                                    <p className="text-[10px] uppercase tracking-[0.16em] text-white/70 sm:text-[11px] sm:tracking-[0.22em]">Overall Readiness</p>
+                                    <p className="mt-1.5 break-words text-2xl font-semibold text-white sm:mt-2 sm:text-3xl">{health.overallLabel}</p>
                                 </div>
-                                <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ${getStatusPillClasses(health.overallStatus)}`}>
+                                <div className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium sm:gap-2 sm:px-3 sm:text-sm ${getStatusPillClasses(health.overallStatus)}`}>
                                     {getStatusIcon(health.overallStatus)}
                                     {health.overallStatus.toUpperCase()}
                                 </div>
                             </div>
 
-                            <p className="mt-4 text-sm leading-6 text-white/80">{health.summary}</p>
+                            <p className="mt-3 break-words text-xs leading-5 text-white/80 sm:mt-4 sm:text-sm sm:leading-6">{health.summary}</p>
 
-                            <div className="mt-6 grid grid-cols-3 gap-3">
-                                <div className="rounded-2xl bg-black/15 p-4 text-white">
-                                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/65">Expired</p>
-                                    <p className="mt-2 text-2xl font-semibold">{health.expiredCount}</p>
+                            <div className="mt-4 grid grid-cols-3 gap-2 sm:mt-6 sm:gap-3">
+                                <div className="rounded-xl bg-black/15 p-3 text-white sm:rounded-2xl sm:p-4">
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-white/65 sm:text-[11px] sm:tracking-[0.18em]">Expired</p>
+                                    <p className="mt-1.5 text-xl font-semibold sm:mt-2 sm:text-2xl">{health.expiredCount}</p>
                                 </div>
-                                <div className="rounded-2xl bg-black/15 p-4 text-white">
-                                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/65">Due Soon</p>
-                                    <p className="mt-2 text-2xl font-semibold">{health.warningCount}</p>
+                                <div className="rounded-xl bg-black/15 p-3 text-white sm:rounded-2xl sm:p-4">
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-white/65 sm:text-[11px] sm:tracking-[0.18em]">Due Soon</p>
+                                    <p className="mt-1.5 text-xl font-semibold sm:mt-2 sm:text-2xl">{health.warningCount}</p>
                                 </div>
-                                <div className="rounded-2xl bg-black/15 p-4 text-white">
-                                    <p className="text-[11px] uppercase tracking-[0.18em] text-white/65">Last Sync</p>
-                                    <p className="mt-2 text-sm font-semibold leading-5">{formatDisplayDate(profile?.rating_synced_at)}</p>
+                                <div className="rounded-xl bg-black/15 p-3 text-white sm:rounded-2xl sm:p-4">
+                                    <p className="text-[10px] uppercase tracking-[0.14em] text-white/65 sm:text-[11px] sm:tracking-[0.18em]">Last Sync</p>
+                                    <p className="mt-1.5 break-words text-xs font-semibold leading-4 sm:mt-2 sm:text-sm sm:leading-5">{formatDisplayDate(profile?.rating_synced_at)}</p>
                                 </div>
                             </div>
                         </div>
@@ -139,12 +139,12 @@ export default function EmployeeLicenses() {
                 </section>
 
                 {watchlistPreview.length > 0 && (
-                    <section className="space-y-3">
+                    <section className="space-y-2.5 sm:space-y-3">
                         <div className="flex items-center gap-2">
-                            <Clock3 className="h-5 w-5 text-sky-700 dark:text-sky-300" />
-                            <h2 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">Watchlist</h2>
+                            <Clock3 className="h-4 w-4 text-sky-700 sm:h-5 sm:w-5 dark:text-sky-300" />
+                            <h2 className="text-base font-semibold tracking-tight text-slate-900 sm:text-lg dark:text-slate-100">Watchlist</h2>
                         </div>
-                        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        <div className="grid gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
                             {watchlistPreview.map((item) => (
                                 <WatchItem key={item.id} item={item} />
                             ))}
@@ -153,111 +153,111 @@ export default function EmployeeLicenses() {
                 )}
 
                 <div className="grid gap-6 xl:grid-cols-[1.4fr_0.9fr]">
-                    <Card className="overflow-hidden border-slate-200 shadow-lg shadow-slate-200/50 dark:border-slate-800 dark:shadow-black/20">
+                    <Card className="overflow-hidden rounded-[22px] border-slate-200 shadow-lg shadow-slate-200/50 sm:rounded-[28px] dark:border-slate-800 dark:shadow-black/20">
                         <CardHeader className="border-b border-slate-200 bg-[linear-gradient(135deg,#eff6ff_0%,#f8fafc_65%,#f0fdfa_100%)] dark:border-slate-800 dark:bg-[linear-gradient(135deg,rgba(30,41,59,0.92)_0%,rgba(15,23,42,0.96)_100%)]">
-                            <CardTitle className="flex items-center gap-2 text-slate-900 dark:text-slate-100">
-                                <Radar className="h-5 w-5 text-sky-700 dark:text-sky-300" />
+                            <CardTitle className="flex items-center gap-2 text-base text-slate-900 sm:text-lg dark:text-slate-100">
+                                <Radar className="h-4 w-4 text-sky-700 sm:h-5 sm:w-5 dark:text-sky-300" />
                                 Operational Ratings
                             </CardTitle>
                         </CardHeader>
-                        <CardContent className="p-4 md:p-5">
+                        <CardContent className="p-3 sm:p-4 md:p-5">
                             {health.ratings.length > 0 ? (
-                                <div className="grid gap-4 md:grid-cols-2">
+                                <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
                                     {health.ratings.map((rating) => (
-                                        <div key={rating.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/60 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20">
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div>
-                                                    <p className="text-base font-semibold text-slate-900 dark:text-slate-100">{rating.label}</p>
-                                                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{rating.subtitle}</p>
+                                        <div key={rating.id} className="rounded-[20px] border border-slate-200 bg-white p-3 shadow-sm shadow-slate-200/60 sm:rounded-3xl sm:p-4 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20">
+                                            <div className="flex flex-wrap items-start justify-between gap-3">
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="break-words text-[15px] font-semibold text-slate-900 sm:text-base dark:text-slate-100">{rating.label}</p>
+                                                    <p className="mt-1 break-words text-[11px] leading-4 text-slate-500 sm:text-xs dark:text-slate-400">{rating.subtitle}</p>
                                                 </div>
                                                 <div className="flex flex-col items-end gap-2">
-                                                    <Badge variant="outline" className={getStatusBadgeClasses(rating.status)}>
+                                                    <Badge variant="outline" className={`${getStatusBadgeClasses(rating.status)} text-[10px] sm:text-[11px]`}>
                                                         {getHealthStatusLabel(rating)}
                                                     </Badge>
-                                                    <Badge variant="secondary" className={rating.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}>
+                                                    <Badge variant="secondary" className={`${rating.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'} text-[10px] sm:text-[11px]`}>
                                                         {rating.isActive ? 'Active' : 'Inactive'}
                                                     </Badge>
                                                 </div>
                                             </div>
 
-                                            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                                                <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-900">
-                                                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Expiry Date</p>
-                                                    <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">{formatDisplayDate(rating.expiryDate)}</p>
+                                            <div className="mt-3 grid grid-cols-2 gap-2 text-[13px] sm:mt-4 sm:gap-3 sm:text-sm">
+                                                <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-900 sm:rounded-2xl sm:p-3">
+                                                    <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 sm:text-[11px] sm:tracking-[0.18em] dark:text-slate-400">Expiry Date</p>
+                                                    <p className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">{formatDisplayDate(rating.expiryDate)}</p>
                                                 </div>
-                                                <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-900">
-                                                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Endorsement</p>
-                                                    <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">{formatDisplayDate(rating.endorsementDate)}</p>
+                                                <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-900 sm:rounded-2xl sm:p-3">
+                                                    <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 sm:text-[11px] sm:tracking-[0.18em] dark:text-slate-400">Endorsement</p>
+                                                    <p className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">{formatDisplayDate(rating.endorsementDate)}</p>
                                                 </div>
-                                                <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-900">
-                                                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Last Proficiency</p>
-                                                    <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">{formatDisplayDate(rating.lastProficiencyDate)}</p>
+                                                <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-900 sm:rounded-2xl sm:p-3">
+                                                    <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 sm:text-[11px] sm:tracking-[0.18em] dark:text-slate-400">Last Proficiency</p>
+                                                    <p className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">{formatDisplayDate(rating.lastProficiencyDate)}</p>
                                                 </div>
-                                                <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-900">
-                                                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Instructor</p>
-                                                    <p className="mt-1 font-medium text-slate-900 dark:text-slate-100">{rating.lastInstructor || 'Not recorded'}</p>
+                                                <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-900 sm:rounded-2xl sm:p-3">
+                                                    <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 sm:text-[11px] sm:tracking-[0.18em] dark:text-slate-400">Instructor</p>
+                                                    <p className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">{rating.lastInstructor || 'Not recorded'}</p>
                                                 </div>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
                             ) : (
-                                <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
+                                <div className="rounded-[20px] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-xs text-slate-500 sm:rounded-3xl sm:px-6 sm:py-10 sm:text-sm dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
                                     No operational ratings are linked to this employee yet.
                                 </div>
                             )}
                         </CardContent>
                     </Card>
 
-                    <div className="space-y-6">
-                        <Card className="overflow-hidden border-slate-200 shadow-lg shadow-slate-200/40 dark:border-slate-800 dark:shadow-black/20">
+                    <div className="space-y-4 sm:space-y-6">
+                        <Card className="overflow-hidden rounded-[22px] border-slate-200 shadow-lg shadow-slate-200/40 sm:rounded-[28px] dark:border-slate-800 dark:shadow-black/20">
                             <CardHeader className="border-b border-slate-200 bg-[linear-gradient(135deg,#ecfeff_0%,#f8fafc_100%)] dark:border-slate-800 dark:bg-slate-950">
-                                <CardTitle className="flex items-center gap-2 text-slate-900 dark:text-slate-100">
-                                    <HeartPulse className="h-5 w-5 text-rose-600" />
+                                <CardTitle className="flex items-center gap-2 text-base text-slate-900 sm:text-lg dark:text-slate-100">
+                                    <HeartPulse className="h-4 w-4 text-rose-600 sm:h-5 sm:w-5" />
                                     Compliance
                                 </CardTitle>
                             </CardHeader>
-                            <CardContent className="space-y-3 p-4">
+                            <CardContent className="space-y-2.5 p-3 sm:space-y-3 sm:p-4">
                                 {health.compliance.map((item) => (
-                                    <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+                                    <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3 sm:rounded-2xl sm:p-4 dark:border-slate-800 dark:bg-slate-950">
                                         <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                                <p className="font-semibold text-slate-900 dark:text-slate-100">{item.label}</p>
-                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.subtitle}</p>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="break-words text-[13px] font-semibold text-slate-900 sm:text-sm dark:text-slate-100">{item.label}</p>
+                                                <p className="mt-1 break-words text-[11px] leading-4 text-slate-500 sm:text-xs dark:text-slate-400">{item.subtitle}</p>
                                             </div>
-                                            <Badge variant="outline" className={getStatusBadgeClasses(item.status)}>
+                                            <Badge variant="outline" className={`${getStatusBadgeClasses(item.status)} shrink-0 text-[10px] sm:text-[11px]`}>
                                                 {getHealthStatusLabel(item)}
                                             </Badge>
                                         </div>
-                                        <div className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                                            <p>Expiry: {formatDisplayDate(item.expiryDate)}</p>
-                                            {item.meta && <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.meta}</p>}
+                                        <div className="mt-3 text-[13px] text-slate-600 sm:text-sm dark:text-slate-300">
+                                            <p className="break-words">Expiry: {formatDisplayDate(item.expiryDate)}</p>
+                                            {item.meta && <p className="mt-1 break-words text-[11px] text-slate-500 sm:text-xs dark:text-slate-400">{item.meta}</p>}
                                         </div>
                                     </div>
                                 ))}
                             </CardContent>
                         </Card>
 
-                        <Card className="overflow-hidden border-slate-200 shadow-lg shadow-slate-200/40 dark:border-slate-800 dark:shadow-black/20">
+                        <Card className="overflow-hidden rounded-[22px] border-slate-200 shadow-lg shadow-slate-200/40 sm:rounded-[28px] dark:border-slate-800 dark:shadow-black/20">
                             <CardHeader className="border-b border-slate-200 bg-[linear-gradient(135deg,#fff7ed_0%,#f8fafc_100%)] dark:border-slate-800 dark:bg-slate-950">
-                                <CardTitle className="flex items-center gap-2 text-slate-900 dark:text-slate-100">
-                                    <UserRoundCheck className="h-5 w-5 text-amber-600" />
+                                <CardTitle className="flex items-center gap-2 text-base text-slate-900 sm:text-lg dark:text-slate-100">
+                                    <UserRoundCheck className="h-4 w-4 text-amber-600 sm:h-5 sm:w-5" />
                                     Instructor And Examiner Privileges
                                 </CardTitle>
                             </CardHeader>
-                            <CardContent className="space-y-3 p-4">
+                            <CardContent className="space-y-2.5 p-3 sm:space-y-3 sm:p-4">
                                 {health.qualifications.length > 0 ? health.qualifications.map((item) => (
-                                    <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
-                                        <div>
-                                            <p className="font-medium text-slate-900 dark:text-slate-100">{item.label}</p>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">{formatDisplayDate(item.expiryDate)}</p>
+                                    <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:rounded-2xl sm:px-4 sm:py-3 dark:border-slate-800 dark:bg-slate-950">
+                                        <div className="min-w-0 flex-1">
+                                            <p className="break-words text-[13px] font-medium text-slate-900 sm:text-sm dark:text-slate-100">{item.label}</p>
+                                            <p className="text-[11px] text-slate-500 sm:text-xs dark:text-slate-400">{formatDisplayDate(item.expiryDate)}</p>
                                         </div>
-                                        <Badge variant="outline" className={getStatusBadgeClasses(item.status)}>
+                                        <Badge variant="outline" className={`${getStatusBadgeClasses(item.status)} shrink-0 text-[10px] sm:text-[11px]`}>
                                             {getHealthStatusLabel(item)}
                                         </Badge>
                                     </div>
                                 )) : (
-                                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
+                                    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-7 text-center text-xs text-slate-500 sm:rounded-2xl sm:py-8 sm:text-sm dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
                                         No instructor or examiner validity records available.
                                     </div>
                                 )}
@@ -266,36 +266,36 @@ export default function EmployeeLicenses() {
                     </div>
                 </div>
 
-                <Card className="overflow-hidden border-slate-200 shadow-lg shadow-slate-200/40 dark:border-slate-800 dark:shadow-black/20">
+                <Card className="overflow-hidden rounded-[22px] border-slate-200 shadow-lg shadow-slate-200/40 sm:rounded-[28px] dark:border-slate-800 dark:shadow-black/20">
                     <CardHeader className="border-b border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#f0fdf4_100%)] dark:border-slate-800 dark:bg-slate-950">
-                        <CardTitle className="flex items-center gap-2 text-slate-900 dark:text-slate-100">
-                            <FileStack className="h-5 w-5 text-emerald-600" />
+                        <CardTitle className="flex items-center gap-2 text-base text-slate-900 sm:text-lg dark:text-slate-100">
+                            <FileStack className="h-4 w-4 text-emerald-600 sm:h-5 sm:w-5" />
                             License Register
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="p-4 md:p-5">
+                    <CardContent className="p-3 sm:p-4 md:p-5">
                         {health.licenses.length > 0 ? (
                             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                                 {health.licenses.map((license) => (
-                                    <div key={license.id} className="rounded-3xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div>
-                                                <p className="font-semibold text-slate-900 dark:text-slate-100">{license.label}</p>
-                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{license.meta || 'License entry'}</p>
+                                    <div key={license.id} className="rounded-[20px] border border-slate-200 bg-white p-3 sm:rounded-3xl sm:p-4 dark:border-slate-800 dark:bg-slate-950">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            <div className="min-w-0 flex-1">
+                                                <p className="break-words text-[13px] font-semibold text-slate-900 sm:text-sm dark:text-slate-100">{license.label}</p>
+                                                <p className="mt-1 break-words text-[11px] text-slate-500 sm:text-xs dark:text-slate-400">{license.meta || 'License entry'}</p>
                                             </div>
-                                            <Badge variant="outline" className={getStatusBadgeClasses(license.status)}>
+                                            <Badge variant="outline" className={`${getStatusBadgeClasses(license.status)} shrink-0 text-[10px] sm:text-[11px]`}>
                                                 {getHealthStatusLabel(license)}
                                             </Badge>
                                         </div>
-                                        <div className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
-                                            <p>Issued: {formatDisplayDate(license.issueDate)}</p>
-                                            <p>Expires: {formatDisplayDate(license.expiryDate)}</p>
+                                        <div className="mt-3 space-y-1.5 text-[13px] text-slate-600 sm:mt-4 sm:space-y-2 sm:text-sm dark:text-slate-300">
+                                            <p className="break-words">Issued: {formatDisplayDate(license.issueDate)}</p>
+                                            <p className="break-words">Expires: {formatDisplayDate(license.expiryDate)}</p>
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         ) : (
-                            <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
+                            <div className="rounded-[20px] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-xs text-slate-500 sm:rounded-3xl sm:px-6 sm:py-10 sm:text-sm dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
                                 No license rows are stored for this employee in the backend database yet.
                             </div>
                         )}

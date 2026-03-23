@@ -152,7 +152,7 @@ export default function EmployeeSchedule() {
 
   return (
     <DashboardLayout role="employee">
-      <div className="space-y-6">
+      <div className="mx-auto max-w-[1380px] space-y-6">
 
         {/* ── Page Header ── */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -166,82 +166,122 @@ export default function EmployeeSchedule() {
           </div>
         </div>
 
-        {/* ── Today's Duty (compact, two-line) ── */}
-        <div className="bg-gradient-to-r from-blue-50/40 via-slate-50 to-indigo-50/30 dark:from-blue-950/30 dark:via-gray-900 dark:to-indigo-950/20 rounded-lg px-3 py-2.5 sm:px-4 sm:py-3 shadow-sm border border-slate-200/60 dark:border-slate-700/60">
-          {isLoading ? (
-            <Skeleton className="h-12 w-full" />
-          ) : nextDuty ? (
-            <div className="space-y-1">
-              {/* Line 1: Title */}
-              <div className="flex items-center gap-1.5">
-                <Clock className="text-slate-600 dark:text-slate-400" size={16} />
-                <span className="text-xs font-semibold text-gray-900 dark:text-gray-100 sm:text-sm">Today's Duty</span>
-              </div>
-              {/* Line 2: Date + Duty */}
-              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-                <div className="flex items-center gap-1.5 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
-                  <CalendarIcon size={14} className="shrink-0" />
-                  <span className="font-medium">{format(parseISO(nextDuty.duty_date), "EEE, MMM d")}</span>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,360px)] xl:items-stretch">
+          {/* ── Today's Duty (compact, two-line) ── */}
+          <div className="bg-gradient-to-r from-blue-50/40 via-slate-50 to-indigo-50/30 dark:from-blue-950/30 dark:via-gray-900 dark:to-indigo-950/20 rounded-lg px-3 py-2.5 sm:px-4 sm:py-3 shadow-sm border border-slate-200/60 dark:border-slate-700/60">
+            {isLoading ? (
+              <Skeleton className="h-12 w-full" />
+            ) : nextDuty ? (
+              <div className="space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="text-slate-600 dark:text-slate-400" size={16} />
+                      <span className="text-xs font-semibold text-gray-900 dark:text-gray-100 sm:text-sm">Today's Duty</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs sm:text-sm text-slate-600 dark:text-slate-400">
+                      <CalendarIcon size={14} className="shrink-0" />
+                      <span className="font-medium">{format(parseISO(nextDuty.duty_date), "EEE, MMM d")}</span>
+                    </div>
+                  </div>
+                  <span className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-md ${dutyColor(nextDuty.duty_code)}`}>
+                    {DUTY_DESCRIPTIONS[nextDuty.duty_code] || nextDuty.duty_code}
+                  </span>
                 </div>
-                <span className={`text-xs font-bold px-2.5 py-1 rounded-md ${dutyColor(nextDuty.duty_code)}`}>
-                  {DUTY_DESCRIPTIONS[nextDuty.duty_code] || nextDuty.duty_code}
-                </span>
+                {shiftTime(nextDuty.duty_code) && (
+                  <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 sm:text-sm">
+                    {shiftTime(nextDuty.duty_code)}
+                  </div>
+                )}
               </div>
-              {/* Line 3: Shift timings */}
-              {shiftTime(nextDuty.duty_code) && (
-                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 sm:text-sm">
-                  🕐 {shiftTime(nextDuty.duty_code)}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Clock className="text-slate-500" size={16} />
-              <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Today's Duty</span>
-              <span className="text-xs text-gray-500 dark:text-gray-400">— No upcoming duties</span>
-            </div>
-          )}
-        </div>
-
-        {/* ── Schedule Calendar ── */}
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-4 md:p-6">
-          {/* Calendar Header */}
-          <div className="flex flex-col gap-2 mb-4 sm:flex-row sm:items-center sm:justify-between sm:mb-6">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 sm:text-lg">Schedule Calendar</h2>
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <button
-                onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
-                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-700 shadow-sm transition-all hover:bg-blue-100 hover:text-blue-700 active:scale-95 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-blue-900/40 dark:hover:text-blue-300 sm:px-3 sm:py-1.5 sm:text-xs"
-              >
-                <ChevronLeft size={14} className="sm:size-4" />
-                <span className="hidden sm:inline">Prev</span>
-              </button>
-              <div className="min-w-[90px] text-center sm:min-w-[140px]">
-                <span className="text-xs font-semibold text-gray-900 dark:text-gray-100 sm:text-base">
-                  {format(currentMonth, "MMMM yyyy")}
-                </span>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Clock className="text-slate-500" size={16} />
+                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Today's Duty</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">— No upcoming duties</span>
               </div>
-              <button
-                onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
-                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-700 shadow-sm transition-all hover:bg-blue-100 hover:text-blue-700 active:scale-95 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-blue-900/40 dark:hover:text-blue-300 sm:px-3 sm:py-1.5 sm:text-xs"
-              >
-                <span className="hidden sm:inline">Next</span>
-                <ChevronRight size={14} className="sm:size-4" />
-              </button>
-              <button
-                onClick={() => setCurrentMonth(new Date())}
-                className="rounded-full bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95 dark:bg-blue-500 dark:hover:bg-blue-600 sm:px-3 sm:py-1.5 sm:text-xs"
-              >
-                Today
-              </button>
-            </div>
+            )}
           </div>
 
-          {/* Calendar Grid */}
-          {isLoading ? (
-            <Skeleton className="w-full aspect-[7/5]" />
-          ) : (
-            <div className="grid grid-cols-7 gap-1 sm:gap-2">
+          {/* ── Month Summary ── */}
+          <div className="hidden xl:block bg-gradient-to-br from-slate-50 to-purple-50/30 dark:from-gray-900 dark:to-purple-950/20 rounded-lg p-4 md:p-5 shadow-sm border border-slate-200/50 dark:border-slate-700/50">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className="text-purple-600 dark:text-purple-400" size={18} />
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100 text-sm sm:text-base">
+                {format(currentMonth, "MMMM")} Summary
+              </h2>
+            </div>
+
+            {isLoading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : dutyStats.length > 0 ? (
+              <div className="space-y-2">
+                {dutyStats.map(([code, count]) => (
+                  <div key={code} className="flex items-center gap-3">
+                    <span className={`text-xs font-semibold w-14 ${barTextColor(code)}`}>{code}</span>
+                    <div className="flex-1 relative">
+                      <div className="h-2 bg-gray-200/50 dark:bg-gray-700/50 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${barColor(code)} rounded-full transition-all duration-300`}
+                          style={{ width: `${(count / maxStatValue) * 100}%` }}
+                        />
+                      </div>
+                      <span
+                        className="absolute top-1/2 -translate-y-1/2 text-xs font-bold text-gray-700 dark:text-gray-300"
+                        style={{ left: `${(count / maxStatValue) * 100}%`, marginLeft: '8px' }}
+                      >
+                        {count}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-3">No data for this month</p>
+            )}
+          </div>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)] xl:items-start">
+          {/* ── Schedule Calendar ── */}
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-4 md:p-5">
+            {/* Calendar Header */}
+            <div className="flex flex-col gap-2 mb-4 sm:flex-row sm:items-center sm:justify-between sm:mb-6">
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 sm:text-lg">Schedule Calendar</h2>
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <button
+                  onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
+                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-700 shadow-sm transition-all hover:bg-blue-100 hover:text-blue-700 active:scale-95 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-blue-900/40 dark:hover:text-blue-300 sm:px-3 sm:py-1.5 sm:text-xs"
+                >
+                  <ChevronLeft size={14} className="sm:size-4" />
+                  <span className="hidden sm:inline">Prev</span>
+                </button>
+                <div className="min-w-[90px] text-center sm:min-w-[140px]">
+                  <span className="text-xs font-semibold text-gray-900 dark:text-gray-100 sm:text-base">
+                    {format(currentMonth, "MMMM yyyy")}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-medium text-slate-700 shadow-sm transition-all hover:bg-blue-100 hover:text-blue-700 active:scale-95 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-blue-900/40 dark:hover:text-blue-300 sm:px-3 sm:py-1.5 sm:text-xs"
+                >
+                  <span className="hidden sm:inline">Next</span>
+                  <ChevronRight size={14} className="sm:size-4" />
+                </button>
+                <button
+                  onClick={() => setCurrentMonth(new Date())}
+                  className="rounded-full bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white shadow-sm transition-all hover:bg-blue-700 active:scale-95 dark:bg-blue-500 dark:hover:bg-blue-600 sm:px-3 sm:py-1.5 sm:text-xs"
+                >
+                  Today
+                </button>
+              </div>
+            </div>
+
+            {/* Calendar Grid */}
+            {isLoading ? (
+              <Skeleton className="w-full aspect-[7/5]" />
+            ) : (
+              <div className="grid grid-cols-7 gap-1 sm:gap-2">
               {/* Day headers */}
               {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
                 <div key={d} className="text-center text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 pb-2">
@@ -285,52 +325,51 @@ export default function EmployeeSchedule() {
                   </div>
                 );
               })}
-            </div>
-          )}
-        </div>
-
-        {/* ── Month Summary ── */}
-        <div className="bg-gradient-to-br from-slate-50 to-purple-50/30 dark:from-gray-900 dark:to-purple-950/20 rounded-lg p-4 sm:p-5 shadow-sm border border-slate-200/50 dark:border-slate-700/50">
-          <div className="flex items-center gap-2 mb-3">
-            <TrendingUp className="text-purple-600 dark:text-purple-400" size={18} />
-            <h2 className="font-semibold text-gray-900 dark:text-gray-100 text-sm sm:text-base">
-              {format(currentMonth, "MMMM")} Summary
-            </h2>
+          </div>
+            )}
           </div>
 
-          {isLoading ? (
-            <Skeleton className="h-24 w-full" />
-          ) : dutyStats.length > 0 ? (
-            <div className="space-y-2">
-              {dutyStats.map(([code, count]) => (
-                <div key={code} className="flex items-center gap-3">
-                  <span className={`text-xs font-semibold w-14 ${barTextColor(code)}`}>{code}</span>
-                  <div className="flex-1 relative">
-                    <div className="h-2 bg-gray-200/50 dark:bg-gray-700/50 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full ${barColor(code)} rounded-full transition-all duration-300`}
-                        style={{ width: `${(count / maxStatValue) * 100}%` }}
-                      />
-                    </div>
-                    <span
-                      className="absolute top-1/2 -translate-y-1/2 text-xs font-bold text-gray-700 dark:text-gray-300"
-                      style={{ left: `${(count / maxStatValue) * 100}%`, marginLeft: '8px' }}
-                    >
-                      {count}
-                    </span>
-                  </div>
-                </div>
-              ))}
+          <div className="xl:hidden bg-gradient-to-br from-slate-50 to-purple-50/30 dark:from-gray-900 dark:to-purple-950/20 rounded-lg p-4 md:p-5 shadow-sm border border-slate-200/50 dark:border-slate-700/50">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className="text-purple-600 dark:text-purple-400" size={18} />
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100 text-sm sm:text-base">
+                {format(currentMonth, "MMMM")} Summary
+              </h2>
             </div>
-          ) : (
-            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-3">No data for this month</p>
-          )}
-        </div>
 
-        {/* ── Duty Legend ── */}
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-3 sm:p-4 md:p-6">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 sm:text-lg sm:mb-4">Duty Legend</h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {isLoading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : dutyStats.length > 0 ? (
+              <div className="space-y-2">
+                {dutyStats.map(([code, count]) => (
+                  <div key={code} className="flex items-center gap-3">
+                    <span className={`text-xs font-semibold w-14 ${barTextColor(code)}`}>{code}</span>
+                    <div className="flex-1 relative">
+                      <div className="h-2 bg-gray-200/50 dark:bg-gray-700/50 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${barColor(code)} rounded-full transition-all duration-300`}
+                          style={{ width: `${(count / maxStatValue) * 100}%` }}
+                        />
+                      </div>
+                      <span
+                        className="absolute top-1/2 -translate-y-1/2 text-xs font-bold text-gray-700 dark:text-gray-300"
+                        style={{ left: `${(count / maxStatValue) * 100}%`, marginLeft: '8px' }}
+                      >
+                        {count}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-3">No data for this month</p>
+            )}
+          </div>
+
+          {/* ── Duty Legend ── */}
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-4 md:p-5 xl:sticky xl:top-6">
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 sm:text-lg sm:mb-4">Duty Legend</h2>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
             {/* Shifts */}
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5 sm:text-xs">Shifts</p>
@@ -365,6 +404,7 @@ export default function EmployeeSchedule() {
               </div>
             </div>
           </div>
+        </div>
         </div>
 
         {/* ── Upcoming 7 Days ── */}
