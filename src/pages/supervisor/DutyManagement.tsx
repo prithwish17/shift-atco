@@ -17,7 +17,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover";
-import { Search, Filter, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Search, Filter, ChevronLeft, ChevronRight, Loader2, RefreshCcw, RotateCcw } from "lucide-react";
 import { format } from "date-fns";
 import { DUTY_CODES, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -40,6 +40,21 @@ interface ProfileLite {
     employee_id: string | null;
     full_name: string | null;
     current_shift: string | null;
+}
+
+interface LastScheduleChange {
+    employeeCode: string;
+    employeeName: string;
+    dutyDate: string;
+    previousDutyCode: string;
+    nextDutyCode: string;
+}
+
+interface GridScrollMetrics {
+    scrollLeft: number;
+    scrollWidth: number;
+    clientWidth: number;
+    trackWidth: number;
 }
 
 /* ── Constants ── */
@@ -150,6 +165,14 @@ export default function DutyManagement() {
     const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
     const [sortBy, setSortBy] = useState<"name" | "empId" | "team">("name");
     const [savingCellKey, setSavingCellKey] = useState<string | null>(null);
+    const [lastScheduleChange, setLastScheduleChange] = useState<LastScheduleChange | null>(null);
+    const [isSyncingDatabase, setIsSyncingDatabase] = useState(false);
+    const [gridScrollMetrics, setGridScrollMetrics] = useState<GridScrollMetrics>({
+        scrollLeft: 0,
+        scrollWidth: 1,
+        clientWidth: 1,
+        trackWidth: 0,
+    });
     const { toast } = useToast();
     const queryClient = useQueryClient();
 
@@ -160,13 +183,36 @@ export default function DutyManagement() {
     /* ── Refs for synced scrolling ── */
     const namesRef = useRef<HTMLDivElement>(null);
     const gridRef = useRef<HTMLDivElement>(null);
+    const horizontalTrackRef = useRef<HTMLDivElement>(null);
 
     // Sync vertical scroll: when grid scrolls vertically, names follow
+    const updateGridScrollMetrics = useCallback(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+
+        setGridScrollMetrics({
+            scrollLeft: grid.scrollLeft,
+            scrollWidth: grid.scrollWidth,
+            clientWidth: grid.clientWidth,
+            trackWidth: horizontalTrackRef.current?.clientWidth || 0,
+        });
+    }, []);
+
+    const setGridHorizontalScroll = useCallback((nextScrollLeft: number) => {
+        const grid = gridRef.current;
+        if (!grid) return;
+
+        const maxScroll = Math.max(0, grid.scrollWidth - grid.clientWidth);
+        grid.scrollLeft = Math.max(0, Math.min(nextScrollLeft, maxScroll));
+        updateGridScrollMetrics();
+    }, [updateGridScrollMetrics]);
+
     const onGridScroll = useCallback(() => {
         if (namesRef.current && gridRef.current) {
             namesRef.current.scrollTop = gridRef.current.scrollTop;
         }
-    }, []);
+        updateGridScrollMetrics();
+    }, [updateGridScrollMetrics]);
 
     /* ── Data fetching ── */
     const { data: profiles = [], isLoading: profilesLoading } = useQuery({
@@ -212,6 +258,16 @@ export default function DutyManagement() {
                 duty_code: dutyCode,
                 duty_description: DUTY_DESCRIPTIONS[dutyCode] || dutyCode,
             };
+
+            if (!dutyCode) {
+                const { error } = await supabase
+                    .from("employee_schedules" as any)
+                    .delete()
+                    .eq("employee_code", employeeCode)
+                    .eq("duty_date", dutyDate);
+                if (error) throw error;
+                return;
+            }
 
             const { error } = await supabase
                 .from("employee_schedules" as any)
@@ -350,6 +406,8 @@ export default function DutyManagement() {
     ) => {
         if (!newCode) return;
         const key = `${empCode}|${dateKey}`;
+        const previousDutyCode = scheduleMap.get(key) || "";
+        if (previousDutyCode === newCode) return;
         setSavingCellKey(key);
         try {
             await upsertSchedule.mutateAsync({
@@ -357,6 +415,13 @@ export default function DutyManagement() {
                 employeeName: empName,
                 dutyDate: dateKey,
                 dutyCode: newCode,
+            });
+            setLastScheduleChange({
+                employeeCode: empCode,
+                employeeName: empName,
+                dutyDate: dateKey,
+                previousDutyCode,
+                nextDutyCode: newCode,
             });
             toast({ title: "Updated", description: `Duty changed to ${newCode}` });
         } catch (err: any) {
@@ -368,7 +433,60 @@ export default function DutyManagement() {
         } finally {
             setSavingCellKey((current) => (current === key ? null : current));
         }
-    }, [upsertSchedule, toast]);
+    }, [scheduleMap, upsertSchedule, toast]);
+
+    const handleUndoLastChange = useCallback(async () => {
+        if (!lastScheduleChange) return;
+
+        const key = `${lastScheduleChange.employeeCode}|${lastScheduleChange.dutyDate}`;
+        setSavingCellKey(key);
+
+        try {
+            await upsertSchedule.mutateAsync({
+                employeeCode: lastScheduleChange.employeeCode,
+                employeeName: lastScheduleChange.employeeName,
+                dutyDate: lastScheduleChange.dutyDate,
+                dutyCode: lastScheduleChange.previousDutyCode,
+            });
+
+            const restoredDuty = lastScheduleChange.previousDutyCode || "blank";
+            toast({
+                title: "Last change undone",
+                description: `Restored ${lastScheduleChange.employeeCode} on ${lastScheduleChange.dutyDate} to ${restoredDuty}.`,
+            });
+            setLastScheduleChange(null);
+        } catch (err: any) {
+            toast({
+                title: "Undo failed",
+                description: err?.message || "Unable to restore the previous duty.",
+                variant: "destructive",
+            });
+        } finally {
+            setSavingCellKey((current) => (current === key ? null : current));
+        }
+    }, [lastScheduleChange, toast, upsertSchedule]);
+
+    const handleSyncWithDatabase = useCallback(async () => {
+        setIsSyncingDatabase(true);
+        try {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["duty-management-profiles"] }),
+                queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
+            ]);
+            toast({
+                title: "Synced with database",
+                description: "The latest schedule and employee records have been reloaded.",
+            });
+        } catch (err: any) {
+            toast({
+                title: "Sync failed",
+                description: err?.message || "Unable to refresh data from the database.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsSyncingDatabase(false);
+        }
+    }, [queryClient, toast]);
 
     const toggleTeam = (team: string) => {
         setSelectedTeams((prev) => prev.includes(team) ? prev.filter((t) => t !== team) : [...prev, team]);
@@ -397,6 +515,72 @@ export default function DutyManagement() {
         if (namesRef.current) namesRef.current.scrollTop = 0;
         rowVirtualizer.scrollToIndex(0);
     }, [currentMonth, currentYear, searchQuery, selectedTeams, sortBy]);
+
+    useEffect(() => {
+        updateGridScrollMetrics();
+    }, [filteredEmployees.length, dates.length, isLoading, updateGridScrollMetrics]);
+
+    useEffect(() => {
+        const handleResize = () => updateGridScrollMetrics();
+        window.addEventListener("resize", handleResize);
+        return () => window.removeEventListener("resize", handleResize);
+    }, [updateGridScrollMetrics]);
+
+    const horizontalMaxScroll = Math.max(0, gridScrollMetrics.scrollWidth - gridScrollMetrics.clientWidth);
+    const rawThumbWidth = horizontalMaxScroll <= 0 || gridScrollMetrics.trackWidth <= 0
+        ? gridScrollMetrics.trackWidth
+        : (gridScrollMetrics.clientWidth / gridScrollMetrics.scrollWidth) * gridScrollMetrics.trackWidth;
+    const thumbWidth = gridScrollMetrics.trackWidth > 0
+        ? Math.min(gridScrollMetrics.trackWidth, Math.max(92, rawThumbWidth))
+        : 0;
+    const thumbTravel = Math.max(0, gridScrollMetrics.trackWidth - thumbWidth);
+    const thumbLeft = horizontalMaxScroll > 0 && thumbTravel > 0
+        ? (gridScrollMetrics.scrollLeft / horizontalMaxScroll) * thumbTravel
+        : 0;
+
+    const handleHorizontalTrackMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+        if (event.target !== event.currentTarget || horizontalMaxScroll <= 0) return;
+
+        const track = horizontalTrackRef.current;
+        if (!track) return;
+
+        const rect = track.getBoundingClientRect();
+        const clickX = event.clientX - rect.left;
+        const nextThumbLeft = Math.max(0, Math.min(clickX - thumbWidth / 2, thumbTravel));
+        const nextScrollLeft = thumbTravel > 0
+            ? (nextThumbLeft / thumbTravel) * horizontalMaxScroll
+            : 0;
+
+        setGridHorizontalScroll(nextScrollLeft);
+    }, [horizontalMaxScroll, setGridHorizontalScroll, thumbTravel, thumbWidth]);
+
+    const handleHorizontalThumbMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (horizontalMaxScroll <= 0 || thumbTravel <= 0) return;
+
+        const startX = event.clientX;
+        const startScrollLeft = gridRef.current?.scrollLeft || 0;
+
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+            const deltaX = moveEvent.clientX - startX;
+            const deltaScroll = (deltaX / thumbTravel) * horizontalMaxScroll;
+            setGridHorizontalScroll(startScrollLeft + deltaScroll);
+        };
+
+        const handleMouseUp = () => {
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("mouseup", handleMouseUp);
+            document.body.style.userSelect = "";
+            document.body.style.cursor = "";
+        };
+
+        document.body.style.userSelect = "none";
+        document.body.style.cursor = "grabbing";
+        window.addEventListener("mousemove", handleMouseMove);
+        window.addEventListener("mouseup", handleMouseUp);
+    }, [horizontalMaxScroll, setGridHorizontalScroll, thumbTravel]);
 
     /* ═══════════════════════════════════════════════════════════════
      * LAYOUT
@@ -476,6 +660,28 @@ export default function DutyManagement() {
                             </Select>
                         </div>
 
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleSyncWithDatabase}
+                            disabled={isSyncingDatabase || upsertSchedule.isPending}
+                            className="gap-2"
+                        >
+                            {isSyncingDatabase ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+                            Sync
+                        </Button>
+
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleUndoLastChange}
+                            disabled={!lastScheduleChange || upsertSchedule.isPending}
+                            className="gap-2"
+                        >
+                            <RotateCcw className="h-4 w-4" />
+                            Undo
+                        </Button>
+
                         {upsertSchedule.isPending && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                     </div>
 
@@ -484,6 +690,12 @@ export default function DutyManagement() {
                             Showing {filteredEmployees.length} of {employeeRows.length} employees
                         </p>
                     )}
+
+                    {lastScheduleChange ? (
+                        <p className="text-xs text-muted-foreground mt-2">
+                            Last edit: {lastScheduleChange.employeeCode} on {lastScheduleChange.dutyDate} changed from {lastScheduleChange.previousDutyCode || "blank"} to {lastScheduleChange.nextDutyCode}.
+                        </p>
+                    ) : null}
                 </div>
 
                 {/* ── FIXED: Month Navigation ── */}
@@ -503,134 +715,156 @@ export default function DutyManagement() {
                         {[...Array(10)].map((_, i) => <Skeleton key={i} className="h-11 w-full" />)}
                     </div>
                 ) : (
-                    <div className="flex-1 flex overflow-hidden min-h-0">
-                        {/* ── LEFT PANEL: Fixed employee columns (scrolls vertically only, synced) ── */}
-                        <div className="flex-shrink-0 flex flex-col border-r-2 border-gray-400 shadow-[3px_0_8px_rgba(0,0,0,0.08)] z-10 bg-background">
-                            {/* Left header */}
-                            <div className={`flex ${ROW_H} border-b-2 border-gray-400 bg-muted/60 flex-shrink-0`}>
-                                <div className="w-32 px-3 flex items-center justify-center border-r border-gray-300">
-                                    <span className="font-semibold text-xs">Employee ID</span>
-                                </div>
-                                <div className="w-16 px-2 flex items-center justify-center border-r border-gray-300">
-                                    <span className="font-semibold text-xs">Team</span>
-                                </div>
-                                <div className="w-52 px-3 flex items-center">
-                                    <span className="font-semibold text-xs">Employee Name</span>
-                                </div>
-                            </div>
-
-                            {/* Left body — synced vertical scroll, hidden scrollbar */}
-                            <div
-                                ref={namesRef}
-                                className="flex-1 overflow-hidden"
-                                style={{ overflowY: "hidden" }}
-                            >
-                                {filteredEmployees.length === 0 ? (
-                                    <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
-                                        No employees found
+                    <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+                        <div className="flex-1 flex overflow-hidden min-h-0">
+                            {/* ── LEFT PANEL: Fixed employee columns (scrolls vertically only, synced) ── */}
+                            <div className="flex-shrink-0 flex flex-col border-r-2 border-gray-400 shadow-[3px_0_8px_rgba(0,0,0,0.08)] z-10 bg-background">
+                                {/* Left header */}
+                                <div className={`flex ${ROW_H} border-b-2 border-gray-400 bg-muted/60 flex-shrink-0`}>
+                                    <div className="w-32 px-3 flex items-center justify-center border-r border-gray-300">
+                                        <span className="font-semibold text-xs">Employee ID</span>
                                     </div>
-                                ) : (
-                                    <div className="relative" style={{ height: totalHeight }}>
-                                        {virtualRows.map((virtualRow) => {
-                                            const emp = filteredEmployees[virtualRow.index];
-                                            const rowIndex = virtualRow.index;
-                                            return (
-                                                <div
-                                                    key={emp.code}
-                                                    className={`flex ${ROW_H} border-b border-gray-200 dark:border-slate-700 transition-colors ${rowIndex % 2 === 0
-                                                        ? "bg-white dark:bg-slate-900/55"
-                                                        : "bg-slate-50/70 dark:bg-slate-800/55"
-                                                        } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
-                                                    style={{
-                                                        position: "absolute",
-                                                        top: 0,
-                                                        left: 0,
-                                                        width: "100%",
-                                                        height: ROW_PX,
-                                                        transform: `translateY(${virtualRow.start}px)`,
-                                                    }}
-                                                >
-                                                    <div className="w-32 px-3 flex items-center border-r border-gray-200">
-                                                        <span className="text-xs font-mono font-medium truncate">{emp.code}</span>
-                                                    </div>
-                                                    <div className="w-16 px-2 flex items-center justify-center border-r border-gray-200">
-                                                        <span className="inline-flex items-center justify-center w-7 h-7 rounded bg-gray-700 text-white text-[10px] font-semibold shadow-sm">
-                                                            {emp.team === "GENERAL" ? "G" : emp.team}
-                                                        </span>
-                                                    </div>
-                                                    <div className="w-52 px-3 flex items-center">
-                                                        <span className="text-xs font-semibold truncate">{emp.name}</span>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
+                                    <div className="w-16 px-2 flex items-center justify-center border-r border-gray-300">
+                                        <span className="font-semibold text-xs">Team</span>
                                     </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* ── RIGHT PANEL: Date header + duty cells (scrolls both H and V) ── */}
-                        <div
-                            ref={gridRef}
-                            className="flex-1 overflow-auto custom-scrollbar min-w-0"
-                            onScroll={onGridScroll}
-                        >
-                            {/* Date header row — sticky top */}
-                            <div className={`sticky top-0 z-10 flex ${ROW_H} border-b-2 border-gray-400 bg-background`}>
-                                {dates.map((date) => (
-                                    <div
-                                        key={date.key}
-                                        className={`w-28 flex-shrink-0 px-2 flex flex-col items-center justify-center border-r border-gray-300 ${date.isWeekend ? "bg-muted" : ""
-                                            }`}
-                                    >
-                                        <span className="font-semibold text-xs leading-tight">{date.label}</span>
-                                        <span className={`text-[10px] leading-tight ${date.isWeekend ? "text-destructive font-medium" : "text-muted-foreground"}`}>
-                                            {date.dayOfWeek}
-                                        </span>
+                                    <div className="w-52 px-3 flex items-center">
+                                        <span className="font-semibold text-xs">Employee Name</span>
                                     </div>
-                                ))}
-                            </div>
+                                </div>
 
-                            {/* Duty cells body */}
-                            <div className="relative" style={{ height: totalHeight }}>
-                                {virtualRows.map((virtualRow) => {
-                                    const emp = filteredEmployees[virtualRow.index];
-                                    const rowIndex = virtualRow.index;
-                                    return (
-                                        <div
-                                            key={emp.code}
-                                            className={`flex ${ROW_H} border-b border-gray-200 dark:border-slate-700 transition-colors ${rowIndex % 2 === 0
-                                                ? "bg-white dark:bg-slate-900/55"
-                                                : "bg-slate-50/70 dark:bg-slate-800/55"
-                                                } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
-                                            style={{
-                                                position: "absolute",
-                                                top: 0,
-                                                left: 0,
-                                                width: "100%",
-                                                height: ROW_PX,
-                                                transform: `translateY(${virtualRow.start}px)`,
-                                            }}
-                                        >
-                                            {dates.map((date) => {
-                                                const cellKey = `${emp.code}|${date.key}`;
-                                                const duty = scheduleMap.get(cellKey) || "";
+                                {/* Left body — synced vertical scroll, hidden scrollbar */}
+                                <div
+                                    ref={namesRef}
+                                    className="flex-1 overflow-hidden"
+                                    style={{ overflowY: "hidden" }}
+                                >
+                                    {filteredEmployees.length === 0 ? (
+                                        <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
+                                            No employees found
+                                        </div>
+                                    ) : (
+                                        <div className="relative" style={{ height: totalHeight }}>
+                                            {virtualRows.map((virtualRow) => {
+                                                const emp = filteredEmployees[virtualRow.index];
+                                                const rowIndex = virtualRow.index;
                                                 return (
-                                                    <MemoizedDutyCell
-                                                        key={date.key}
-                                                        duty={duty}
-                                                        isSaving={savingCellKey === cellKey}
-                                                        isWeekend={date.isWeekend}
-                                                        empCode={emp.code}
-                                                        empName={emp.name}
-                                                        dateKey={date.key}
-                                                        onDutyChange={handleDutyChange}
-                                                    />
+                                                    <div
+                                                        key={emp.code}
+                                                        className={`flex ${ROW_H} border-b border-gray-200 dark:border-slate-700 transition-colors ${rowIndex % 2 === 0
+                                                            ? "bg-white dark:bg-slate-900/55"
+                                                            : "bg-slate-50/70 dark:bg-slate-800/55"
+                                                            } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
+                                                        style={{
+                                                            position: "absolute",
+                                                            top: 0,
+                                                            left: 0,
+                                                            width: "100%",
+                                                            height: ROW_PX,
+                                                            transform: `translateY(${virtualRow.start}px)`,
+                                                        }}
+                                                    >
+                                                        <div className="w-32 px-3 flex items-center border-r border-gray-200">
+                                                            <span className="text-xs font-mono font-medium truncate">{emp.code}</span>
+                                                        </div>
+                                                        <div className="w-16 px-2 flex items-center justify-center border-r border-gray-200">
+                                                            <span className="inline-flex items-center justify-center w-7 h-7 rounded bg-gray-700 text-white text-[10px] font-semibold shadow-sm">
+                                                                {emp.team === "GENERAL" ? "G" : emp.team}
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-52 px-3 flex items-center">
+                                                            <span className="text-xs font-semibold truncate">{emp.name}</span>
+                                                        </div>
+                                                    </div>
                                                 );
                                             })}
                                         </div>
-                                    );
-                                })}
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* ── RIGHT PANEL: Date header + duty cells (scrolls both H and V) ── */}
+                            <div
+                                ref={gridRef}
+                                className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar schedule-grid-scrollbar min-w-0"
+                                onScroll={onGridScroll}
+                            >
+                                {/* Date header row — sticky top */}
+                                <div className={`sticky top-0 z-10 flex ${ROW_H} border-b-2 border-gray-400 bg-background`}>
+                                    {dates.map((date) => (
+                                        <div
+                                            key={date.key}
+                                            className={`w-28 flex-shrink-0 px-2 flex flex-col items-center justify-center border-r border-gray-300 ${date.isWeekend ? "bg-muted" : ""
+                                                }`}
+                                        >
+                                            <span className="font-semibold text-xs leading-tight">{date.label}</span>
+                                            <span className={`text-[10px] leading-tight ${date.isWeekend ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                                                {date.dayOfWeek}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Duty cells body */}
+                                <div className="relative" style={{ height: totalHeight }}>
+                                    {virtualRows.map((virtualRow) => {
+                                        const emp = filteredEmployees[virtualRow.index];
+                                        const rowIndex = virtualRow.index;
+                                        return (
+                                            <div
+                                                key={emp.code}
+                                                className={`flex ${ROW_H} border-b border-gray-200 dark:border-slate-700 transition-colors ${rowIndex % 2 === 0
+                                                    ? "bg-white dark:bg-slate-900/55"
+                                                    : "bg-slate-50/70 dark:bg-slate-800/55"
+                                                    } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
+                                                style={{
+                                                    position: "absolute",
+                                                    top: 0,
+                                                    left: 0,
+                                                    width: "100%",
+                                                    height: ROW_PX,
+                                                    transform: `translateY(${virtualRow.start}px)`,
+                                                }}
+                                            >
+                                                {dates.map((date) => {
+                                                    const cellKey = `${emp.code}|${date.key}`;
+                                                    const duty = scheduleMap.get(cellKey) || "";
+                                                    return (
+                                                        <MemoizedDutyCell
+                                                            key={date.key}
+                                                            duty={duty}
+                                                            isSaving={savingCellKey === cellKey}
+                                                            isWeekend={date.isWeekend}
+                                                            empCode={emp.code}
+                                                            empName={emp.name}
+                                                            dateKey={date.key}
+                                                            onDutyChange={handleDutyChange}
+                                                        />
+                                                    );
+                                                })}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="shrink-0 flex border-t border-slate-300 bg-slate-100/90">
+                            <div className="w-[400px] shrink-0 border-r border-slate-300 bg-slate-200/70" />
+                            <div className="flex-1 px-3 py-2">
+                                <div
+                                    ref={horizontalTrackRef}
+                                    onMouseDown={handleHorizontalTrackMouseDown}
+                                    className="relative h-6 rounded-full bg-slate-300/90 shadow-inner"
+                                >
+                                    <div
+                                        className={`absolute top-0.5 h-5 rounded-full bg-slate-700 shadow-[0_5px_14px_rgba(15,23,42,0.24)] ${horizontalMaxScroll > 0 ? "cursor-grab" : "cursor-not-allowed opacity-50"}`}
+                                        onMouseDown={handleHorizontalThumbMouseDown}
+                                        style={{
+                                            width: `${Math.max(thumbWidth, 48)}px`,
+                                            transform: `translateX(${thumbLeft}px)`,
+                                        }}
+                                    />
+                                </div>
                             </div>
                         </div>
                     </div>

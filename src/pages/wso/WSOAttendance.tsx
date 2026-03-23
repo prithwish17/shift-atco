@@ -6,6 +6,15 @@ import { Input } from "@/components/ui/input";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { CalendarIcon, Download, CheckCircle, XCircle } from "lucide-react";
 import { differenceInCalendarDays, format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -15,6 +24,14 @@ import { useAttendance } from "@/hooks/useAttendance";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
+import { useToast } from "@/hooks/use-toast";
+import {
+  getTeamDutyForDateKey,
+  getTeamDutyLabel,
+  isEligibleDutyForAttendance,
+  isHolidayOrOffDuty,
+  normalizeTeamKey,
+} from "@/lib/teamDutyRotation";
 
 interface EmployeeAttendance {
   userId: string;
@@ -26,107 +43,33 @@ interface EmployeeAttendance {
   timeOut: string;
 }
 
-const DUTY_CYCLE: Array<"M" | "A" | "N" | "NO" | "CO"> = ["M", "A", "N", "NO", "CO"];
-const TODAY_TEAM_DUTY_BASE: Record<string, "M" | "A" | "N" | "NO" | "CO"> = {
-  A: "A",
-  B: "M",
-  C: "CO",
-  D: "NO",
-  E: "N",
-  G: "M",
-};
-const HOLIDAY_CODES = new Set(["NO", "CO", "SAT", "SUN", "CH", "NH", "NA", "SL", "GO", "TR"]);
-const SPECIAL_DUTY_MATCH: Record<string, Array<"M" | "A" | "N" | "NO" | "CO">> = {
-  "M+A": ["M", "A"],
-  "NO+N": ["N"],
-  "SAT+NO": ["NO"],
-  "SUN+N": ["N"],
-  "SUN+M": ["M"],
-  "SUN+A": ["A"],
-  "SUN+NO": ["NO"],
-  "SAT+N": ["N"],
-  "CO+N": ["N"],
-  "CO+A": ["A"],
-  "CO+M": ["M"],
-  "A+M": ["A", "M"],
-  "SL": ["CO"], // clear off
-  "TR": ["CO"], // off day
-  "GO": ["CO"], // gazette off
-};
-
-function normalizeTeamKey(value?: string | null) {
-  if (!value) return "G";
-  const v = value.toUpperCase();
-  return v === "GENERAL" ? "G" : v;
-}
-
-function getTeamDutyForDate(teamKey: string, date: Date) {
-  const base = TODAY_TEAM_DUTY_BASE[teamKey] || "M";
-  const baseIndex = DUTY_CYCLE.indexOf(base);
-  const offset = differenceInCalendarDays(date, new Date());
-  const idx = (baseIndex + (offset % DUTY_CYCLE.length) + DUTY_CYCLE.length) % DUTY_CYCLE.length;
-  return DUTY_CYCLE[idx];
-}
-
-function parseDutyTokens(dutyCode?: string | null) {
-  if (!dutyCode) return [];
-  return dutyCode
-    .toUpperCase()
-    .split("+")
-    .map((t) => t.trim())
-    .filter(Boolean);
-}
-
-function getDutyShiftMatches(dutyCode: string | null | undefined) {
-  if (!dutyCode) return [] as Array<"M" | "A" | "N" | "NO" | "CO">;
-  const normalized = dutyCode.toUpperCase().trim();
-  const explicit = SPECIAL_DUTY_MATCH[normalized];
-  if (explicit) return explicit;
-
-  const tokens = parseDutyTokens(normalized);
-  const matches = tokens.filter((t): t is "M" | "A" | "N" | "NO" | "CO" =>
-    t === "M" || t === "A" || t === "N" || t === "NO" || t === "CO"
-  );
-  return matches;
-}
-
-function isEligibleDutyForAttendance(dutyCode: string | null | undefined, teamDuty: "M" | "A" | "N" | "NO" | "CO") {
-  // NO and CO team-duty days are treated as off/holiday attendance days.
-  if (teamDuty === "NO" || teamDuty === "CO") return false;
-
-  const matches = getDutyShiftMatches(dutyCode);
-  if (matches.length === 0) return false;
-  if (!matches.includes(teamDuty)) return false;
-
-  const tokens = parseDutyTokens(dutyCode);
-  if (tokens.every((t) => HOLIDAY_CODES.has(t))) return false;
-  return true;
-}
-
-function isHolidayOrOffDuty(dutyCode: string | null | undefined) {
-  const tokens = parseDutyTokens(dutyCode);
-  if (tokens.length === 0) return false;
-  return tokens.every((t) => HOLIDAY_CODES.has(t));
-}
-
 export default function WSOAttendance() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-
   const [attendanceState, setAttendanceState] = useState<Record<string, EmployeeAttendance>>({});
+  const [futureDateDialogOpen, setFutureDateDialogOpen] = useState(false);
 
   const { user } = useAuth();
   const { profile } = useUserProfile(user?.id);
   const { users, isLoading: usersLoading } = useUsers();
+  const { toast } = useToast();
   const dateStr = format(selectedDate, "yyyy-MM-dd");
   const { attendance, isLoading: attendanceLoading, bulkUpsertAttendance, isBulkUpserting } = useAttendance(dateStr);
 
   // Team-aware duty cycle + schedule-driven attendance source.
   const wsoShift = profile?.current_shift || "general";
   const wsoTeamKey = normalizeTeamKey(wsoShift);
-  const teamDutyToday = getTeamDutyForDate(wsoTeamKey, selectedDate);
+  const teamDutyToday = getTeamDutyForDateKey(wsoTeamKey, dateStr);
+  const teamDutyLabel = getTeamDutyLabel(teamDutyToday);
 
   const teamUsers = useMemo(
-    () => (users || []).filter((u) => u.approved && normalizeTeamKey(u.current_shift) === wsoTeamKey),
+    () =>
+      (users || []).filter(
+        (u) =>
+          !u.is_hidden &&
+          Boolean(u.employee_id) &&
+          (u.role === "employee" || !u.role) &&
+          normalizeTeamKey(u.current_shift) === wsoTeamKey
+      ),
     [users, wsoTeamKey]
   );
   const teamEmployeeCodes = useMemo(
@@ -207,6 +150,21 @@ export default function WSOAttendance() {
   };
 
   const handleSave = () => {
+    const dayOffsetFromToday = differenceInCalendarDays(selectedDate, new Date());
+    if (dayOffsetFromToday > 0) {
+      setFutureDateDialogOpen(true);
+      return;
+    }
+
+    if (dayOffsetFromToday < -1) {
+      toast({
+        title: "Attendance window closed",
+        description: "Attendance can only be saved for today or yesterday.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const dutyRecords = allEmployees.map((r) => ({
       user_id: r.userId,
       attendance_date: dateStr,
@@ -279,7 +237,7 @@ export default function WSOAttendance() {
           <div>
             <h1 className="text-3xl font-bold">Attendance Marking</h1>
             <p className="text-muted-foreground">
-              Mark attendance for Team {wsoTeamKey} ({teamDutyToday}) duty
+              Mark attendance for Team {wsoTeamKey} ({teamDutyLabel} duty)
             </p>
           </div>
           <div className="flex gap-2">
@@ -335,7 +293,12 @@ export default function WSOAttendance() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Mark Attendance - Team {wsoTeamKey} ({teamDutyToday})</CardTitle>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <CardTitle>Mark Attendance - Team {wsoTeamKey} ({teamDutyLabel})</CardTitle>
+              <Button onClick={handleSave} disabled={isBulkUpserting || allEmployees.length === 0}>
+                {isBulkUpserting ? "Saving..." : "Save Attendance"}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -351,15 +314,23 @@ export default function WSOAttendance() {
                 {allEmployees.map(renderEmployeeRow)}
               </div>
             )}
-
-            <div className="flex justify-end mt-6">
-              <Button size="lg" onClick={handleSave} disabled={isBulkUpserting || allEmployees.length === 0}>
-                {isBulkUpserting ? "Saving..." : "Save Attendance"}
-              </Button>
-            </div>
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={futureDateDialogOpen} onOpenChange={setFutureDateDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Wait For The Attendance Day</AlertDialogTitle>
+            <AlertDialogDescription>
+              Attendance can only be saved for today or yesterday. The selected date is in the future, so please wait until that duty day arrives before marking attendance.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>Understood</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }

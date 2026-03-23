@@ -47,6 +47,8 @@ export const POSITION_ROWS: PositionRow[] = [
     { key: 'UKE', label: 'UKE', editable: true, hasReliever: true, sectionType: 'sector', sectionLabel: 'UNIT / Sector Operational Positions', sectionColor: 'hsl(142 50% 45%)' },
     { key: 'UGT', label: 'UGT', editable: true, hasReliever: true, sectionType: 'sector', sectionLabel: 'UNIT / Sector Operational Positions', sectionColor: 'hsl(142 50% 45%)' },
     { key: 'OCCN_OCC-S', label: 'OCCN & OCC-S', editable: true, hasReliever: true, sectionType: 'sector', sectionLabel: 'UNIT / Sector Operational Positions', sectionColor: 'hsl(142 50% 45%)' },
+    { key: 'SECTOR_EXTRA_1', label: '', editable: true, hasReliever: true, sectionType: 'sector', sectionLabel: 'UNIT / Sector Operational Positions', sectionColor: 'hsl(142 50% 45%)' },
+    { key: 'SECTOR_EXTRA_2', label: '', editable: true, hasReliever: true, sectionType: 'sector', sectionLabel: 'UNIT / Sector Operational Positions', sectionColor: 'hsl(142 50% 45%)' },
     { key: 'UKN+UKW', label: 'UKN+UKW', editable: false, nightOnly: true, hasReliever: true, sectionType: 'sector', sectionLabel: 'UNIT / Sector Operational Positions', sectionColor: 'hsl(142 50% 45%)' },
     { key: 'UGT+UKE', label: 'UGT+UKE', editable: false, nightOnly: true, hasReliever: true, sectionType: 'sector', sectionLabel: 'UNIT / Sector Operational Positions', sectionColor: 'hsl(142 50% 45%)' },
     // Night Relievers — only shown in Night shift
@@ -68,11 +70,13 @@ export const POSITION_ROWS: PositionRow[] = [
     // SMC-N & SMC-S moved here from Flow & Sequencing — 2 dept columns
     { key: 'SMC-N_SMC-S', label: 'SMC-N & SMC-S', editable: false, deptCount: 2, sectionType: 'tower', sectionLabel: 'Tower / Aerodrome', sectionColor: 'hsl(30 80% 55%)' },
     { key: 'TWR-A/ AIMS', label: 'TWR-A/ AIMS', editable: false, deptCount: 2, sectionType: 'tower', sectionLabel: 'Tower / Aerodrome', sectionColor: 'hsl(30 80% 55%)' },
+    { key: 'TOWER_EXTRA_1', label: '', editable: true, deptCount: 2, sectionType: 'tower', sectionLabel: 'Tower / Aerodrome', sectionColor: 'hsl(30 80% 55%)' },
 
     { key: 'AIS', label: 'AIS', editable: false, deptCount: 2, sectionType: 'info', sectionLabel: 'Information & Support', sectionColor: 'hsl(270 50% 55%)' },
     { key: 'ARO', label: 'ARO', editable: false, deptCount: 2, sectionType: 'info', sectionLabel: 'Information & Support', sectionColor: 'hsl(270 50% 55%)' },
     { key: 'MCD', label: 'MCD', editable: false, deptCount: 2, sectionType: 'info', sectionLabel: 'Information & Support', sectionColor: 'hsl(270 50% 55%)' },
     { key: 'SAR', label: 'SAR', editable: false, deptCount: 2, sectionType: 'info', sectionLabel: 'Information & Support', sectionColor: 'hsl(270 50% 55%)' },
+    { key: 'INFO_EXTRA_1', label: '', editable: true, deptCount: 2, sectionType: 'info', sectionLabel: 'Information & Support', sectionColor: 'hsl(270 50% 55%)' },
 ];
 
 export const EXTRA_DUTY_TYPES = ['OPE', 'Familiarization', 'Refresher', 'Other'] as const;

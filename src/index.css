@@ -240,3 +240,30 @@ All colors MUST be HSL.
   scrollbar-width: thin;
   scrollbar-color: #9ca3af #f3f4f6;
 }
+
+.schedule-grid-scrollbar::-webkit-scrollbar {
+  width: 18px;
+  height: 28px;
+}
+
+.schedule-grid-scrollbar::-webkit-scrollbar-track {
+  background: #dbe1ea;
+  border-radius: 9999px;
+}
+
+.schedule-grid-scrollbar::-webkit-scrollbar-thumb {
+  background: #6b7280;
+  border-radius: 9999px;
+  border: 4px solid #dbe1ea;
+  min-width: 72px;
+}
+
+.schedule-grid-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+
+.schedule-grid-scrollbar {
+  scrollbar-width: auto;
+  scrollbar-color: #6b7280 #dbe1ea;
+  scrollbar-gutter: stable both-edges;
+}

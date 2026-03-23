@@ -96,6 +96,54 @@ function buildMergedProfileDetails(
   };
 }
 
+async function enrichProfileRecord(data: Record<string, any>) {
+  const profileId = data.id as string;
+
+  const { data: licenses } = await supabase
+    .from("employee_licenses")
+    .select("*")
+    .eq("user_id", profileId);
+
+  const { data: role } = await supabase
+    .from("user_roles")
+    .select("*")
+    .eq("user_id", profileId)
+    .single();
+
+  const linkedEmployeeData = (data?.profile_details?.employee_data_sync || null) as Record<string, any> | null;
+
+  let trainingRecord: Record<string, any> | null = null;
+  if (data?.employee_id) {
+    const { data: trainingData } = await supabase
+      .from("employee_training_records" as any)
+      .select("emp_id, employee_name, license_number, ojti, examiner, completion_dates, instructor_validity, examiner_validity, elpa_level, elpa_valid_upto, elpa_endorsed_upto, med_last_date, med_endorsed_upto, med_status, med_history, rating_designation, highest_rating, rating_summary, without_ratings, rating_data, rating_synced_at")
+      .eq("emp_id", data.employee_id)
+      .maybeSingle();
+    trainingRecord = (trainingData as Record<string, any> | null) || null;
+  }
+
+  const mergedProfileDetails = buildMergedProfileDetails(
+    data?.profile_details || null,
+    (licenses || []) as Array<Record<string, any>>,
+    trainingRecord,
+    linkedEmployeeData,
+  );
+
+  return {
+    ...data,
+    licenses: licenses || [],
+    role: role?.role,
+    profile_details: mergedProfileDetails,
+    employee_data_sync: linkedEmployeeData,
+    linked_training_record: trainingRecord,
+    highest_rating: trainingRecord?.highest_rating ?? linkedEmployeeData?.highest_rating ?? null,
+    rating_summary: trainingRecord?.rating_summary ?? linkedEmployeeData?.rating_summary ?? {},
+    without_ratings: trainingRecord?.without_ratings ?? linkedEmployeeData?.without_ratings ?? {},
+    rating_designation: trainingRecord?.rating_designation ?? data?.designation ?? linkedEmployeeData?.designation ?? null,
+    rating_synced_at: trainingRecord?.rating_synced_at ?? null,
+  };
+}
+
 export function useUsers() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -320,8 +368,6 @@ export function useUsers() {
 }
 
 export function useUserProfile(userId?: string) {
-  const { toast } = useToast();
-
   const { data: profile, isLoading } = useQuery({
     queryKey: ["profile", userId],
     queryFn: async () => {
@@ -335,52 +381,32 @@ export function useUserProfile(userId?: string) {
         .single();
 
       if (error) throw error;
-
-      const { data: licenses } = await supabase
-        .from("employee_licenses")
-        .select("*")
-        .eq("user_id", id);
-
-      const { data: role } = await supabase
-        .from("user_roles")
-        .select("*")
-        .eq("user_id", id)
-        .single();
-
-      const linkedEmployeeData = ((data as any)?.profile_details?.employee_data_sync || null) as Record<string, any> | null;
-
-      let trainingRecord: Record<string, any> | null = null;
-      if ((data as any)?.employee_id) {
-        const { data: trainingData } = await supabase
-          .from("employee_training_records" as any)
-          .select("emp_id, employee_name, license_number, ojti, examiner, completion_dates, instructor_validity, examiner_validity, elpa_level, elpa_valid_upto, elpa_endorsed_upto, med_last_date, med_endorsed_upto, med_status, med_history, rating_designation, highest_rating, rating_summary, without_ratings, rating_data, rating_synced_at")
-          .eq("emp_id", (data as any).employee_id)
-          .maybeSingle();
-        trainingRecord = (trainingData as Record<string, any> | null) || null;
-      }
-
-      const mergedProfileDetails = buildMergedProfileDetails(
-        (data as any)?.profile_details || null,
-        (licenses || []) as Array<Record<string, any>>,
-        trainingRecord,
-        linkedEmployeeData,
-      );
-
-      return {
-        ...data,
-        licenses: licenses || [],
-        role: role?.role,
-        profile_details: mergedProfileDetails,
-        employee_data_sync: linkedEmployeeData,
-        linked_training_record: trainingRecord,
-        highest_rating: trainingRecord?.highest_rating ?? linkedEmployeeData?.highest_rating ?? null,
-        rating_summary: trainingRecord?.rating_summary ?? linkedEmployeeData?.rating_summary ?? {},
-        without_ratings: trainingRecord?.without_ratings ?? linkedEmployeeData?.without_ratings ?? {},
-        rating_designation: trainingRecord?.rating_designation ?? (data as any)?.designation ?? linkedEmployeeData?.designation ?? null,
-        rating_synced_at: trainingRecord?.rating_synced_at ?? null,
-      };
+      return enrichProfileRecord(data as Record<string, any>);
     },
     enabled: !!userId || undefined,
+  });
+
+  return { profile, isLoading };
+}
+
+export function useEmployeeProfileByCode(employeeCode?: string) {
+  const { data: profile, isLoading } = useQuery({
+    queryKey: ["profile-by-code", employeeCode],
+    queryFn: async () => {
+      if (!employeeCode) throw new Error("No employee code");
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("employee_id", employeeCode)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) return null;
+
+      return enrichProfileRecord(data as Record<string, any>);
+    },
+    enabled: !!employeeCode,
   });
 
   return { profile, isLoading };

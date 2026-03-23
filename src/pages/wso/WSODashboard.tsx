@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { StatCard } from "@/components/StatCard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,19 +11,48 @@ import { useUserProfile } from "@/hooks/useUsers";
 import { useDutyExchanges } from "@/hooks/useDutyExchanges";
 import { useBaTests } from "@/hooks/useBaTests";
 import { useAllLeaveRequests } from "@/hooks/useLeaveRequests";
+import {
+  useDutyRoster,
+  useGridExtraDuties,
+  useGridLeaveRecords,
+  useRosterAssignments,
+  useRosterStatusEntries,
+} from "@/hooks/useDutyGrid";
 import { getLeaveTypeLabel } from "@/lib/leaveConstants";
 import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
+import { SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
+import {
+  getTeamDutyForDateKey,
+  getTeamDutyLabel,
+  isEligibleDutyForAttendance,
+  normalizeTeamKey,
+} from "@/lib/teamDutyRotation";
+
+type TeamProfileSummary = {
+  id: string;
+  full_name: string | null;
+  designation: string | null;
+  employee_id: string | null;
+  current_shift: string | null;
+};
 
 export default function WSODashboard() {
   const { user } = useAuth();
   const { profile } = useUserProfile(user?.id);
-  const today = format(new Date(), "yyyy-MM-dd");
+  const todayDate = new Date();
+  const today = format(todayDate, "yyyy-MM-dd");
 
   // WSO's team from profile (e.g. "a", "b", "c")
-  const wsoTeam = profile?.current_shift?.toUpperCase() || '';
+  const wsoTeam = normalizeTeamKey(profile?.current_shift);
+  const teamDutyToday = getTeamDutyForDateKey(wsoTeam, today);
+  const teamDutyLabel = getTeamDutyLabel(teamDutyToday);
+  const rosterShift =
+    teamDutyToday === "M" ? "Morning" :
+    teamDutyToday === "A" ? "AFTERNOON" :
+    teamDutyToday === "N" ? "Night" :
+    null;
 
   // Fetch leave requests filtered by WSO's team + Pending WSO status
   const { data: teamLeaveRequests = [] } = useAllLeaveRequests(
@@ -30,8 +60,31 @@ export default function WSODashboard() {
   );
   const { data: allExchanges } = useDutyExchanges();
   const { data: baTests } = useBaTests();
-  const { data: onDutyCount = 0, isLoading: onDutyLoading } = useQuery({
-    queryKey: scheduleKeys.teamDay(today, wsoTeam),
+  const { data: roster, isLoading: rosterLoading } = useDutyRoster(todayDate, rosterShift || "__OFF__", wsoTeam);
+  const { data: assignments = [] } = useRosterAssignments(roster?.id);
+  const { data: leaveRecords = [] } = useGridLeaveRecords(todayDate);
+  const { data: extraDuties = [] } = useGridExtraDuties(roster?.id);
+  const { data: rosterStatusEntries = [] } = useRosterStatusEntries(todayDate, rosterShift || "__OFF__", wsoTeam || "");
+  const { data: teamProfiles = [] } = useQuery({
+    queryKey: ["wso-team-profiles", wsoTeam],
+    ...SCHEDULE_QUERY_OPTIONS,
+    queryFn: async () => {
+      if (!wsoTeam) return [];
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name, designation, employee_id, current_shift")
+        .neq("is_hidden" as any, true)
+        .or(`current_shift.eq.${wsoTeam.toLowerCase()},current_shift.eq.${wsoTeam.toUpperCase()}`)
+        .order("full_name");
+      if (error) throw error;
+
+      return (data || []) as TeamProfileSummary[];
+    },
+    enabled: !!wsoTeam,
+  });
+  const { data: onDutyCountData = 0, isLoading: onDutyLoading } = useQuery({
+    queryKey: ["wso-on-duty-count", today, wsoTeam, teamDutyToday],
     ...SCHEDULE_QUERY_OPTIONS,
     queryFn: async () => {
       if (!wsoTeam) return 0;
@@ -50,12 +103,14 @@ export default function WSODashboard() {
 
       const { data: schedules, error: schedulesError } = await supabase
         .from("employee_schedules" as any)
-        .select("employee_code")
+        .select("employee_code, duty_code")
         .eq("duty_date", today)
         .in("employee_code", employeeCodes);
       if (schedulesError) throw schedulesError;
 
-      return new Set((schedules || []).map((s: any) => s.employee_code)).size;
+      return (schedules || []).filter((schedule: any) =>
+        isEligibleDutyForAttendance(schedule.duty_code, teamDutyToday)
+      ).length;
     },
     enabled: !!wsoTeam,
   });
@@ -64,8 +119,42 @@ export default function WSODashboard() {
   const pendingExchanges = allExchanges?.filter(e => e.status === "pending_wso") || [];
   const pendingCount = teamLeaveRequests.length + pendingExchanges.length;
   const latestBaTest = baTests?.[0];
-
-  const positions = ["RDR", "APP", "PLR", "ADC", "ALPHA", "OCC"];
+  const onDutyCount = typeof onDutyCountData === "number" ? onDutyCountData : 0;
+  const teamProfileIds = useMemo(() => new Set(teamProfiles.map((member) => member.id)), [teamProfiles]);
+  const markedAssignments = useMemo(
+    () => assignments
+      .filter((assignment) => assignment.employee_id)
+      .sort((left, right) => {
+        const leftLabel = left.position_label || left.position_name;
+        const rightLabel = right.position_label || right.position_name;
+        return leftLabel.localeCompare(rightLabel);
+      }),
+    [assignments]
+  );
+  const teamLeaveRecords = useMemo(
+    () => leaveRecords
+      .filter((record) => teamProfileIds.has(record.employee_id))
+      .sort((left, right) => {
+        const leftName = left.profiles?.full_name || "";
+        const rightName = right.profiles?.full_name || "";
+        return leftName.localeCompare(rightName);
+      }),
+    [leaveRecords, teamProfileIds]
+  );
+  const scheduleExtraDutyEntries = useMemo(
+    () => rosterStatusEntries.filter((entry) => entry.unit?.toUpperCase() === "EXTRA DUTY"),
+    [rosterStatusEntries]
+  );
+  const rosterStatusValue =
+    !rosterShift ? "Off" :
+    rosterLoading ? "..." :
+    roster ? `${markedAssignments.length}` : "Pending";
+  const rosterStatusDescription =
+    !rosterShift
+      ? `${teamDutyLabel} rotation today`
+      : roster
+        ? `${rosterShift} roster assignments`
+        : `No ${rosterShift.toLowerCase()} roster yet`;
 
   return (
     <DashboardLayout role="wso">
@@ -83,7 +172,7 @@ export default function WSODashboard() {
               title="On Duty Today"
               value={onDutyLoading ? "..." : onDutyCount}
               icon={Users}
-              description={`${shiftLabel} schedule`}
+              description={`${teamDutyLabel} duty attendance`}
             />
           </Link>
           <StatCard
@@ -100,34 +189,161 @@ export default function WSODashboard() {
           />
           <StatCard
             title="Roster Status"
-            value="—"
+            value={rosterStatusValue}
             icon={Calendar}
-            description="Check roster page"
+            description={rosterStatusDescription}
           />
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle>Today's Duty Positions</CardTitle>
+              <CardTitle>Today's Shift Duty Roster</CardTitle>
               <CardDescription>
-                {shiftLabel} - Current assignments
+                {wsoTeam ? `Team ${wsoTeam} • ${teamDutyLabel}` : shiftLabel}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {positions.map((position) => (
-                  <div key={position} className="flex items-center justify-between border-b pb-2 last:border-0">
-                    <span className="font-medium font-mono">{position}</span>
-                    <Badge variant="outline">—</Badge>
-                  </div>
-                ))}
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]">
+                <Card className="border-border/70 shadow-none">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center justify-between text-base">
+                      Duty Positions
+                      <Badge variant="secondary">{markedAssignments.length} marked</Badge>
+                    </CardTitle>
+                    <CardDescription>
+                      {rosterShift ? `${rosterShift} assignments linked to today's roster` : "This team is off duty today"}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="max-h-[360px] space-y-3 overflow-y-auto pr-2">
+                    {!rosterShift ? (
+                      <p className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                        Team {wsoTeam} is on {teamDutyLabel.toLowerCase()} today, so no live shift roster is expected.
+                      </p>
+                    ) : rosterLoading ? (
+                      <p className="text-sm text-muted-foreground">Loading today's roster...</p>
+                    ) : markedAssignments.length > 0 ? (
+                      markedAssignments.map((assignment) => (
+                        <div key={assignment.id} className="flex items-start justify-between gap-3 rounded-xl border bg-muted/20 px-3 py-3">
+                          <div>
+                            <p className="font-medium">{assignment.position_label || assignment.position_name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {assignment.department} • {assignment.section_type}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-medium">{assignment.profiles?.full_name || "Unassigned"}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {assignment.profiles?.designation || assignment.remark || "Roster assignment"}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                        No positions have been marked yet for this shift. Sync or update the roster to populate the duty grid.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="border-border/70 shadow-none">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center justify-between text-base">
+                      Extra Duty
+                      <Badge variant="secondary">{extraDuties.length + scheduleExtraDutyEntries.length}</Badge>
+                    </CardTitle>
+                    <CardDescription>
+                      Extra duty linked to today's roster and schedule
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="max-h-[360px] space-y-3 overflow-y-auto pr-2">
+                    {extraDuties.length === 0 && scheduleExtraDutyEntries.length === 0 ? (
+                      <p className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                        No extra duty entries recorded for today's shift.
+                      </p>
+                    ) : (
+                      <>
+                        {extraDuties.map((duty) => (
+                          <div key={duty.id} className="rounded-xl border bg-muted/20 px-3 py-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-medium">{duty.profiles?.full_name || "Assigned employee"}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {duty.profiles?.designation || "Roster-linked duty"}
+                                </p>
+                              </div>
+                              <Badge variant="outline">{duty.duty_type}</Badge>
+                            </div>
+                            {duty.remarks && (
+                              <p className="mt-2 text-xs text-muted-foreground">{duty.remarks}</p>
+                            )}
+                          </div>
+                        ))}
+                        {scheduleExtraDutyEntries.map((entry) => (
+                          <div key={entry.id} className="rounded-xl border bg-muted/20 px-3 py-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-medium">{entry.employee_name}</p>
+                                <p className="text-xs text-muted-foreground">{entry.position || "Schedule entry"}</p>
+                              </div>
+                              <Badge variant="outline">Schedule</Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="border-border/70 shadow-none">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center justify-between text-base">
+                      Leave
+                      <Badge variant="secondary">{teamLeaveRecords.length}</Badge>
+                    </CardTitle>
+                    <CardDescription>
+                      Team members marked on leave in today's schedule
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="max-h-[360px] space-y-3 overflow-y-auto pr-2">
+                    {teamLeaveRecords.length === 0 ? (
+                      <p className="rounded-xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                        No leave is marked today for this team.
+                      </p>
+                    ) : (
+                      teamLeaveRecords.map((record) => (
+                        <div key={record.id} className="rounded-xl border bg-muted/20 px-3 py-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-medium">{record.profiles?.full_name || "Employee on leave"}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {record.profiles?.designation || "Team member"}
+                              </p>
+                            </div>
+                            <Badge variant="outline">{record.leave_type}</Badge>
+                          </div>
+                          {record.remarks && (
+                            <p className="mt-2 text-xs text-muted-foreground">{record.remarks}</p>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
               </div>
-              <Link to="/wso/roster">
-                <Button variant="outline" className="w-full mt-4">
-                  View Full Roster
-                </Button>
-              </Link>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link to="/wso/roster" className="flex-1 min-w-[180px]">
+                  <Button variant="outline" className="w-full">
+                    View Full Roster
+                  </Button>
+                </Link>
+                <Link to="/wso/atc-grid" className="flex-1 min-w-[180px]">
+                  <Button variant="outline" className="w-full">
+                    Open Shift Duty Grid
+                  </Button>
+                </Link>
+              </div>
             </CardContent>
           </Card>
 

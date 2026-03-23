@@ -27,6 +27,7 @@ const AdminSettings = lazy(() => import("./pages/admin/AdminSettings"));
 const SupervisorDashboard = lazy(() => import("./pages/supervisor/SupervisorDashboard"));
 const SupervisorAttendance = lazy(() => import("./pages/supervisor/SupervisorAttendance"));
 const EmployeeManagement = lazy(() => import("./pages/supervisor/EmployeeManagement"));
+const SupervisorEmployeeOverview = lazy(() => import("./pages/supervisor/SupervisorEmployeeOverview"));
 const SupervisorDailyRoster = lazy(() => import("./pages/supervisor/SupervisorDailyRoster"));
 const LeaveApprovals = lazy(() => import("./pages/supervisor/LeaveApprovals"));
 const SupervisorLeaveDashboard = lazy(() => import("./pages/supervisor/SupervisorLeaveDashboard"));
@@ -110,6 +111,7 @@ const App = () => (
                   {/* Supervisor Routes */}
                   <Route path="/supervisor" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDashboard /></ProtectedRoute>} />
                   <Route path="/supervisor/employees" element={<ProtectedRoute allowedRoles={['supervisor']}><EmployeeManagement /></ProtectedRoute>} />
+                  <Route path="/supervisor/employees/:employeeCode" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorEmployeeOverview /></ProtectedRoute>} />
                   <Route path="/supervisor/attendance" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorAttendance /></ProtectedRoute>} />
                   <Route path="/supervisor/leaves" element={<ProtectedRoute allowedRoles={['supervisor', 'wso']}><LeaveApprovals /></ProtectedRoute>} />
                   <Route path="/supervisor/leave-dashboard" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorLeaveDashboard /></ProtectedRoute>} />

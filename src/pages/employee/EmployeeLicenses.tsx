@@ -102,7 +102,7 @@ export default function EmployeeLicenses() {
                                 <MetricCard label="License Number" value={health.licenseNumber} hint="Stored in training records" />
                                 <MetricCard label="Highest Rating" value={health.highestRating} hint="" />
                                 <MetricCard label="Active Ratings" value={String(health.activeRatingsCount)} hint="Operational rating cards below" />
-                                <MetricCard label="Next Review" value={health.nextExpiry ? formatDisplayDate(health.nextExpiry.expiryDate) : 'No date'} hint={health.nextExpiry ? health.nextExpiry.label : 'Nothing scheduled yet'} />
+                                <MetricCard label="Next Review" value={health.latestExpiry ? formatDisplayDate(health.latestExpiry.expiryDate) : 'No date'} hint={health.latestExpiry ? health.latestExpiry.label : 'Nothing scheduled yet'} />
                             </div>
                         </div>
 
@@ -182,7 +182,7 @@ export default function EmployeeLicenses() {
 
                                             <div className="mt-3 grid grid-cols-2 gap-2 text-[13px] sm:mt-4 sm:gap-3 sm:text-sm">
                                                 <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-900 sm:rounded-2xl sm:p-3">
-                                                    <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 sm:text-[11px] sm:tracking-[0.18em] dark:text-slate-400">Expiry Date</p>
+                                                    <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 sm:text-[11px] sm:tracking-[0.18em] dark:text-slate-400">Prof Valid Upto</p>
                                                     <p className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">{formatDisplayDate(rating.expiryDate)}</p>
                                                 </div>
                                                 <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-900 sm:rounded-2xl sm:p-3">

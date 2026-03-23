@@ -1013,7 +1013,7 @@ export default function EmployeeProfile() {
                                 </div>
                                 <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
                                   {rating.issueDate ? <p>Issued {formatProfileDate(rating.issueDate)}</p> : null}
-                                  {rating.expiryDate ? <p>Expires {formatProfileDate(rating.expiryDate)}</p> : null}
+                                  {rating.expiryDate ? <p>Prof valid upto {formatProfileDate(rating.expiryDate)}</p> : null}
                                   {rating.lastProficiencyDate ? <p>Last proficiency {formatProfileDate(rating.lastProficiencyDate)}</p> : null}
                                 </div>
                               </div>

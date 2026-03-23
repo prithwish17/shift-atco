@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useMemo } from 'react';
-import { differenceInDays, startOfDay } from 'date-fns';
+import { addDays, differenceInDays, format, startOfDay } from 'date-fns';
 
 export interface MedicalCertificate {
     id: string;
@@ -37,6 +37,19 @@ export interface LicenseWithExtras {
     status?: string;
     created_at: string;
 }
+
+type RatingHistoryEntry = {
+    date?: string | null;
+    instructor?: string | null;
+};
+
+type RatingDataEntry = {
+    status?: string | null;
+    rating_date?: string | null;
+    endorsement_date?: string | null;
+    last_proficiency?: RatingHistoryEntry | null;
+    proficiency_history?: Record<string, RatingHistoryEntry> | null;
+};
 
 export type ExpiryAlert = {
     type: 'rating' | 'medical' | 'endorsement';
@@ -78,6 +91,7 @@ export interface EmployeeLicenseHealth {
     expiredCount: number;
     warningCount: number;
     nextExpiry: LicenseHealthItem | null;
+    latestExpiry: LicenseHealthItem | null;
     licenses: LicenseHealthItem[];
     ratings: RatingHealthItem[];
     compliance: LicenseHealthItem[];
@@ -151,6 +165,48 @@ function getHealthFromDate(expiryDate: string | null | undefined): { status: Hea
     return { status: 'valid', daysUntil };
 }
 
+function getLatestProficiencyFromHistory(entry: RatingDataEntry) {
+    const latestHistory = Object.entries(entry.proficiency_history || {})
+        .filter(([, history]) => history?.date)
+        .map(([historyKey, history]) => ({
+            historyKey,
+            date: String(history.date),
+            instructor: history.instructor || null,
+            time: new Date(String(history.date)).getTime(),
+        }))
+        .filter((history) => !Number.isNaN(history.time))
+        .sort((first, second) => second.time - first.time || second.historyKey.localeCompare(first.historyKey, undefined, { numeric: true }))[0];
+
+    if (latestHistory) {
+        return {
+            date: latestHistory.date,
+            instructor: latestHistory.instructor,
+        };
+    }
+
+    return {
+        date: entry?.last_proficiency?.date || null,
+        instructor: entry?.last_proficiency?.instructor || null,
+    };
+}
+
+function getRatingValidityWindow(lastProficiencyDate?: string | null, endorsementDate?: string | null) {
+    const candidateDates = [lastProficiencyDate, endorsementDate]
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => new Date(value))
+        .filter((value) => !Number.isNaN(value.getTime()))
+        .sort((first, second) => second.getTime() - first.getTime());
+
+    const anchorDate = candidateDates[0];
+    if (!anchorDate) return null;
+
+    const validUpto = addDays(anchorDate, 364);
+    return {
+        anchorDate: format(anchorDate, 'yyyy-MM-dd'),
+        validUpto: format(validUpto, 'yyyy-MM-dd'),
+    };
+}
+
 function statusRank(status: HealthStatus) {
     if (status === 'expired') return 3;
     if (status === 'warning') return 2;
@@ -190,7 +246,9 @@ function toTitleLabel(value: string) {
 
 export function getHealthStatusLabel(item: { status: HealthStatus; daysUntil: number | null }) {
     if (item.status === 'expired' && item.daysUntil !== null) return `Expired ${Math.abs(item.daysUntil)}d ago`;
+    if (item.status === 'expired') return 'Expired';
     if (item.status === 'warning' && item.daysUntil !== null) return `${item.daysUntil}d left`;
+    if (item.status === 'warning') return 'Due soon';
     if (item.status === 'valid') return 'Current';
     return 'No expiry';
 }
@@ -212,29 +270,39 @@ export function buildEmployeeLicenseHealth(profile: any, licensesInput: LicenseW
         }))
         .sort(compareByUrgency);
 
-    const ratingData = (trainingRecord?.rating_data || {}) as Record<string, any>;
+    const ratingData = (trainingRecord?.rating_data || {}) as Record<string, RatingDataEntry>;
     const ratings = Object.entries(ratingData)
         .map(([ratingKey, rawEntry]) => {
-            const entry = (rawEntry || {}) as Record<string, any>;
+            const entry = rawEntry || {};
             const linkedLicense = licensesByType.get(String(ratingKey).toLowerCase());
-            const licenseHealth = getHealthFromDate(linkedLicense?.expiry_date || null);
+            const latestProficiency = getLatestProficiencyFromHistory(entry);
             const isActive = String(entry.status || '') === '1';
-            const status: HealthStatus = !isActive ? 'info' : (linkedLicense?.expiry_date ? licenseHealth.status : 'valid');
+            const validityWindow = isActive
+                ? getRatingValidityWindow(latestProficiency.date, entry.endorsement_date || null)
+                : null;
+            const ratingHealth = validityWindow
+                ? getHealthFromDate(validityWindow.validUpto)
+                : { status: 'expired' as HealthStatus, daysUntil: null };
+            const status: HealthStatus = !isActive ? 'info' : ratingHealth.status;
 
             return {
                 id: `rating-${ratingKey}`,
                 kind: 'rating' as const,
                 ratingKey,
                 label: getRatingLabel(ratingKey),
-                subtitle: isActive ? 'Operational rating on record' : 'Inactive rating record',
-                expiryDate: linkedLicense?.expiry_date || null,
+                subtitle: isActive
+                    ? validityWindow
+                        ? 'Proficiency validity based on latest proficiency or endorsement'
+                        : 'Active rating requires a proficiency or endorsement date'
+                    : 'Inactive rating record',
+                expiryDate: validityWindow?.validUpto || null,
                 issueDate: linkedLicense?.issue_date || entry.rating_date || null,
                 status,
-                daysUntil: linkedLicense?.expiry_date ? licenseHealth.daysUntil : null,
+                daysUntil: !isActive ? null : ratingHealth.daysUntil,
                 meta: trainingRecord?.rating_designation || null,
                 isActive,
-                lastProficiencyDate: entry.last_proficiency?.date || null,
-                lastInstructor: entry.last_proficiency?.instructor || null,
+                lastProficiencyDate: latestProficiency.date || null,
+                lastInstructor: latestProficiency.instructor || null,
                 endorsementDate: entry.endorsement_date || null,
             };
         })
@@ -284,8 +352,22 @@ export function buildEmployeeLicenseHealth(profile: any, licensesInput: LicenseW
         })),
     ].sort(compareByUrgency);
 
-    const watchlist = [...licensesList, ...compliance, ...qualifications]
-        .filter((item) => item.expiryDate)
+    const activeRatingsWatchlist: LicenseHealthItem[] = ratings
+        .filter((item) => item.isActive)
+        .map((item) => ({
+            id: item.id,
+            kind: item.kind,
+            label: item.label,
+            subtitle: item.subtitle,
+            expiryDate: item.expiryDate,
+            issueDate: item.issueDate,
+            status: item.status,
+            daysUntil: item.daysUntil,
+            meta: item.meta,
+        }));
+
+    const watchlist = [...activeRatingsWatchlist, ...licensesList, ...compliance, ...qualifications]
+        .filter((item) => item.expiryDate || item.status === 'expired' || item.status === 'warning')
         .sort(compareByUrgency);
 
     const activeRatingsCount = ratings.filter((item) => item.isActive).length;
@@ -294,6 +376,9 @@ export function buildEmployeeLicenseHealth(profile: any, licensesInput: LicenseW
     const nextExpiry = [...watchlist]
         .filter((item) => item.daysUntil !== null)
         .sort((first, second) => (first.daysUntil ?? 0) - (second.daysUntil ?? 0))[0] || null;
+    const latestExpiry = [...watchlist]
+        .filter((item) => item.daysUntil !== null)
+        .sort((first, second) => (second.daysUntil ?? 0) - (first.daysUntil ?? 0))[0] || null;
 
     let overallStatus: HealthStatus = 'info';
     let overallLabel = 'No expiry data';
@@ -327,6 +412,7 @@ export function buildEmployeeLicenseHealth(profile: any, licensesInput: LicenseW
         expiredCount,
         warningCount,
         nextExpiry,
+        latestExpiry,
         licenses: licensesList,
         ratings,
         compliance,

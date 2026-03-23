@@ -317,9 +317,13 @@ function getRatingEditTheme(ratingKey: string) {
 }
 
 function getProfValidity(entry: RatingEntry, today: Date) {
-    if (!entry.last_proficiency?.date) return null;
-    const profDate = new Date(entry.last_proficiency.date);
-    const validUpto = addDays(profDate, 364);
+    const baseDate = [entry.last_proficiency?.date, entry.endorsement_date]
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => new Date(value))
+        .filter((value) => !Number.isNaN(value.getTime()))
+        .sort((first, second) => second.getTime() - first.getTime())[0];
+    if (!baseDate) return null;
+    const validUpto = addDays(baseDate, 364);
     const daysLeft = differenceInDays(validUpto, today);
     return { validUpto, daysLeft };
 }

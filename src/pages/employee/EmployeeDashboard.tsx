@@ -275,6 +275,22 @@ export default function EmployeeDashboard() {
       : licenseHealth.overallStatus === "warning"
         ? "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400"
         : "bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400";
+  const licenseStatusBadgeClass =
+    licenseHealth.overallStatus === "expired"
+      ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+      : licenseHealth.overallStatus === "warning"
+        ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+        : licenseHealth.overallStatus === "valid"
+          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+          : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
+  const LicenseStatusIcon =
+    licenseHealth.overallStatus === "expired"
+      ? XCircle
+      : licenseHealth.overallStatus === "warning"
+        ? AlertTriangle
+        : licenseHealth.overallStatus === "valid"
+          ? CheckCircle
+          : Clock;
 
   return (
     <DashboardLayout role="employee">
@@ -655,6 +671,31 @@ export default function EmployeeDashboard() {
                 </div>
               </div>
 
+              <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">License Status</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{licenseHealth.overallLabel}</p>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{licenseHealth.summary}</p>
+                  </div>
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium ${licenseStatusBadgeClass}`}>
+                    <LicenseStatusIcon className="size-3" />
+                    {licenseHealth.overallStatus.toUpperCase()}
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-gray-600 dark:text-gray-300">
+                  <span className="rounded-full bg-white px-2.5 py-1 dark:bg-gray-900">
+                    Expired: {licenseHealth.expiredCount}
+                  </span>
+                  <span className="rounded-full bg-white px-2.5 py-1 dark:bg-gray-900">
+                    Due Soon: {licenseHealth.warningCount}
+                  </span>
+                  <span className="rounded-full bg-white px-2.5 py-1 dark:bg-gray-900">
+                    Next Review: {licenseHealth.nextExpiry?.expiryDate ? format(new Date(licenseHealth.nextExpiry.expiryDate), 'dd MMM yyyy') : 'Not available'}
+                  </span>
+                </div>
+              </div>
+
               {(() => {
                 const activeRatings = licenseHealth.ratings.filter((r) => r.isActive);
                 if (activeRatings.length === 0) {
@@ -692,7 +733,7 @@ export default function EmployeeDashboard() {
                             <div>
                               <p className="font-medium text-sm text-gray-900 dark:text-gray-100">{lic.label}</p>
                               <p className="text-xs text-gray-500 dark:text-gray-400">
-                                {expiry ? `Expires ${format(expiry, 'dd MMM yyyy')}` : 'No expiry date'}
+                                {expiry ? `Prof valid upto ${format(expiry, 'dd MMM yyyy')}` : 'No proficiency or endorsement date'}
                               </p>
                             </div>
                           </div>
