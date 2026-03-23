@@ -742,6 +742,9 @@ export default function SupervisorLeaveDashboard() {
               <Button asChild className="w-full sm:w-auto">
                 <Link to="/supervisor/leaves">Review Requests</Link>
               </Button>
+              <Button asChild className="w-full bg-blue-600 text-white hover:bg-blue-700 sm:w-auto">
+                <Link to="/supervisor/leave-discrepancy">Leave Discrepancy</Link>
+              </Button>
             </div>
           </div>
         </div>

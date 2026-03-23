@@ -439,7 +439,7 @@ export default function EmployeeDashboard() {
             <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
               <div className="flex items-center justify-between mb-2 md:mb-3">
                 <div>
-                  <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">Leave Overview</span>
+                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Leave Overview</span>
                   <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Apply for leave and leave summary</div>
                 </div>
                 <div className="size-6 md:size-8 bg-blue-100 dark:bg-blue-900/40 rounded-lg flex items-center justify-center">
@@ -457,7 +457,7 @@ export default function EmployeeDashboard() {
             <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
               <div className="flex items-center justify-between mb-2 md:mb-3">
                 <div>
-                  <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">Duty Exchange</span>
+                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Duty Exchange</span>
                   <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Request and track exchange status</div>
                 </div>
                 <div className="size-6 md:size-8 bg-purple-100 dark:bg-purple-900/40 rounded-lg flex items-center justify-center">
@@ -475,7 +475,7 @@ export default function EmployeeDashboard() {
             <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
               <div className="flex items-center justify-between mb-2 md:mb-3">
                 <div>
-                  <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">License Status</span>
+                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">License Status</span>
                   <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">View license, rating, medical and ELPA data</div>
                 </div>
                 <div className={`size-6 md:size-8 rounded-lg flex items-center justify-center ${licenseTileAccent}`}>
@@ -499,7 +499,7 @@ export default function EmployeeDashboard() {
             <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
               <div className="flex items-center justify-between mb-2 md:mb-3">
                 <div>
-                  <span className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100">Comp Off</span>
+                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Comp Off</span>
                   <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Check balance and expiry status</div>
                 </div>
                 <div className="size-6 md:size-8 bg-orange-100 dark:bg-orange-900/40 rounded-lg flex items-center justify-center">

@@ -1,8 +1,10 @@
 import { ReactNode, useState } from "react";
+import { Link } from "react-router-dom";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
 import { Moon, Sun, Bell, Menu } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AppSidebar } from "./AppSidebar";
 
 type Role = "admin" | "supervisor" | "wso" | "employee";
@@ -59,15 +61,21 @@ export function DashboardLayout({ role, children }: DashboardLayoutProps) {
             </button>
 
             {/* User avatar */}
-            <div className="flex items-center gap-2 md:gap-3">
-              <div className="size-8 md:size-9 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold text-xs md:text-sm">
-                {initials}
-              </div>
+            <Link
+              to="/employee/profile"
+              className="flex items-center gap-2 rounded-xl p-1 transition-colors hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-gray-800 md:gap-3"
+            >
+              <Avatar className="size-8 border border-gray-200 md:size-9 dark:border-gray-700">
+                <AvatarImage src={profile?.photo_url || undefined} alt={displayName} />
+                <AvatarFallback className="bg-blue-500 text-xs font-semibold text-white md:text-sm">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
               <div className="text-sm hidden sm:block">
                 <div className="font-semibold text-gray-900 dark:text-gray-100">{displayName}</div>
                 <div className="text-xs text-gray-500 dark:text-gray-400 capitalize">{role}</div>
               </div>
-            </div>
+            </Link>
           </div>
         </header>
 

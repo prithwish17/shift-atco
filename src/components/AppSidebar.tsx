@@ -18,7 +18,6 @@ import {
   X,
   Menu,
   UserCog,
-  ShieldAlert,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -38,9 +37,8 @@ const menuItems = {
   supervisor: [
     { title: "Dashboard", url: "/supervisor", icon: LayoutDashboard },
     { title: "Schedule Management", url: "/supervisor/duty-management", icon: CalendarDays },
-    { title: "Leave Management", url: "/supervisor/leaves", icon: FileText },
+    { title: "Leave Review", url: "/supervisor/leaves", icon: FileText },
     { title: "Leave Dashboard", url: "/supervisor/leave-dashboard", icon: BarChart3 },
-    { title: "Leave Discrepancy", url: "/supervisor/leave-discrepancy", icon: ShieldAlert },
     { title: "Employee Management", url: "/supervisor/employees", icon: Users },
     { title: "License Management", url: "/supervisor/licenses", icon: Shield },
     { title: "Ratings Management", url: "/supervisor/ratings", icon: Shield },

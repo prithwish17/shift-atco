@@ -1,4 +1,4 @@
-import { type ComponentType, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ComponentType, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +46,7 @@ import { useUserProfile, useUsers } from "@/hooks/useUsers";
 import { buildEmployeeLicenseHealth, getHealthStatusLabel, type LicenseWithExtras } from "@/hooks/useLicenseDashboard";
 import { cn } from "@/lib/utils";
 import ProfilePictureUpload from "@/components/ProfilePictureUpload";
+import type { ProfilePictureUploadHandle } from "@/components/ProfilePictureUpload";
 
 const ICAO_LEVELS = [
   { value: "1", label: "Level 1 - Pre-Elementary" },
@@ -295,6 +296,7 @@ export default function EmployeeProfile() {
   const { profile, isLoading } = useUserProfile(user?.id);
   const { updateProfile, isUpdating } = useUsers();
   const [isEditing, setIsEditing] = useState(false);
+  const photoUploadRef = useRef<ProfilePictureUploadHandle>(null);
 
   const [profileData, setProfileData] = useState({
     fullName: "",
@@ -524,6 +526,7 @@ export default function EmployeeProfile() {
 
                 <div className="flex flex-col gap-3 md:flex-row md:items-center sm:gap-4">
                   <ProfilePictureUpload
+                    ref={photoUploadRef}
                     employeeId={user?.id || ""}
                     currentUrl={profile?.photo_url || undefined}
                     onUpload={(url) => {
@@ -618,12 +621,7 @@ export default function EmployeeProfile() {
                 <Button
                   variant="outline"
                   className="h-9 w-full justify-center rounded-xl border-dashed text-xs sm:h-10 sm:rounded-2xl sm:text-sm"
-                  onClick={() =>
-                    toast({
-                      title: "Photo upload not available yet",
-                      description: "Profile photo upload can be connected when storage support is added.",
-                    })
-                  }
+                  onClick={() => photoUploadRef.current?.openFilePicker()}
                 >
                   <Camera className="mr-2 h-4 w-4" />
                   Update Photo

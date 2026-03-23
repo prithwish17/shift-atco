@@ -16,6 +16,7 @@ import {
 import { ChevronLeft, ChevronRight, RefreshCw, CalendarDays, CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
+import { useElDetails } from "@/hooks/useElData";
 import { useLeaveData } from "@/hooks/useLeaveData";
 import { useMyLeaveRequests } from "@/hooks/useLeaveRequests";
 import { useMySchedule } from "@/hooks/useEmployeeSchedules";
@@ -38,6 +39,38 @@ function formatDate(value: unknown): string | null {
   return date
     .toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
     .replace(",", "");
+}
+
+function getInclusiveOverlapDayCount(startValue: string, endValue: string, rangeStart: string, rangeEnd: string): number {
+  const start = new Date(`${startValue}T00:00:00Z`);
+  const end = new Date(`${endValue}T00:00:00Z`);
+  const boundedStart = new Date(`${rangeStart}T00:00:00Z`);
+  const boundedEnd = new Date(`${rangeEnd}T00:00:00Z`);
+
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    Number.isNaN(boundedStart.getTime()) ||
+    Number.isNaN(boundedEnd.getTime())
+  ) {
+    return 0;
+  }
+
+  const overlapStart = start > boundedStart ? start : boundedStart;
+  const overlapEnd = end < boundedEnd ? end : boundedEnd;
+
+  if (overlapEnd < overlapStart) {
+    return 0;
+  }
+
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((overlapEnd.getTime() - overlapStart.getTime()) / millisecondsPerDay) + 1;
+}
+
+function formatLeaveRange(startValue: string, endValue: string): string {
+  const formattedStart = formatDate(startValue) || startValue;
+  const formattedEnd = formatDate(endValue) || endValue;
+  return startValue === endValue ? formattedStart : `${formattedStart} - ${formattedEnd}`;
 }
 
 function extractDates(items: unknown[], fields: string[]): string[] {
@@ -219,6 +252,7 @@ export default function EmployeeLeavePage() {
   const [compOffView, setCompOffView] = useState<"available" | "all">("available");
   const employeeEmpId = profile?.employee_id ? String(profile.employee_id) : null;
   const { data, leaveQuery, refresh } = useLeaveData(selectedYear, employeeEmpId);
+  const { data: elDetails = [], isLoading: elLoading, error: elError } = useElDetails(employeeEmpId || undefined);
   const { data: myLeaveRequests = [], isLoading: leaveRequestsLoading } = useMyLeaveRequests(user?.id);
 
   const [calendarDate, setCalendarDate] = useState(() => new Date());
@@ -236,7 +270,28 @@ export default function EmployeeLeavePage() {
     return data.find((record) => record.empId === empId) || null;
   }, [data, employeeEmpId]);
 
-  const isLoading = profileLoading || leaveQuery.isLoading || leaveRequestsLoading || monthlyScheduleLoading;
+  const earnedLeaveSummary = useMemo(() => {
+    const yearStart = `${selectedYear}-01-01`;
+    const yearEnd = `${selectedYear}-12-31`;
+
+    const filteredDetails = elDetails.filter((row) =>
+      getInclusiveOverlapDayCount(row.leave_from, row.leave_to, yearStart, yearEnd) > 0,
+    );
+
+    const totalDays = filteredDetails.reduce((sum, row) => {
+      return sum + getInclusiveOverlapDayCount(row.leave_from, row.leave_to, yearStart, yearEnd);
+    }, 0);
+
+    const ranges = filteredDetails.map((row) => formatLeaveRange(row.leave_from, row.leave_to));
+
+    return {
+      details: filteredDetails,
+      totalDays,
+      ranges,
+    };
+  }, [elDetails, selectedYear]);
+
+  const isLoading = profileLoading || leaveQuery.isLoading || elLoading || leaveRequestsLoading || monthlyScheduleLoading;
 
   const compOffLedgerRows = useMemo(() => {
     if (!employeeRecord) return [] as CompOffHistoryEntry[];
@@ -277,7 +332,12 @@ export default function EmployeeLeavePage() {
         remaining: 0,
         total: 0,
         color: "#63B3ED",
-        helper: "No synced data",
+        helper: earnedLeaveSummary.details.length
+          ? `${earnedLeaveSummary.details.length} synced entr${earnedLeaveSummary.details.length === 1 ? "y" : "ies"}`
+          : "No EL taken this year",
+        valueText: earnedLeaveSummary.details.length ? String(earnedLeaveSummary.totalDays) : "—",
+        valueLabel: earnedLeaveSummary.details.length ? "days availed" : "No balance data",
+        percent: earnedLeaveSummary.details.length ? 100 : 0,
       },
       {
         label: "Compensatory Off",
@@ -294,7 +354,7 @@ export default function EmployeeLeavePage() {
         helper: `${employeeRecord.restrictedCount} used`,
       },
     ].filter((card) => card.label === "Earned Leave" || card.remaining > 0);
-  }, [employeeRecord]);
+  }, [earnedLeaveSummary.details.length, earnedLeaveSummary.totalDays, employeeRecord]);
 
   const leaveSummary = useMemo(() => {
     if (!employeeRecord) return [];
@@ -304,11 +364,15 @@ export default function EmployeeLeavePage() {
 
     return [
       { type: "Casual Leave", dates: casualDates },
-      { type: "Earned Leave", dates: [] },
+      {
+        type: "Earned Leave",
+        dates: earnedLeaveSummary.ranges,
+        count: earnedLeaveSummary.totalDays,
+      },
       { type: "Compensatory Off", dates: compOffDates },
       { type: "Reserved Holiday", dates: reservedDates },
     ];
-  }, [employeeRecord]);
+  }, [earnedLeaveSummary.ranges, earnedLeaveSummary.totalDays, employeeRecord]);
 
   // Calendar data: map of ISO date -> leave style
   const calendarLeaves = useMemo(() => {
@@ -436,10 +500,10 @@ export default function EmployeeLeavePage() {
           <h2 className="text-base font-semibold sm:text-lg">Leave Availability</h2>
         </div>
 
-        {leaveQuery.error && (
+        {(leaveQuery.error || elError) && (
           <Card className="border-red-200 bg-red-50">
             <CardContent className="pt-4 pb-4 text-sm text-red-800">
-              {(leaveQuery.error as Error).message || "Failed to load leave data"}
+              {((leaveQuery.error || elError) as Error).message || "Failed to load leave data"}
             </CardContent>
           </Card>
         )}
@@ -464,17 +528,24 @@ export default function EmployeeLeavePage() {
 
         <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
           {cards.map((card) => {
-            const percent = card.total > 0 ? Math.round(((card.total - card.remaining) / card.total) * 100) : 0;
+            const hasBalance = typeof card.total === "number" && card.total > 0;
+            const percent = typeof card.percent === "number"
+              ? card.percent
+              : hasBalance
+                ? Math.round(((card.total - card.remaining) / card.total) * 100)
+                : 0;
+            const valueText = card.valueText ?? (hasBalance ? `${card.remaining} / ${card.total}` : "—");
+            const valueLabel = card.valueLabel ?? (hasBalance ? "remaining" : "No balance data");
             return (
               <Card key={card.label} className="h-full w-full shadow-sm">
                 <CardContent className="flex h-full items-center justify-between gap-2 px-2.5 py-2 sm:gap-4 sm:px-6 sm:py-4">
                   <div className="min-w-0 flex-1">
                     <div className="text-[9px] font-bold uppercase tracking-wide text-slate-800 sm:text-xs">{card.label}</div>
                     <div className="mt-0.5 text-lg font-black leading-none tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">
-                      {card.total > 0 ? `${card.remaining} / ${card.total}` : "—"}
+                      {valueText}
                     </div>
                     <div className="mt-0.5 break-words text-[9px] font-semibold text-slate-700 sm:mt-1 sm:text-xs">
-                      {card.total > 0 ? "remaining" : "No balance data"}
+                      {valueLabel}
                     </div>
                     <div className="mt-0.5 break-words text-[9px] text-muted-foreground sm:mt-1 sm:text-xs">
                       {card.helper}
@@ -680,7 +751,7 @@ export default function EmployeeLeavePage() {
                         </TableCell>
                         <TableCell className="px-2 py-1.5 sm:px-4 sm:py-2">
                           <Badge variant="secondary" className="bg-emerald-100 text-[9px] text-emerald-800 sm:text-xs">
-                            {row.dates.length}
+                            {row.count ?? row.dates.length}
                           </Badge>
                         </TableCell>
                       </TableRow>

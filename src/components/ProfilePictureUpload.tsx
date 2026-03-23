@@ -1,10 +1,14 @@
-import { useState, useRef } from "react";
+import { useState, useRef, forwardRef, useImperativeHandle } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { compressImage } from "@/utils/compressImage";
 import { cn } from "@/lib/utils";
 import { Camera, Loader2, CheckCircle2, AlertCircle, User } from "lucide-react";
 
 const BUCKET = "avatars";
+
+export interface ProfilePictureUploadHandle {
+  openFilePicker: () => void;
+}
 
 interface ProfilePictureUploadProps {
   employeeId: string;
@@ -14,16 +18,17 @@ interface ProfilePictureUploadProps {
 
 type Status = "idle" | "compressing" | "uploading" | "done" | "error";
 
-export default function ProfilePictureUpload({
-  employeeId,
-  currentUrl,
-  onUpload,
-}: ProfilePictureUploadProps) {
+const ProfilePictureUpload = forwardRef<ProfilePictureUploadHandle, ProfilePictureUploadProps>(
+  function ProfilePictureUpload({ employeeId, currentUrl, onUpload }, ref) {
   const [preview, setPreview] = useState<string | null>(currentUrl || null);
   const [status, setStatus]   = useState<Status>("idle");
   const [error, setError]     = useState<string | null>(null);
   const [savedKB, setSavedKB] = useState<{ original: string; compressed: string; saved: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    openFilePicker: () => inputRef.current?.click(),
+  }));
 
   const isLoading = status === "compressing" || status === "uploading";
 
@@ -125,15 +130,6 @@ export default function ProfilePictureUpload({
         disabled={isLoading}
       />
 
-      {/* Size savings */}
-      {savedKB && status === "done" && (
-        <p className="flex items-center gap-1 text-xs text-emerald-600">
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          {savedKB.original} KB → {savedKB.compressed} KB
-          {" "}(saved <strong>{savedKB.saved} KB</strong>)
-        </p>
-      )}
-
       {/* Error message */}
       {error && (
         <p className="flex items-center gap-1 text-xs text-destructive max-w-[200px] text-center">
@@ -143,4 +139,6 @@ export default function ProfilePictureUpload({
       )}
     </div>
   );
-}
+});
+
+export default ProfilePictureUpload;

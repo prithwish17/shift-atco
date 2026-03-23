@@ -253,11 +253,11 @@ export default function SupervisorDashboard() {
         </div>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-2 lg:grid-cols-4 sm:gap-4">
-          <StatCard title="On Duty Today" value={isLoading ? "..." : onDutyCount} icon={Users} description="Employees currently on duty" compactMobile className="bg-blue-50/70 border-blue-100 dark:bg-blue-950/30 dark:border-blue-900/40" />
-          <StatCard title="Leave Requests" value={isLoading ? "..." : pendingLeaves.length} icon={FileText} description="Pending approval" compactMobile className="bg-amber-50/70 border-amber-100 dark:bg-amber-950/30 dark:border-amber-900/40" />
-          <StatCard title="Duty Exchanges" value={isLoading ? "..." : pendingExchanges.length} icon={Clock} description="Awaiting final approval" compactMobile className="bg-emerald-50/70 border-emerald-100 dark:bg-emerald-950/30 dark:border-emerald-900/40" />
+          <StatCard title="On Duty Today" value={isLoading ? "..." : onDutyCount} icon={Users} description="Employees currently on duty" compactMobile titleValueInline className="bg-blue-50/70 border-blue-100 dark:bg-blue-950/30 dark:border-blue-900/40" />
+          <StatCard title="Leave Requests" value={isLoading ? "..." : pendingLeaves.length} icon={FileText} description="Pending approval" compactMobile titleValueInline className="bg-amber-50/70 border-amber-100 dark:bg-amber-950/30 dark:border-amber-900/40" />
+          <StatCard title="Duty Exchanges" value={isLoading ? "..." : pendingExchanges.length} icon={Clock} description="Awaiting final approval" compactMobile titleValueInline className="bg-emerald-50/70 border-emerald-100 dark:bg-emerald-950/30 dark:border-emerald-900/40" />
           <Link to="/supervisor/ope-assignments" className="block h-full">
-            <StatCard title="OPE Assignments" value={isLoading ? "..." : opeCount} icon={ClipboardList} description="Extra duties today" compactMobile className="bg-violet-50/70 border-violet-100 dark:bg-violet-950/30 dark:border-violet-900/40 cursor-pointer hover:shadow-md transition-shadow" />
+            <StatCard title="OPE Assignments" value={isLoading ? "..." : opeCount} icon={ClipboardList} description="Extra duties today" compactMobile titleValueInline className="bg-violet-50/70 border-violet-100 dark:bg-violet-950/30 dark:border-violet-900/40 cursor-pointer hover:shadow-md transition-shadow" />
           </Link>
         </div>
 
