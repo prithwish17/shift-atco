@@ -45,6 +45,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile, useUsers } from "@/hooks/useUsers";
 import { buildEmployeeLicenseHealth, getHealthStatusLabel, type LicenseWithExtras } from "@/hooks/useLicenseDashboard";
 import { cn } from "@/lib/utils";
+import ProfilePictureUpload from "@/components/ProfilePictureUpload";
 
 const ICAO_LEVELS = [
   { value: "1", label: "Level 1 - Pre-Elementary" },
@@ -522,12 +523,17 @@ export default function EmployeeProfile() {
                 </div>
 
                 <div className="flex flex-col gap-3 md:flex-row md:items-center sm:gap-4">
-                  <Avatar className="h-16 w-16 rounded-[20px] border border-white/70 shadow-lg shadow-slate-300/40 dark:border-slate-800 dark:shadow-none sm:h-24 sm:w-24 sm:rounded-[24px]">
-                    <AvatarImage src={profile?.photo_url || undefined} />
-                    <AvatarFallback className="rounded-[20px] bg-slate-900 text-base font-semibold text-white dark:bg-slate-100 dark:text-slate-900 sm:rounded-[24px] sm:text-xl">
-                      {getInitials(profileData.fullName || "User")}
-                    </AvatarFallback>
-                  </Avatar>
+                  <ProfilePictureUpload
+                    employeeId={user?.id || ""}
+                    currentUrl={profile?.photo_url || undefined}
+                    onUpload={(url) => {
+                      if (!user?.id) return;
+                      updateProfile({
+                        userId: user.id,
+                        updates: { photo_url: url },
+                      });
+                    }}
+                  />
 
                   <div className="space-y-2 sm:space-y-3">
                     <div>

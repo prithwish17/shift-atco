@@ -110,22 +110,48 @@ export function useDutyExchanges(userId?: string) {
       // so the frontend can determine which approver is assigned to the current step
       const exchangeIds = exchanges.map((ex) => ex.id);
       let currentStepMap: Record<string, { approver_id: string | null; approver_role: string; sequence_order: number }> = {};
+      let pendingWsoApproverMap: Record<string, string[]> = {};
+      let approvedWsoApproverMap: Record<string, string[]> = {};
+      let hasUnassignedWsoStep: Record<string, boolean> = {};
       if (exchangeIds.length > 0) {
+        // Fetch both pending AND approved WSO steps so the frontend can show
+        // "approved by you, waiting for other WSO" state after one WSO approves
         const { data: allSteps } = await supabase
           .from("duty_exchange_approvals")
           .select("request_id, approver_id, approver_role, sequence_order, status")
           .in("request_id", exchangeIds)
-          .eq("status", "pending")
+          .in("status", ["pending", "approved"])
           .order("sequence_order", { ascending: true });
         if (allSteps) {
-          // For each exchange, pick the lowest-order pending step (the current step)
           for (const step of allSteps as any[]) {
-            if (!currentStepMap[step.request_id]) {
-              currentStepMap[step.request_id] = {
-                approver_id: step.approver_id,
-                approver_role: step.approver_role,
-                sequence_order: step.sequence_order,
-              };
+            if (step.status === 'pending') {
+              // Track the lowest-order pending step per exchange (for partner/supervisor sequential flow)
+              if (!currentStepMap[step.request_id]) {
+                currentStepMap[step.request_id] = {
+                  approver_id: step.approver_id,
+                  approver_role: step.approver_role,
+                  sequence_order: step.sequence_order,
+                };
+              }
+              // Collect ALL pending WSO approver IDs per exchange (for parallel WSO visibility)
+              if (step.approver_role === 'wso') {
+                if (step.approver_id) {
+                  if (!pendingWsoApproverMap[step.request_id]) {
+                    pendingWsoApproverMap[step.request_id] = [];
+                  }
+                  pendingWsoApproverMap[step.request_id].push(step.approver_id);
+                } else {
+                  // NULL approver_id means any WSO can act on this step
+                  hasUnassignedWsoStep[step.request_id] = true;
+                }
+              }
+            }
+            // Collect WSO IDs that already approved their step (exchange may still be pending_wso)
+            if (step.status === 'approved' && step.approver_role === 'wso' && step.approver_id) {
+              if (!approvedWsoApproverMap[step.request_id]) {
+                approvedWsoApproverMap[step.request_id] = [];
+              }
+              approvedWsoApproverMap[step.request_id].push(step.approver_id);
             }
           }
         }
@@ -151,6 +177,9 @@ export function useDutyExchanges(userId?: string) {
           supervisor_approver: ex.supervisor_approved_by ? profileMap[ex.supervisor_approved_by] || null : null,
           current_step_approver_id: currentStep?.approver_id || null,
           current_step_role: currentStep?.approver_role || null,
+          pending_wso_approver_ids: pendingWsoApproverMap[ex.id] || [],
+          approved_wso_approver_ids: approvedWsoApproverMap[ex.id] || [],
+          has_unassigned_wso_step: hasUnassignedWsoStep[ex.id] || false,
         };
       });
     },

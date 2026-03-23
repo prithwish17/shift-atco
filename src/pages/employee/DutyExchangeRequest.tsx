@@ -234,18 +234,22 @@ export default function DutyExchangeRequest() {
 
   const [expandedExchangeId, setExpandedExchangeId] = useState<string | null>(null);
 
-  const selectedPartner = users?.find((u: any) => u.id === formData.partner_id)
-    || employeeDirectory?.find((e: any) => e.id === formData.partner_id || e.employee_code === formData.partner_id);
+  const hasSelectedPartner = Boolean(formData.partner_id.trim());
+  const selectedPartner = hasSelectedPartner
+    ? users?.find((u: any) => u.id === formData.partner_id)
+      || employeeDirectory?.find((e: any) => e.id === formData.partner_id || e.employee_code === formData.partner_id)
+    : null;
   const currentUserProfile = users?.find((u: any) => u.id === user?.id)
     || employeeDirectory?.find((e: any) => e.id === user?.id);
   const resolvedPartnerUserId = useMemo(() => {
+    if (!hasSelectedPartner) return undefined;
     if (isUuidLike(formData.partner_id)) return formData.partner_id;
     const partnerCode = selectedPartner?.employee_id || (selectedPartner as any)?.employee_code || formData.partner_id;
     return users?.find((entry: any) => {
       const entryEmployeeCode = entry.employee_id || entry.employee_code;
       return partnerCode && entryEmployeeCode === partnerCode;
     })?.id;
-  }, [formData.partner_id, selectedPartner, users]);
+  }, [formData.partner_id, hasSelectedPartner, selectedPartner, users]);
   const { shifts: partnerShifts } = useShifts(resolvedPartnerUserId || undefined);
 
   // Fetch employee schedules for duty display (actual duty data lives in employee_schedules)
@@ -282,17 +286,42 @@ export default function DutyExchangeRequest() {
   );
 
   const filteredPartners = useMemo(() => {
-    // Prefer employeeDirectory (works for all roles via RPC), but do not require id here.
-    // Fallback rows sourced from employee_schedules may only have employee_code/full_name.
-    if (employeeDirectory && employeeDirectory.length > 0) {
-      const currentEmployeeCode = currentUserProfile?.employee_id || (currentUserProfile as any)?.employee_code;
-      return employeeDirectory.filter((entry: any) => {
-        if (entry.id && entry.id === user?.id) return false;
-        if (currentEmployeeCode && entry.employee_code === currentEmployeeCode) return false;
-        return true;
-      }) || [];
+    const currentEmployeeCode = currentUserProfile?.employee_id || (currentUserProfile as any)?.employee_code;
+    const mergedEntries = [...(employeeDirectory || []), ...(users || [])];
+    const dedupedEntries = new Map<string, any>();
+
+    for (const entry of mergedEntries) {
+      if (!entry) continue;
+
+      const entryId = entry.id || "";
+      const entryEmployeeCode = entry.employee_id || entry.employee_code || "";
+      const dedupeKey = entryId || entryEmployeeCode;
+
+      if (!dedupeKey) continue;
+      if (entryId && entryId === user?.id) continue;
+      if (currentEmployeeCode && entryEmployeeCode === currentEmployeeCode) continue;
+
+      const existing = dedupedEntries.get(dedupeKey);
+      if (!existing) {
+        dedupedEntries.set(dedupeKey, entry);
+        continue;
+      }
+
+      dedupedEntries.set(dedupeKey, {
+        ...existing,
+        ...entry,
+        full_name: entry.full_name || existing.full_name,
+        employee_id: entry.employee_id || existing.employee_id,
+        employee_code: entry.employee_code || existing.employee_code,
+        current_shift: entry.current_shift || existing.current_shift,
+      });
     }
-    return users?.filter((entry: any) => entry.id !== user?.id) || [];
+
+    return Array.from(dedupedEntries.values()).sort((left: any, right: any) => {
+      const leftLabel = String(left.full_name || left.employee_id || left.employee_code || "");
+      const rightLabel = String(right.full_name || right.employee_id || right.employee_code || "");
+      return leftLabel.localeCompare(rightLabel);
+    });
   }, [user?.id, users, employeeDirectory, currentUserProfile]);
 
   const partnerSuggestions = useMemo(() => {
@@ -300,7 +329,7 @@ export default function DutyExchangeRequest() {
     const baseList = filteredPartners;
 
     if (!normalizedQuery) {
-      return baseList.slice(0, 8);
+      return baseList;
     }
 
     return baseList
@@ -308,8 +337,7 @@ export default function DutyExchangeRequest() {
         const fullName = String(entry.full_name || "").toLowerCase();
         const employeeId = String(entry.employee_id || entry.employee_code || "").toLowerCase();
         return fullName.includes(normalizedQuery) || employeeId.includes(normalizedQuery);
-      })
-      .slice(0, 8);
+      });
   }, [filteredPartners, partnerQuery]);
 
   const exchangeStats = useMemo(() => {

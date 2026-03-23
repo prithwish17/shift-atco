@@ -58,6 +58,7 @@ export default function DutyExchangeApprovals({ portalRole = "supervisor" }: { p
   const [comments, setComments] = useState("");
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
   const pageTitle = portalRole === "wso" ? "Duty Exchange Review" : "Duty Exchange Approvals";
   const pageDescription = portalRole === "wso"
     ? "Review duty exchange requests that require WSO action"
@@ -67,6 +68,7 @@ export default function DutyExchangeApprovals({ portalRole = "supervisor" }: { p
   // Direct approve — no dialog needed
   const handleApprove = async (exchange: any) => {
     if (!user) return;
+    setApprovingId(exchange.id);
     try {
       await processApproval.mutateAsync({
         request_id: exchange.id,
@@ -77,9 +79,7 @@ export default function DutyExchangeApprovals({ portalRole = "supervisor" }: { p
 
       toast({
         title: "Exchange approved",
-        description: portalRole === "wso"
-          ? "Duty exchange has been approved at your level."
-          : "Duty exchange has been approved at your level.",
+        description: "Duty exchange has been approved at your level.",
       });
     } catch (error: any) {
       const msg = error?.message || "Something went wrong";
@@ -90,6 +90,8 @@ export default function DutyExchangeApprovals({ portalRole = "supervisor" }: { p
           : msg,
         variant: "destructive",
       });
+    } finally {
+      setApprovingId(null);
     }
   };
 
@@ -125,9 +127,17 @@ export default function DutyExchangeApprovals({ portalRole = "supervisor" }: { p
 
   const pendingExchanges = exchanges?.filter((e: any) => {
     if (e.status !== actionablePendingStatus) return false;
-    // For WSO: only show exchanges where this WSO is the assigned approver for the current step
-    if (portalRole === "wso" && e.current_step_approver_id && e.current_step_approver_id !== user?.id) {
-      return false;
+    // For WSO: show exchanges where THIS WSO has a pending step, already approved,
+    // or there's an unassigned WSO step (NULL approver_id = any WSO can act)
+    if (portalRole === "wso") {
+      // If any WSO step has no assigned approver, show to all WSOs
+      if (e.has_unassigned_wso_step) return true;
+      const pendingIds: string[] = e.pending_wso_approver_ids || [];
+      const approvedIds: string[] = e.approved_wso_approver_ids || [];
+      const isRelevant = pendingIds.includes(user?.id) || approvedIds.includes(user?.id);
+      if ((pendingIds.length > 0 || approvedIds.length > 0) && !isRelevant) {
+        return false;
+      }
     }
     return true;
   });
@@ -147,6 +157,13 @@ export default function DutyExchangeApprovals({ portalRole = "supervisor" }: { p
   const ExchangeCard = ({ exchange }: { exchange: any }) => {
     const isExpanded = expandedId === exchange.id;
     const isPending = exchange.status === actionablePendingStatus;
+    // Check if this WSO already approved their step (exchange still pending_wso, waiting for other WSO)
+    // But if there's an unassigned step, the WSO can still act on it
+    const thisWsoAlreadyApproved = portalRole === "wso"
+      && isPending
+      && (exchange.approved_wso_approver_ids || []).includes(user?.id)
+      && !(exchange.pending_wso_approver_ids || []).includes(user?.id)
+      && !exchange.has_unassigned_wso_step;
 
     return (
       <Card>
@@ -224,23 +241,30 @@ export default function DutyExchangeApprovals({ portalRole = "supervisor" }: { p
 
           {isExpanded && <ApprovalSteps requestId={exchange.id} />}
 
-          {isPending && (
+          {isPending && thisWsoAlreadyApproved && (
+            <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-950/20 dark:text-emerald-300">
+              <CheckCircle className="h-4 w-4 shrink-0" />
+              <span>You have approved this exchange. Waiting for the other team's WSO to approve.</span>
+            </div>
+          )}
+
+          {isPending && !thisWsoAlreadyApproved && (
             <div className="flex gap-2 pt-2">
               <Button
                 size="sm"
                 variant="default"
                 onClick={() => handleApprove(exchange)}
-                disabled={processApproval.isPending}
+                disabled={approvingId !== null}
                 className="flex-1"
               >
                 <CheckCircle className="h-4 w-4 mr-1" />
-                {processApproval.isPending ? "Approving…" : "Approve"}
+                {approvingId === exchange.id ? "Approving…" : "Approve"}
               </Button>
               <Button
                 size="sm"
                 variant="destructive"
                 onClick={() => openRejectDialog(exchange)}
-                disabled={processApproval.isPending}
+                disabled={approvingId !== null}
                 className="flex-1"
               >
                 <XCircle className="h-4 w-4 mr-1" />

@@ -264,18 +264,51 @@ export function useEmployeeDirectory() {
         queryKey: ['employee_directory'],
         staleTime: 10 * 60_000,
         queryFn: async () => {
-            const { data, error } = await supabase.rpc('get_employee_directory');
-            if (error) {
-                // Fallback: if RPC doesn't exist yet, try reading employee_schedules
-                const { data: schedData, error: schedError } = await supabase
-                    .from('employee_schedules' as any)
-                    .select('employee_code, employee_name')
-                    .order('employee_name');
-                if (schedError) throw schedError;
+            const PAGE_SIZE = 1000;
+
+            try {
+                let allDirectoryRows: any[] = [];
+                let from = 0;
+                let hasMore = true;
+
+                while (hasMore) {
+                    const { data, error } = await supabase
+                        .rpc('get_employee_directory')
+                        .range(from, from + PAGE_SIZE - 1);
+
+                    if (error) throw error;
+
+                    const rows = data || [];
+                    allDirectoryRows = allDirectoryRows.concat(rows);
+                    hasMore = rows.length === PAGE_SIZE;
+                    from += PAGE_SIZE;
+                }
+
+                return allDirectoryRows as { id: string; employee_code: string; full_name: string; current_shift: string }[];
+            } catch {
+                // Fallback: if RPC is unavailable, page through employee_schedules as well
+                let allScheduleRows: any[] = [];
+                let from = 0;
+                let hasMore = true;
+
+                while (hasMore) {
+                    const { data: schedData, error: schedError } = await supabase
+                        .from('employee_schedules' as any)
+                        .select('employee_code, employee_name')
+                        .order('employee_name')
+                        .range(from, from + PAGE_SIZE - 1);
+
+                    if (schedError) throw schedError;
+
+                    const rows = schedData || [];
+                    allScheduleRows = allScheduleRows.concat(rows);
+                    hasMore = rows.length === PAGE_SIZE;
+                    from += PAGE_SIZE;
+                }
 
                 const seen = new Set<string>();
                 const directory: { id: string; employee_code: string; full_name: string; current_shift: string }[] = [];
-                for (const row of (schedData || []) as any[]) {
+                for (const row of allScheduleRows as any[]) {
                     if (row.employee_code && !seen.has(row.employee_code)) {
                         seen.add(row.employee_code);
                         directory.push({
@@ -288,7 +321,6 @@ export function useEmployeeDirectory() {
                 }
                 return directory;
             }
-            return (data || []) as { id: string; employee_code: string; full_name: string; current_shift: string }[];
         },
     });
 }
