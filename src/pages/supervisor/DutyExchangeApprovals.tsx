@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 import { ArrowLeftRight, Calendar, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { format } from "date-fns";
 
@@ -81,6 +82,21 @@ export default function DutyExchangeApprovals({ portalRole = "supervisor" }: { p
         title: "Exchange approved",
         description: "Duty exchange has been approved at your level.",
       });
+
+      // Notify both parties
+      const dutyDate = exchange.duty_date
+        ? format(new Date(exchange.duty_date), "dd MMM yyyy")
+        : "";
+      supabase.functions.invoke("send-notification", {
+        body: {
+          user_ids: [exchange.requesting_user_id, exchange.exchange_partner_id].filter(Boolean),
+          title: "Duty Exchange Approved",
+          body: `Your duty exchange${dutyDate ? " for " + dutyDate : ""} has been approved.`,
+          url: "/employee",
+          category: "duty_exchange",
+          metadata: { exchange_id: exchange.id },
+        },
+      }).catch(() => {});
     } catch (error: any) {
       const msg = error?.message || "Something went wrong";
       toast({

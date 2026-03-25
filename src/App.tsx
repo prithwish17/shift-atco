@@ -31,6 +31,7 @@ const SupervisorEmployeeOverview = lazy(() => import("./pages/supervisor/Supervi
 const SupervisorDailyRoster = lazy(() => import("./pages/supervisor/SupervisorDailyRoster"));
 const SupervisorAttendanceView = lazy(() => import("./pages/supervisor/SupervisorAttendanceView"));
 const LeaveApprovals = lazy(() => import("./pages/supervisor/LeaveApprovals"));
+const ApprovedLeavesRegister = lazy(() => import("./pages/supervisor/ApprovedLeavesRegister"));
 const SupervisorLeaveDashboard = lazy(() => import("./pages/supervisor/SupervisorLeaveDashboard"));
 const LeaveDiscrepancyPage = lazy(() => import("./pages/supervisor/LeaveDiscrepancyPage"));
 const DutyExchangeApprovals = lazy(() => import("./pages/supervisor/DutyExchangeApprovals"));
@@ -118,6 +119,7 @@ const App = () => (
                   <Route path="/supervisor/attendance" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorAttendance /></ProtectedRoute>} />
                   <Route path="/supervisor/attendance-view" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorAttendanceView /></ProtectedRoute>} />
                   <Route path="/supervisor/leaves" element={<ProtectedRoute allowedRoles={['supervisor', 'wso']}><LeaveApprovals /></ProtectedRoute>} />
+                  <Route path="/supervisor/approved-leaves" element={<ProtectedRoute allowedRoles={['supervisor', 'wso']}><ApprovedLeavesRegister /></ProtectedRoute>} />
                   <Route path="/supervisor/leave-dashboard" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorLeaveDashboard /></ProtectedRoute>} />
                   <Route path="/supervisor/leave-discrepancy" element={<ProtectedRoute allowedRoles={['supervisor']}><LeaveDiscrepancyPage /></ProtectedRoute>} />
                   <Route path="/supervisor/duty-exchange" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyExchangeApprovals /></ProtectedRoute>} />
@@ -135,6 +137,7 @@ const App = () => (
                   <Route path="/wso/attendance" element={<ProtectedRoute allowedRoles={['wso']}><WSOAttendance /></ProtectedRoute>} />
                   <Route path="/wso/ba-test" element={<ProtectedRoute allowedRoles={['wso']}><BATestManagement /></ProtectedRoute>} />
                   <Route path="/wso/leaves" element={<ProtectedRoute allowedRoles={['wso']}><LeaveApprovals /></ProtectedRoute>} />
+                  <Route path="/wso/approved-leaves" element={<ProtectedRoute allowedRoles={['wso', 'supervisor']}><ApprovedLeavesRegister /></ProtectedRoute>} />
                   <Route path="/wso/duty-exchange" element={<ProtectedRoute allowedRoles={['wso']}><WSODutyExchangeApprovals /></ProtectedRoute>} />
                   <Route path="/wso/ope-assignments" element={<ProtectedRoute allowedRoles={['wso']}><WSOOPEAssignments /></ProtectedRoute>} />
 

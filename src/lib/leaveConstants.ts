@@ -2,7 +2,6 @@
 
 export const LEAVE_TYPES = [
     { value: 'CL', label: 'Casual Leave' },
-    { value: 'CL_CON', label: 'Casual Leave (Contractual)' },
     { value: 'NEE', label: 'Non Encashable EL' },
     { value: 'EL', label: 'Earned Leave' },
     { value: 'HPL', label: 'Half Pay Leave' },
@@ -10,9 +9,7 @@ export const LEAVE_TYPES = [
     { value: 'RH', label: 'Restricted Holiday' },
     { value: 'COMP_OFF', label: 'Compensatory Off' },
     { value: 'CL_1ST', label: 'CL - 1st Half (9:30 to 13:30)' },
-    { value: 'CL_1ST_CON', label: 'CL - 1st Half (9:30-13:30) Contractual' },
     { value: 'CL_2ND', label: 'CL - 2nd Half (14:00 to 18:00)' },
-    { value: 'CL_2ND_CON', label: 'CL - 2nd Half (14:00-18:00) Contractual' },
 ] as const;
 
 export const LEAVE_STATUS = [

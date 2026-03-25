@@ -53,17 +53,17 @@ function getCompOffSourceBadgeClass(sourceType?: string): string {
   switch ((sourceType || "").toUpperCase()) {
     case "COMP_OFF_DUTY":
     case "COMP_OFF":
-      return "bg-emerald-100 text-emerald-800";
+      return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200";
     case "FROM_LAST_YEAR":
     case "LAST_YEAR_CH_DUTY":
     case "LAST_YEAR_COMP_OFF":
-      return "bg-violet-100 text-violet-800";
+      return "bg-violet-100 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200";
     case "OPE_DUTY":
     case "OPE":
     case "OPE_COMP_OFF":
-      return "bg-amber-100 text-amber-800";
+      return "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
     default:
-      return "bg-sky-100 text-sky-800";
+      return "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200";
   }
 }
 
@@ -91,20 +91,20 @@ function isDaysLeftStatus(entry: CompOffHistoryEntry): boolean {
 function getCompOffStatusBadgeClass(entry: CompOffHistoryEntry): string {
   if (entry.status === "available") {
     if ((entry.daysRemaining ?? 0) >= 60) {
-      return "bg-emerald-100 text-emerald-800";
+      return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200";
     }
-    return "bg-amber-100 text-amber-800";
+    return "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
   }
 
   switch (entry.status) {
     case "used":
-      return "bg-slate-200 text-slate-700";
+      return "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200";
     case "expired":
-      return "bg-rose-100 text-rose-800";
+      return "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-200";
     case "not_available":
-      return "bg-red-100 text-red-700";
+      return "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-200";
     default:
-      return "bg-slate-100 text-slate-700";
+      return "bg-slate-100 text-slate-700 dark:bg-slate-900 dark:text-slate-200";
   }
 }
 
@@ -267,8 +267,8 @@ export default function EmployeeCompOffPage() {
         </div>
 
         {leaveQuery.error && (
-          <Card className="border-red-200 bg-red-50">
-            <CardContent className="pb-4 pt-4 text-sm text-red-800">
+          <Card className="border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/30">
+            <CardContent className="pb-4 pt-4 text-sm text-red-800 dark:text-red-200">
               {(leaveQuery.error as Error).message || "Failed to load comp-off data"}
             </CardContent>
           </Card>
@@ -279,8 +279,8 @@ export default function EmployeeCompOffPage() {
             <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-primary" />
           </div>
         ) : !profile?.employee_id ? (
-          <Card className="border-amber-200 bg-amber-50">
-            <CardContent className="pb-4 pt-4 text-sm text-amber-800">
+          <Card className="border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30">
+            <CardContent className="pb-4 pt-4 text-sm text-amber-800 dark:text-amber-200">
               Your profile is missing an Employee ID. Please update your profile.
             </CardContent>
           </Card>
@@ -296,28 +296,28 @@ export default function EmployeeCompOffPage() {
               <Card className="shadow-sm">
                 <CardContent className="p-2.5 sm:p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">Available</div>
-                  <div className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">{employeeRecord.compOffRemaining}</div>
+                  <div className="mt-1 text-xl font-black tracking-tight text-slate-900 dark:text-white sm:mt-2 sm:text-3xl">{employeeRecord.compOffRemaining}</div>
                   <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground sm:mt-1 sm:text-sm">Comp-off currently available</div>
                 </CardContent>
               </Card>
               <Card className="shadow-sm">
                 <CardContent className="p-2.5 sm:p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">Used</div>
-                  <div className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">{employeeRecord.compOffUsed}</div>
+                  <div className="mt-1 text-xl font-black tracking-tight text-slate-900 dark:text-white sm:mt-2 sm:text-3xl">{employeeRecord.compOffUsed}</div>
                   <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground sm:mt-1 sm:text-sm">Already used this year view</div>
                 </CardContent>
               </Card>
               <Card className="shadow-sm">
                 <CardContent className="p-2.5 sm:p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">Expired</div>
-                  <div className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">{employeeRecord.compOffExpired}</div>
+                  <div className="mt-1 text-xl font-black tracking-tight text-slate-900 dark:text-white sm:mt-2 sm:text-3xl">{employeeRecord.compOffExpired}</div>
                   <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground sm:mt-1 sm:text-sm">Expired before use</div>
                 </CardContent>
               </Card>
               <Card className="shadow-sm">
                 <CardContent className="p-2.5 sm:p-4">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground sm:text-xs">Earned</div>
-                  <div className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">{employeeRecord.compOffEarned}</div>
+                  <div className="mt-1 text-xl font-black tracking-tight text-slate-900 dark:text-white sm:mt-2 sm:text-3xl">{employeeRecord.compOffEarned}</div>
                   <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground sm:mt-1 sm:text-sm">Total valid comp-off earned</div>
                 </CardContent>
               </Card>
@@ -329,16 +329,16 @@ export default function EmployeeCompOffPage() {
               </CardHeader>
               <CardContent>
                 <div className="mb-4 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground sm:text-xs">
-                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 sm:gap-1.5 sm:px-3 sm:py-1.5">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 sm:gap-1.5 sm:px-3 sm:py-1.5">
                     <span className="h-2 w-2 rounded-full bg-emerald-500" /> Earned: {employeeRecord.compOffEarned}
                   </span>
-                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 sm:gap-1.5 sm:px-3 sm:py-1.5">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 sm:gap-1.5 sm:px-3 sm:py-1.5">
                     <span className="h-2 w-2 rounded-full bg-amber-500" /> Used: {employeeRecord.compOffUsed}
                   </span>
-                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 sm:gap-1.5 sm:px-3 sm:py-1.5">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 sm:gap-1.5 sm:px-3 sm:py-1.5">
                     <span className="h-2 w-2 rounded-full bg-rose-500" /> Expired: {employeeRecord.compOffExpired}
                   </span>
-                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 sm:gap-1.5 sm:px-3 sm:py-1.5">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 sm:gap-1.5 sm:px-3 sm:py-1.5">
                     <span className="h-2 w-2 rounded-full bg-blue-500" /> Remaining: {employeeRecord.compOffRemaining}
                   </span>
                 </div>
@@ -355,8 +355,8 @@ export default function EmployeeCompOffPage() {
                       onClick={() => setActiveFilter(tab.key)}
                       className={`rounded-xl border px-3 py-2 text-xs font-semibold transition-colors sm:px-4 sm:py-2.5 sm:text-sm ${
                         activeFilter === tab.key
-                          ? "border-slate-900 bg-slate-900 text-white"
-                          : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                          ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-950"
+                          : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
                       }`}
                     >
                       {tab.label}
@@ -369,10 +369,10 @@ export default function EmployeeCompOffPage() {
                     filteredCompOffRows.map((row) => (
                       <div
                         key={getCompOffRowKey(row)}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm sm:px-4 sm:py-3"
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:px-4 sm:py-3"
                       >
                         <div className="mb-3 flex items-start justify-between gap-3">
-                          <div className="min-w-0 text-sm font-bold tracking-tight text-slate-900 sm:text-lg">
+                          <div className="min-w-0 text-sm font-bold tracking-tight text-slate-900 dark:text-white sm:text-lg">
                             {formatDate(row.dutyDate) || "—"}
                           </div>
                           <span
@@ -391,28 +391,28 @@ export default function EmployeeCompOffPage() {
 
                         <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                           <div className="overflow-hidden">
-                            <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">Duty Performed</div>
-                            <div className="text-xs font-semibold text-slate-800 sm:text-sm break-words">{formatDutyPerformed(row.dutyPerformed)}</div>
+                            <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400 sm:text-[10px]">Duty Performed</div>
+                            <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 sm:text-sm break-words">{formatDutyPerformed(row.dutyPerformed)}</div>
                           </div>
                           <div className="overflow-hidden">
-                            <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">Expiry Date</div>
-                            <div className="text-xs font-semibold text-slate-800 sm:text-sm break-words">{formatDate(row.expiryDate) || "—"}</div>
+                            <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400 sm:text-[10px]">Expiry Date</div>
+                            <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 sm:text-sm break-words">{formatDate(row.expiryDate) || "—"}</div>
                           </div>
                           <div className="overflow-hidden">
-                            <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">Source</div>
+                            <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400 sm:text-[10px]">Source</div>
                             <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold sm:px-2.5 sm:text-[11px] ${getCompOffSourceBadgeClass(row.sourceType)}`}>
                               {getCompOffSourceLabel(row.sourceType, row.sourceLabel)}
                             </span>
                           </div>
                           <div className="overflow-hidden">
-                            <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-[10px]">Leave Used On</div>
-                            <div className="text-xs font-semibold text-slate-800 sm:text-sm break-words">{formatDate(row.leaveApplied) || "—"}</div>
+                            <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400 sm:text-[10px]">Leave Used On</div>
+                            <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 sm:text-sm break-words">{formatDate(row.leaveApplied) || "—"}</div>
                           </div>
                         </div>
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-muted-foreground">
+                    <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 px-4 py-6 text-center text-sm text-muted-foreground">
                       No comp-off records match this filter.
                     </div>
                   )}

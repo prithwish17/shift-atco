@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { eachDayOfInterval, format, isValid, parseISO } from 'date-fns';
 import { scheduleKeys } from '@/lib/scheduleQueryConfig';
+import { allocateCompOffCandidates, buildCompOffAllocationCandidates } from '@/lib/compOffAllocation';
 
 // ---------- Types ----------
 
@@ -10,6 +11,8 @@ export type LeaveRequest = {
     employee_id: string;
     employee_name: string;
     team: string | null;
+    sap_applied: boolean | null;
+    sap_updated: boolean | null;
     leave_type: string;
     start_date: string;
     end_date: string;
@@ -42,11 +45,13 @@ export type LeaveRequestInsert = {
     employee_id: string;
     employee_name: string;
     team?: string | null;
+    sap_applied?: boolean | null;
     leave_type: string;
     start_date: string;
     end_date: string;
     total_days: number;
     reason?: string | null;
+    actual_rh_date?: string | null;
 };
 
 export type LeaveRequestFilters = {
@@ -79,6 +84,93 @@ async function resolveScheduleIdentity(employeeAuthId: string, fallbackName?: st
         employee_code: profile.employee_id as string,
         employee_name: (profile.full_name as string) || fallbackName || '',
     };
+}
+
+async function syncApprovedCompOffUsage(request: LeaveRequest) {
+    if (request.leave_type !== 'COMP_OFF') return;
+
+    const { employee_code, employee_name } = await resolveScheduleIdentity(request.employee_id, request.employee_name);
+    const start = parseISO(request.start_date);
+    const end = parseISO(request.end_date);
+    if (!isValid(start) || !isValid(end)) {
+        throw new Error('Invalid comp-off date range for ledger sync.');
+    }
+
+    const leaveDays = eachDayOfInterval({ start, end }).map((day) => format(day, 'yyyy-MM-dd'));
+    if (leaveDays.length === 0) return;
+
+    const { data: earnedRows, error: earnedRowsError } = await supabase
+        .from('employee_leave_records' as any)
+        .select('id, leave_category, source_event_type, leave_date, leave_used_on, duty_code, raw_leave_used_value, metadata, raw_event')
+        .eq('emp_id', employee_code)
+        .in('leave_category', ['COMP_OFF', 'COMP_OFF_EARNED', 'LAST_YEAR_CH_DUTY', 'OPE'])
+        .order('leave_date', { ascending: true });
+    if (earnedRowsError) throw earnedRowsError;
+
+    const candidates = buildCompOffAllocationCandidates((earnedRows || []) as any[]);
+    const alreadySynced = candidates.filter((candidate) => candidate.metadata?.leave_request_id === request.id);
+    if (alreadySynced.length >= leaveDays.length) return;
+
+    const allocation = allocateCompOffCandidates(candidates, leaveDays.length, 0);
+    if (!allocation.canCoverRequest || allocation.selectedEntries.length < leaveDays.length) {
+        throw new Error('Insufficient comp-off entries are available to sync this approved leave.');
+    }
+
+    for (const [index, entry] of allocation.selectedEntries.entries()) {
+        const leaveUsedOn = leaveDays[index];
+        const metadata = {
+            ...entry.metadata,
+            leave_request_id: request.id,
+            leave_used_on: leaveUsedOn,
+            leave_applied: leaveUsedOn,
+            request_start_date: request.start_date,
+            request_end_date: request.end_date,
+        };
+
+        const { error: updateError } = await supabase
+            .from('employee_leave_records' as any)
+            .update({
+                employee_name,
+                leave_used_on: leaveUsedOn,
+                raw_leave_used_value: leaveUsedOn,
+                metadata,
+            } as any)
+            .eq('id', entry.recordId);
+
+        if (updateError) throw updateError;
+    }
+}
+
+async function clearApprovedCompOffUsage(request: LeaveRequest) {
+    if (request.leave_type !== 'COMP_OFF') return;
+
+    const { employee_code } = await resolveScheduleIdentity(request.employee_id, request.employee_name);
+    const { data: syncedRows, error: syncedRowsError } = await supabase
+        .from('employee_leave_records' as any)
+        .select('id, metadata')
+        .eq('emp_id', employee_code)
+        .contains('metadata', { leave_request_id: request.id } as any);
+    if (syncedRowsError) throw syncedRowsError;
+
+    for (const row of (syncedRows || []) as any[]) {
+        const metadata = { ...(row.metadata || {}) };
+        delete metadata.leave_request_id;
+        delete metadata.leave_used_on;
+        delete metadata.leave_applied;
+        delete metadata.request_start_date;
+        delete metadata.request_end_date;
+
+        const { error: clearError } = await supabase
+            .from('employee_leave_records' as any)
+            .update({
+                leave_used_on: null,
+                raw_leave_used_value: null,
+                metadata,
+            } as any)
+            .eq('id', row.id);
+
+        if (clearError) throw clearError;
+    }
 }
 
 async function applyApprovedLeaveToSchedule(request: LeaveRequest) {
@@ -338,6 +430,9 @@ export function useCancelLeaveRequest() {
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['leave-requests'] });
+            qc.invalidateQueries({ queryKey: ['leave-data-structured'] });
+            qc.invalidateQueries({ queryKey: ['leave-records'] });
+            qc.invalidateQueries({ queryKey: ['leave-record-summary'] });
         },
     });
 }
@@ -382,12 +477,30 @@ export function useCancelApprovedLeaveRequest() {
                 .select()
                 .single();
             if (error) throw error;
+            await clearApprovedCompOffUsage(data as LeaveRequest);
             await safeRestoreScheduleAfterLeaveCancellation(data as LeaveRequest);
+
+            // Fire-and-forget push notification for cancellation
+            const cancelled = data as LeaveRequest;
+            supabase.functions.invoke('send-notification', {
+                body: {
+                    user_ids: [cancelled.employee_id],
+                    title: 'Leave Cancelled',
+                    body: `Your ${cancelled.leave_type} leave (${cancelled.start_date} to ${cancelled.end_date}) has been cancelled.`,
+                    url: '/employee/leave',
+                    category: 'leave_status',
+                    metadata: { leave_request_id: cancelled.id, leave_type: cancelled.leave_type, status: 'Cancelled' },
+                },
+            }).catch(() => {});
+
             return data;
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['leave-requests'] });
             qc.invalidateQueries({ queryKey: scheduleKeys.all });
+            qc.invalidateQueries({ queryKey: ['leave-data-structured'] });
+            qc.invalidateQueries({ queryKey: ['leave-records'] });
+            qc.invalidateQueries({ queryKey: ['leave-record-summary'] });
         },
     });
 }
@@ -470,13 +583,54 @@ export function useReviewLeaveRequest() {
             if (error) throw error;
             if (!data) throw new Error('Request is no longer in a reviewable state.');
             if ((data as LeaveRequest).status === 'Approved') {
+                await syncApprovedCompOffUsage(data as LeaveRequest);
                 await safeApplyApprovedLeaveToSchedule(data as LeaveRequest);
             }
+
+            // Fire-and-forget push notification
+            const req = data as LeaveRequest;
+            const statusLabel = req.status === 'Approved' ? 'Approved' : req.status === 'Rejected' ? 'Rejected' : null;
+            if (statusLabel) {
+                supabase.functions.invoke('send-notification', {
+                    body: {
+                        user_ids: [req.employee_id],
+                        title: `Leave ${statusLabel}`,
+                        body: `Your ${req.leave_type} leave (${req.start_date} to ${req.end_date}) has been ${statusLabel.toLowerCase()}.`,
+                        url: '/employee/leave',
+                        category: 'leave_status',
+                        metadata: { leave_request_id: req.id, leave_type: req.leave_type, status: req.status },
+                    },
+                }).catch(() => {});
+            }
+
             return data;
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['leave-requests'] });
             qc.invalidateQueries({ queryKey: scheduleKeys.all });
+            qc.invalidateQueries({ queryKey: ['leave-data-structured'] });
+            qc.invalidateQueries({ queryKey: ['leave-records'] });
+            qc.invalidateQueries({ queryKey: ['leave-record-summary'] });
+        },
+    });
+}
+
+/** Toggle the SAP-updated flag on an approved leave request */
+export function useMarkSapUpdated() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ id, sap_updated }: { id: string; sap_updated: boolean }) => {
+            const { data, error } = await supabase
+                .from('leave_requests' as any)
+                .update({ sap_updated } as any)
+                .eq('id', id)
+                .select()
+                .single();
+            if (error) throw error;
+            return data;
+        },
+        onSuccess: () => {
+            qc.invalidateQueries({ queryKey: ['leave-requests'] });
         },
     });
 }

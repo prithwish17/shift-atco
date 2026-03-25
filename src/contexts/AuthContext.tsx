@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from "react
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
+import { isPushSupported, subscribeToPush, unsubscribeFromPush } from "@/utils/pushSubscription";
 
 interface AuthContextType {
   user: User | null;
@@ -48,6 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (session?.user) {
         await fetchUserRole(session.user.id);
+        // Register push subscription after login (fire-and-forget)
+        if (isPushSupported()) subscribeToPush().catch(() => {});
       }
       setLoading(false);
       initialLoad = false;
@@ -158,6 +161,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    // Unregister push subscription before signing out
+    if (isPushSupported()) await unsubscribeFromPush().catch(() => {});
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);

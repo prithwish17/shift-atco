@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserProfile } from '@/hooks/useUsers';
+import { supabase } from '@/integrations/supabase/client';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,11 +12,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Filter, CheckCircle, XCircle, Clock, Ban } from 'lucide-react';
+import { Filter, CheckCircle, XCircle, Clock, Ban, ListChecks } from 'lucide-react';
 import { format } from 'date-fns';
 import { LEAVE_STATUS, getLeaveTypeLabel, getLeaveStatusInfo } from '@/lib/leaveConstants';
 import { useAllLeaveRequests, useReviewLeaveRequest, useCancelApprovedLeaveRequest } from '@/hooks/useLeaveRequests';
 import type { LeaveRequest } from '@/hooks/useLeaveRequests';
+import { useNavigate } from 'react-router-dom';
+import { allocateCompOffCandidates, buildCompOffAllocationCandidates } from '@/lib/compOffAllocation';
+
+type ReviewCompOffAllocation = {
+  employeeCode: string;
+  requestedDays: number;
+  reservedDays: number;
+  allocation: ReturnType<typeof allocateCompOffCandidates>;
+};
 
 function getWsoShiftLabel(team: string | null | undefined) {
   const normalizedTeam = String(team || '').trim().toUpperCase();
@@ -34,6 +45,8 @@ export default function LeaveApprovals() {
   const { profile } = useUserProfile(user?.id);
   const dashboardRole = userRole === 'wso' ? 'wso' : 'supervisor';
   const isWSO = userRole === 'wso';
+  const navigate = useNavigate();
+  const registerPath = userRole === 'wso' ? '/wso/approved-leaves' : '/supervisor/approved-leaves';
 
   const wsoTeam = isWSO ? (profile?.current_shift?.toUpperCase() || '') : '';
 
@@ -65,6 +78,60 @@ export default function LeaveApprovals() {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<LeaveRequest | null>(null);
   const [cancelRemarks, setCancelRemarks] = useState('');
+
+  const reviewCompOffAllocationQuery = useQuery({
+    queryKey: ['review-comp-off-allocation', reviewTarget?.id],
+    enabled: reviewDialogOpen && reviewTarget?.leave_type === 'COMP_OFF' && Boolean(reviewTarget?.employee_id),
+    queryFn: async (): Promise<ReviewCompOffAllocation> => {
+      if (!reviewTarget?.employee_id) {
+        throw new Error('Selected request is missing employee identity.');
+      }
+
+      const { data: profileRow, error: profileError } = await supabase
+        .from('profiles')
+        .select('employee_id')
+        .eq('id', reviewTarget.employee_id)
+        .maybeSingle();
+      if (profileError) throw profileError;
+
+      const employeeCode = String(profileRow?.employee_id || '').trim();
+      if (!employeeCode) {
+        throw new Error('Employee profile is missing employee_id required for comp-off allocation review.');
+      }
+
+      const [{ data: earnedRows, error: earnedRowsError }, { data: pendingRequests, error: pendingRequestsError }] = await Promise.all([
+        supabase
+          .from('employee_leave_records' as any)
+          .select('id, leave_category, source_event_type, leave_date, leave_used_on, duty_code, raw_leave_used_value, metadata, raw_event')
+          .eq('emp_id', employeeCode)
+          .in('leave_category', ['COMP_OFF', 'COMP_OFF_EARNED', 'LAST_YEAR_CH_DUTY', 'OPE'])
+          .order('leave_date', { ascending: true }),
+        supabase
+          .from('leave_requests' as any)
+          .select('id, total_days')
+          .eq('employee_id', reviewTarget.employee_id)
+          .eq('leave_type', 'COMP_OFF')
+          .in('status', ['Pending WSO', 'Pending Supervisor'])
+          .neq('id', reviewTarget.id),
+      ]);
+
+      if (earnedRowsError) throw earnedRowsError;
+      if (pendingRequestsError) throw pendingRequestsError;
+
+      const candidates = buildCompOffAllocationCandidates((earnedRows || []) as any[]);
+      const reservedDays = (pendingRequests || []).reduce((sum: number, row: { total_days?: number | null }) => {
+        return sum + Math.ceil(Number(row.total_days || 0));
+      }, 0);
+      const requestedDays = Math.ceil(Number(reviewTarget.total_days || 0));
+
+      return {
+        employeeCode,
+        requestedDays,
+        reservedDays,
+        allocation: allocateCompOffCandidates(candidates, requestedDays, reservedDays),
+      };
+    },
+  });
 
   const openReview = (request: LeaveRequest, action: 'approve' | 'reject') => {
     setReviewTarget(request);
@@ -151,9 +218,15 @@ export default function LeaveApprovals() {
   return (
     <DashboardLayout role={dashboardRole}>
       <div className="space-y-5">
-        <div>
-          <h1 className="text-2xl font-bold">Leave Approvals</h1>
-          <p className="text-muted-foreground text-sm">Review and manage leave requests</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold">Leave Approvals</h1>
+            <p className="text-muted-foreground text-sm">Review and manage leave requests</p>
+          </div>
+          <Button variant="outline" onClick={() => navigate(registerPath)} className="shrink-0">
+            <ListChecks className="h-4 w-4 mr-2" />
+            SAP Approved Register
+          </Button>
         </div>
 
         <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
@@ -262,6 +335,7 @@ export default function LeaveApprovals() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
+                    <th className="px-4 py-2.5 text-left font-medium">S/N</th>
                     <th className="px-4 py-2.5 text-left font-medium">Employee</th>
                     <th className="px-4 py-2.5 text-left font-medium">Dates</th>
                     <th className="px-4 py-2.5 text-left font-medium">Type</th>
@@ -272,7 +346,7 @@ export default function LeaveApprovals() {
                   </tr>
                 </thead>
                 <tbody>
-                  {allRequests.map((req) => {
+                  {allRequests.map((req, index) => {
                     const statusInfo = getLeaveStatusInfo(req.status);
                     const canReview = isWSO
                       ? req.status === 'Pending WSO'
@@ -281,6 +355,7 @@ export default function LeaveApprovals() {
 
                     return (
                       <tr key={req.id} className="border-b hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3 font-medium text-muted-foreground">{index + 1}</td>
                         <td className="px-4 py-3">
                           <div className="font-medium">{req.employee_name}</div>
                           {req.team && (
@@ -367,7 +442,7 @@ export default function LeaveApprovals() {
                   })}
                   {allRequests.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-muted-foreground">
+                      <td colSpan={8} className="py-12 text-center text-muted-foreground">
                         <Clock className="h-10 w-10 mx-auto mb-2 opacity-40" />
                         No leave requests found
                       </td>
@@ -404,7 +479,6 @@ export default function LeaveApprovals() {
                     <div className="rounded-lg border bg-muted/30 p-3">
                       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Employee</div>
                       <div className="mt-1 text-sm font-semibold break-words">{reviewTarget.employee_name}</div>
-                      <div className="mt-1 text-xs text-muted-foreground break-words">{reviewTarget.employee_id}</div>
                     </div>
                     <div className="rounded-lg border bg-muted/30 p-3">
                       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Team / Shift</div>
@@ -429,6 +503,21 @@ export default function LeaveApprovals() {
                     <div className="rounded-lg border bg-muted/30 p-3">
                       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total Days</div>
                       <div className="mt-1 text-sm font-semibold">{reviewTarget.total_days} day{reviewTarget.total_days > 1 ? 's' : ''}</div>
+                    </div>
+                    <div className="rounded-lg border bg-muted/30 p-3 sm:col-span-2 xl:col-span-1">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Applied On SAP</div>
+                      <div className="mt-1">
+                        <Badge
+                          variant="outline"
+                          className={reviewTarget.sap_applied === true
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300'
+                            : reviewTarget.sap_applied === false
+                              ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300'
+                              : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'}
+                        >
+                          {reviewTarget.sap_applied === true ? 'Yes' : reviewTarget.sap_applied === false ? 'No' : 'Not Provided'}
+                        </Badge>
+                      </div>
                     </div>
                     <div className="rounded-lg border bg-muted/30 p-3 sm:col-span-2 xl:col-span-3">
                       <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Reason</div>
@@ -478,6 +567,61 @@ export default function LeaveApprovals() {
                       )}
                     </div>
                   </div>
+
+                  {reviewTarget.leave_type === 'COMP_OFF' && (
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Comp-Off Allocation Preview</div>
+                      {reviewCompOffAllocationQuery.isLoading ? (
+                        <div className="mt-2 text-sm text-muted-foreground">Checking earned comp-off entries for this request.</div>
+                      ) : reviewCompOffAllocationQuery.error ? (
+                        <div className="mt-2 text-sm text-rose-700 dark:text-rose-300">
+                          {(reviewCompOffAllocationQuery.error as Error).message || 'Failed to load comp-off allocation preview.'}
+                        </div>
+                      ) : reviewCompOffAllocationQuery.data ? (
+                        <div className="mt-3 space-y-3 text-sm">
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="rounded-lg border bg-muted/30 p-3">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Employee Code</div>
+                              <div className="mt-1 font-semibold">{reviewCompOffAllocationQuery.data.employeeCode}</div>
+                            </div>
+                            <div className="rounded-lg border bg-muted/30 p-3">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Pending Reserved</div>
+                              <div className="mt-1 font-semibold">{reviewCompOffAllocationQuery.data.reservedDays} day{reviewCompOffAllocationQuery.data.reservedDays === 1 ? '' : 's'}</div>
+                            </div>
+                            <div className="rounded-lg border bg-muted/30 p-3">
+                              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Requested Here</div>
+                              <div className="mt-1 font-semibold">{reviewCompOffAllocationQuery.data.requestedDays} day{reviewCompOffAllocationQuery.data.requestedDays === 1 ? '' : 's'}</div>
+                            </div>
+                          </div>
+
+                          {reviewCompOffAllocationQuery.data.allocation.selectedEntries.length > 0 ? (
+                            <div className="space-y-2">
+                              {reviewCompOffAllocationQuery.data.allocation.selectedEntries.map((entry, index) => (
+                                <div key={`${entry.recordId}-${entry.dutyDate || 'none'}`} className="rounded-lg border bg-muted/20 p-3">
+                                  <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <div>
+                                      <div className="font-semibold">#{index + 1} duty date {entry.dutyDate ? format(new Date(entry.dutyDate), 'dd/MM/yyyy') : 'Not available'}</div>
+                                      <div className="mt-1 text-xs text-muted-foreground">
+                                        Expires {entry.expiryDate ? format(new Date(entry.expiryDate), 'dd/MM/yyyy') : 'not set'}
+                                        {entry.sourceLabel ? ` • ${entry.sourceLabel}` : ''}
+                                      </div>
+                                    </div>
+                                    <Badge variant="outline" className="text-[10px] font-medium">
+                                      {entry.dutyPerformed || entry.sourceType}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border border-rose-200 bg-rose-50/80 p-3 text-sm text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-300">
+                              No eligible comp-off entries are available for the full requested duration after accounting for the employee's pending comp-off requests.
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Remarks (optional)</label>

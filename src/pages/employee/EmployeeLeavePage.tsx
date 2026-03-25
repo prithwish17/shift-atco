@@ -118,17 +118,17 @@ function getCompOffSourceBadgeClass(sourceType?: string): string {
   switch ((sourceType || "").toUpperCase()) {
     case "COMP_OFF_DUTY":
     case "COMP_OFF":
-      return "bg-teal-100 text-teal-800";
+      return "bg-teal-100 text-teal-800 dark:bg-teal-950/40 dark:text-teal-200";
     case "FROM_LAST_YEAR":
     case "LAST_YEAR_CH_DUTY":
     case "LAST_YEAR_COMP_OFF":
-      return "bg-violet-100 text-violet-800";
+      return "bg-violet-100 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200";
     case "OPE_DUTY":
     case "OPE":
     case "OPE_COMP_OFF":
-      return "bg-orange-100 text-orange-800";
+      return "bg-orange-100 text-orange-800 dark:bg-orange-950/40 dark:text-orange-200";
     default:
-      return "bg-sky-100 text-sky-800";
+      return "bg-sky-100 text-sky-800 dark:bg-sky-950/40 dark:text-sky-200";
   }
 }
 
@@ -152,28 +152,28 @@ function getCompOffStatusLabel(entry: CompOffHistoryEntry): string {
 function getCompOffStatusBadgeClass(status: CompOffHistoryEntry["status"]): string {
   switch (status) {
     case "not_available":
-      return "bg-red-100 text-red-700";
+      return "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-200";
     case "expired":
-      return "bg-rose-100 text-rose-800";
+      return "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-200";
     case "used":
-      return "bg-amber-100 text-amber-800";
+      return "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200";
     default:
-      return "bg-emerald-100 text-emerald-800";
+      return "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200";
   }
 }
 
 function getLeaveTypeHighlightClass(type: string): string {
   switch (type) {
     case "Casual Leave":
-      return "border-l-teal-500 bg-teal-50/80 text-teal-900";
+      return "border-l-teal-500 bg-teal-50/80 text-teal-900 dark:bg-teal-950/30 dark:text-teal-100";
     case "Earned Leave":
-      return "border-l-blue-500 bg-blue-50/80 text-blue-900";
+      return "border-l-blue-500 bg-blue-50/80 text-blue-900 dark:bg-blue-950/30 dark:text-blue-100";
     case "Compensatory Off":
-      return "border-l-rose-500 bg-rose-50/80 text-rose-900";
+      return "border-l-rose-500 bg-rose-50/80 text-rose-900 dark:bg-rose-950/30 dark:text-rose-100";
     case "Reserved Holiday":
-      return "border-l-amber-500 bg-amber-50/80 text-amber-900";
+      return "border-l-amber-500 bg-amber-50/80 text-amber-900 dark:bg-amber-950/30 dark:text-amber-100";
     default:
-      return "border-l-slate-400 bg-slate-50 text-slate-900";
+      return "border-l-slate-400 bg-slate-50 text-slate-900 dark:bg-slate-900/60 dark:text-slate-100";
   }
 }
 
@@ -234,14 +234,14 @@ const CALENDAR_LEAVE_STYLES: Record<string, CalendarLeaveStyle> = {
   REQ: {
     label: "REQ",
     legend: "Applied",
-    cellClass: "bg-amber-50 text-amber-900 ring-1 ring-amber-200",
-    badgeClass: "bg-amber-200 text-amber-900",
+    cellClass: "bg-amber-50 text-amber-900 ring-1 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-100 dark:ring-amber-900/50",
+    badgeClass: "bg-amber-200 text-amber-900 dark:bg-amber-900/70 dark:text-amber-100",
   },
   APR: {
     label: "LEAVE",
     legend: "Approved",
-    cellClass: "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200",
-    badgeClass: "bg-emerald-200 text-emerald-900",
+    cellClass: "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-100 dark:ring-emerald-900/50",
+    badgeClass: "bg-emerald-200 text-emerald-900 dark:bg-emerald-900/70 dark:text-emerald-100",
   },
 };
 
@@ -501,8 +501,8 @@ export default function EmployeeLeavePage() {
         </div>
 
         {(leaveQuery.error || elError) && (
-          <Card className="border-red-200 bg-red-50">
-            <CardContent className="pt-4 pb-4 text-sm text-red-800">
+          <Card className="border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/30">
+            <CardContent className="pt-4 pb-4 text-sm text-red-800 dark:text-red-200">
               {((leaveQuery.error || elError) as Error).message || "Failed to load leave data"}
             </CardContent>
           </Card>
@@ -513,8 +513,8 @@ export default function EmployeeLeavePage() {
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
           </div>
         ) : !profile?.employee_id ? (
-          <Card className="border-amber-200 bg-amber-50">
-            <CardContent className="pt-4 pb-4 text-sm text-amber-800">
+          <Card className="border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/30">
+            <CardContent className="pt-4 pb-4 text-sm text-amber-800 dark:text-amber-200">
               Your profile is missing an Employee ID. Please update your profile.
             </CardContent>
           </Card>
@@ -540,11 +540,11 @@ export default function EmployeeLeavePage() {
               <Card key={card.label} className="h-full w-full shadow-sm">
                 <CardContent className="flex h-full items-center justify-between gap-2 px-2.5 py-2 sm:gap-4 sm:px-6 sm:py-4">
                   <div className="min-w-0 flex-1">
-                    <div className="text-[9px] font-bold uppercase tracking-wide text-slate-800 sm:text-xs">{card.label}</div>
-                    <div className="mt-0.5 text-lg font-black leading-none tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">
+                    <div className="text-[9px] font-bold uppercase tracking-wide text-slate-800 dark:text-slate-200 sm:text-xs">{card.label}</div>
+                    <div className="mt-0.5 text-lg font-black leading-none tracking-tight text-slate-900 dark:text-white sm:mt-2 sm:text-3xl">
                       {valueText}
                     </div>
-                    <div className="mt-0.5 break-words text-[9px] font-semibold text-slate-700 sm:mt-1 sm:text-xs">
+                    <div className="mt-0.5 break-words text-[9px] font-semibold text-slate-700 dark:text-slate-300 sm:mt-1 sm:text-xs">
                       {valueLabel}
                     </div>
                     <div className="mt-0.5 break-words text-[9px] text-muted-foreground sm:mt-1 sm:text-xs">
@@ -554,11 +554,11 @@ export default function EmployeeLeavePage() {
                   <div
                     className="flex h-10 w-10 shrink-0 items-center justify-center self-center rounded-full sm:h-16 sm:w-16"
                     style={{
-                      background: `conic-gradient(${card.color} ${percent}%, #E5E7EB 0)`,
+                      background: `conic-gradient(${card.color} ${percent}%, var(--card-progress-track, #E5E7EB) 0)`,
                     }}
                   >
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white sm:h-12 sm:w-12">
-                      <div className="text-[9px] font-bold text-slate-700 sm:text-sm">{percent}%</div>
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white dark:bg-slate-950 sm:h-12 sm:w-12">
+                      <div className="text-[9px] font-bold text-slate-700 dark:text-slate-200 sm:text-sm">{percent}%</div>
                     </div>
                   </div>
                 </CardContent>
@@ -582,8 +582,8 @@ export default function EmployeeLeavePage() {
                     onClick={() => setCompOffView(tab.key)}
                     className={`rounded-lg border px-2 py-1 text-[10px] font-semibold transition-colors sm:rounded-xl sm:px-3 sm:py-2 sm:text-sm ${
                       compOffView === tab.key
-                        ? "border-slate-900 bg-slate-900 text-white"
-                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                        ? "border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-950"
+                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
                     }`}
                   >
                     {tab.label}
@@ -605,10 +605,10 @@ export default function EmployeeLeavePage() {
                   visibleCompOffLedgerRows.map((row, idx) => (
                     <div
                       key={`${row.sourceType}-${row.dutyDate || row.leaveApplied || idx}-mobile`}
-                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm"
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm dark:border-slate-800 dark:bg-slate-900"
                     >
                       <div className="mb-1.5 flex items-center justify-between gap-2">
-                        <div className="min-w-0 text-xs font-bold tracking-tight text-slate-900">
+                        <div className="min-w-0 text-xs font-bold tracking-tight text-slate-900 dark:text-white">
                           {formatDate(row.dutyDate) || "—"}
                         </div>
                         <span
@@ -620,15 +620,15 @@ export default function EmployeeLeavePage() {
 
                       <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
                         <div className="overflow-hidden">
-                          <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-500">Duty Performed</div>
-                          <div className="text-[10px] font-semibold text-slate-800 break-words">{formatDutyPerformed(row.dutyPerformed)}</div>
+                          <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Duty Performed</div>
+                          <div className="text-[10px] font-semibold text-slate-800 dark:text-slate-200 break-words">{formatDutyPerformed(row.dutyPerformed)}</div>
                         </div>
                         <div className="overflow-hidden">
-                          <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-500">Expiry Date</div>
-                          <div className="text-[10px] font-semibold text-slate-800 break-words">{formatDate(row.expiryDate) || "—"}</div>
+                          <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Expiry Date</div>
+                          <div className="text-[10px] font-semibold text-slate-800 dark:text-slate-200 break-words">{formatDate(row.expiryDate) || "—"}</div>
                         </div>
                         <div className="overflow-hidden">
-                          <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-500">Source</div>
+                          <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Source</div>
                           <span
                             className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-semibold ${getCompOffSourceBadgeClass(row.sourceType)}`}
                           >
@@ -636,8 +636,8 @@ export default function EmployeeLeavePage() {
                           </span>
                         </div>
                         <div className="overflow-hidden">
-                          <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-500">Leave Used On</div>
-                          <div className="text-[10px] font-semibold text-slate-800 break-words">{formatDate(row.leaveApplied) || "—"}</div>
+                          <div className="text-[8px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Leave Used On</div>
+                          <div className="text-[10px] font-semibold text-slate-800 dark:text-slate-200 break-words">{formatDate(row.leaveApplied) || "—"}</div>
                         </div>
                       </div>
                     </div>
@@ -649,7 +649,7 @@ export default function EmployeeLeavePage() {
                 )}
               </div>
 
-              <div className="hidden sm:block border rounded-lg overflow-hidden mb-4 overflow-x-auto">
+              <div className="hidden sm:block border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden mb-4 overflow-x-auto">
                 <table className="w-full table-fixed border-collapse">
                   <colgroup>
                     <col className="w-[14%]" />
@@ -660,25 +660,25 @@ export default function EmployeeLeavePage() {
                     <col className="w-[20%]" />
                   </colgroup>
                   <thead>
-                    <tr className="border-b-2 border-slate-300 bg-slate-200/95 text-slate-800 text-xs font-bold uppercase tracking-[0.14em] shadow-sm">
-                      <th className="px-3 py-2.5 text-left border-r border-slate-300 font-bold">Duty Date</th>
-                      <th className="px-3 py-2.5 text-left border-r border-slate-300 font-bold">Duty Performed</th>
-                      <th className="px-3 py-2.5 text-left border-r border-slate-300 font-bold">Expiry Date</th>
-                      <th className="px-3 py-2.5 text-left border-r border-slate-300 font-bold">Source</th>
-                      <th className="px-3 py-2.5 text-left border-r border-slate-300 font-bold">Leave Used On</th>
+                    <tr className="border-b-2 border-slate-300 bg-slate-200/95 text-slate-800 text-xs font-bold uppercase tracking-[0.14em] shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+                      <th className="px-3 py-2.5 text-left border-r border-slate-300 dark:border-slate-700 font-bold">Duty Date</th>
+                      <th className="px-3 py-2.5 text-left border-r border-slate-300 dark:border-slate-700 font-bold">Duty Performed</th>
+                      <th className="px-3 py-2.5 text-left border-r border-slate-300 dark:border-slate-700 font-bold">Expiry Date</th>
+                      <th className="px-3 py-2.5 text-left border-r border-slate-300 dark:border-slate-700 font-bold">Source</th>
+                      <th className="px-3 py-2.5 text-left border-r border-slate-300 dark:border-slate-700 font-bold">Leave Used On</th>
                       <th className="px-3 py-2.5 text-left font-bold">Remarks</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200">
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                     {visibleCompOffLedgerRows.length ? (
                       visibleCompOffLedgerRows.map((row, idx) => (
                         <tr
                           key={`${row.sourceType}-${row.dutyDate || row.leaveApplied || idx}`}
-                          className={`text-sm ${idx % 2 === 0 ? "bg-sky-100/70" : "bg-slate-50/80"}`}
+                          className={`text-sm ${idx % 2 === 0 ? "bg-sky-100/70 dark:bg-sky-950/20" : "bg-slate-50/80 dark:bg-slate-900/70"}`}
                         >
-                          <td className="px-3 py-2 text-slate-700 whitespace-normal break-words">{formatDate(row.dutyDate) || "—"}</td>
-                          <td className="px-3 py-2 text-slate-700 whitespace-normal break-words">{formatDutyPerformed(row.dutyPerformed)}</td>
-                          <td className="px-3 py-2 text-slate-700 whitespace-normal break-words">{formatDate(row.expiryDate) || "—"}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300 whitespace-normal break-words">{formatDate(row.dutyDate) || "—"}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300 whitespace-normal break-words">{formatDutyPerformed(row.dutyPerformed)}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300 whitespace-normal break-words">{formatDate(row.expiryDate) || "—"}</td>
                           <td className="px-3 py-2">
                             <span
                               className={`inline-flex rounded-md px-2.5 py-1 text-[10px] font-semibold leading-tight ${getCompOffSourceBadgeClass(row.sourceType)}`}
@@ -686,7 +686,7 @@ export default function EmployeeLeavePage() {
                               {getCompOffSourceLabel(row.sourceType, row.sourceLabel)}
                             </span>
                           </td>
-                          <td className="px-3 py-2 text-slate-700 whitespace-normal break-words">{formatDate(row.leaveApplied) || "—"}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300 whitespace-normal break-words">{formatDate(row.leaveApplied) || "—"}</td>
                           <td className="px-3 py-2">
                             <span
                               className={`inline-flex rounded-md px-2.5 py-1 text-[10px] font-semibold leading-tight ${getCompOffStatusBadgeClass(row.status)}`}
@@ -714,20 +714,20 @@ export default function EmployeeLeavePage() {
               <CardTitle className="text-xs sm:text-base">Leave Summary</CardTitle>
             </CardHeader>
             <CardContent className="px-3 pb-3 sm:px-6 sm:pb-6">
-              <div className="overflow-hidden rounded-lg border border-slate-200">
+              <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
                 <Table>
-                  <TableHeader className="border-b-2 border-slate-300 bg-slate-200/95">
+                  <TableHeader className="border-b-2 border-slate-300 bg-slate-200/95 dark:border-slate-700 dark:bg-slate-900">
                     <TableRow className="border-b-0 hover:bg-transparent">
-                      <TableHead className="px-2 py-1.5 text-[8px] font-bold uppercase tracking-[0.14em] text-slate-800 sm:px-4 sm:py-3 sm:text-xs">Leave Type</TableHead>
-                      <TableHead className="px-2 py-1.5 text-[8px] font-bold uppercase tracking-[0.14em] text-slate-800 sm:px-4 sm:py-3 sm:text-xs">Leave Used On</TableHead>
-                      <TableHead className="px-2 py-1.5 text-[8px] font-bold uppercase tracking-[0.14em] text-slate-800 sm:px-4 sm:py-3 sm:text-xs">Count</TableHead>
+                      <TableHead className="px-2 py-1.5 text-[8px] font-bold uppercase tracking-[0.14em] text-slate-800 dark:text-slate-200 sm:px-4 sm:py-3 sm:text-xs">Leave Type</TableHead>
+                      <TableHead className="px-2 py-1.5 text-[8px] font-bold uppercase tracking-[0.14em] text-slate-800 dark:text-slate-200 sm:px-4 sm:py-3 sm:text-xs">Leave Used On</TableHead>
+                      <TableHead className="px-2 py-1.5 text-[8px] font-bold uppercase tracking-[0.14em] text-slate-800 dark:text-slate-200 sm:px-4 sm:py-3 sm:text-xs">Count</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {leaveSummary.map((row, idx) => (
                       <TableRow
                         key={row.type}
-                        className={`${idx % 2 === 0 ? "bg-white" : "bg-slate-50/70"}`}
+                        className={`${idx % 2 === 0 ? "bg-white dark:bg-slate-950" : "bg-slate-50/70 dark:bg-slate-900/70"}`}
                       >
                         <TableCell className="px-2 py-1.5 sm:px-4 sm:py-2">
                           <span
@@ -740,7 +740,7 @@ export default function EmployeeLeavePage() {
                           <div className="flex flex-wrap gap-1 sm:gap-2">
                             {row.dates.length > 0 ? (
                               row.dates.map((d) => (
-                                <Badge key={d} variant="secondary" className="bg-slate-100 text-[8px] text-slate-700 px-1.5 py-0.5 sm:text-xs sm:px-2.5 sm:py-0.5">
+                                <Badge key={d} variant="secondary" className="bg-slate-100 text-[8px] text-slate-700 px-1.5 py-0.5 dark:bg-slate-800 dark:text-slate-200 sm:text-xs sm:px-2.5 sm:py-0.5">
                                   {d}
                                 </Badge>
                               ))
@@ -750,7 +750,7 @@ export default function EmployeeLeavePage() {
                           </div>
                         </TableCell>
                         <TableCell className="px-2 py-1.5 sm:px-4 sm:py-2">
-                          <Badge variant="secondary" className="bg-emerald-100 text-[9px] text-emerald-800 sm:text-xs">
+                          <Badge variant="secondary" className="bg-emerald-100 text-[9px] text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 sm:text-xs">
                             {row.count ?? row.dates.length}
                           </Badge>
                         </TableCell>
@@ -785,9 +785,9 @@ export default function EmployeeLeavePage() {
               <div className="font-semibold min-w-[160px] text-center">{monthLabel}</div>
               <Button variant="outline" size="icon" onClick={nextMonth}><ChevronRight className="h-4 w-4" /></Button>
             </div>
-            <div className="grid grid-cols-7 gap-px border border-slate-200 mt-4 text-sm">
+            <div className="grid grid-cols-7 gap-px border border-slate-200 dark:border-slate-800 mt-4 text-sm">
               {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((d) => (
-                <div key={d} className="bg-slate-50 text-center py-2 font-semibold text-xs">{d}</div>
+                <div key={d} className="bg-slate-50 dark:bg-slate-900 text-center py-2 font-semibold text-xs text-slate-700 dark:text-slate-300">{d}</div>
               ))}
               {calendarGrid.map((cell, idx) => {
                 const leaveStyle = cell.iso ? calendarLeaves.get(cell.iso) : undefined;
@@ -797,11 +797,11 @@ export default function EmployeeLeavePage() {
                 return (
                   <div
                     key={idx}
-                    className={`h-20 bg-white border border-slate-100 p-1.5 text-xs ${!cell.day ? "bg-slate-50/50" : ""}`}
+                    className={`h-20 bg-white dark:bg-slate-950 border border-slate-100 dark:border-slate-900 p-1.5 text-xs ${!cell.day ? "bg-slate-50/50 dark:bg-slate-900/70" : ""}`}
                   >
                     {cell.day && (
                       <div className="flex h-full flex-col">
-                        <div className={`font-medium ${isToday ? "text-blue-600 font-bold" : "text-slate-600"}`}>
+                        <div className={`font-medium ${isToday ? "text-blue-600 dark:text-blue-400 font-bold" : "text-slate-600 dark:text-slate-300"}`}>
                           {cell.day}
                         </div>
                         {leaveStyle && (

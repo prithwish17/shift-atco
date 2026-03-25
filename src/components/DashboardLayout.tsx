@@ -3,9 +3,10 @@ import { Link } from "react-router-dom";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
-import { Moon, Sun, Bell, Menu } from "lucide-react";
+import { Moon, Sun, Menu } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AppSidebar } from "./AppSidebar";
+import { NotificationDropdown } from "./NotificationDropdown";
 
 type Role = "admin" | "supervisor" | "wso" | "employee";
 
@@ -44,9 +45,7 @@ export function DashboardLayout({ role, children }: DashboardLayoutProps) {
 
           <div className="flex items-center gap-2 md:gap-4">
             {/* Notification bell */}
-            <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg">
-              <Bell className="size-5 text-gray-600 dark:text-gray-300" />
-            </button>
+            <NotificationDropdown />
 
             {/* Theme toggle */}
             <button

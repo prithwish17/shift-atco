@@ -145,7 +145,7 @@ function resolveCompOffExpiryDate(dutyDate: string | null, explicitExpiryDate: s
   }
 }
 
-function normalizeCompOffEntries(items: unknown[]): CompOffHistoryEntry[] {
+export function normalizeCompOffEntries(items: unknown[]): CompOffHistoryEntry[] {
   const today = startOfDay(new Date());
 
   return items

@@ -357,6 +357,17 @@ export default function SupervisorDashboard() {
   const pendingLeaves = allLeaveRequests.filter(
     (request) => request.status === "Pending Supervisor" || request.status === "Pending WSO",
   );
+
+  const leavesApprovedToday = useMemo(
+    () =>
+      allLeaveRequests.filter(
+        (r) =>
+          r.status === "Approved" &&
+          ((r.supervisor_approved_at && r.supervisor_approved_at.startsWith(today)) ||
+            (r.wso_approved_at && r.wso_approved_at.startsWith(today))),
+      ).length,
+    [allLeaveRequests, today],
+  );
   const pendingExchanges = (allExchanges as DutyExchangeDashboard[]).filter(
     (exchange) => exchange.status === "pending_supervisor",
   );
@@ -445,7 +456,7 @@ export default function SupervisorDashboard() {
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className="rounded-full border border-white/60 bg-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-700 shadow-sm dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
                   <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                  Supervisor Command Center
+                  SQMS Control Panel
                 </Badge>
                 <Badge variant="outline" className="rounded-full border-slate-300/70 bg-white/60 text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
                   {format(parseISO(istToday), "EEEE, dd MMMM yyyy")}
@@ -454,10 +465,10 @@ export default function SupervisorDashboard() {
 
               <div className="max-w-3xl">
                 <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-white sm:text-4xl xl:text-[3.2rem] xl:leading-[1.05]">
-                  Run daily airside operations with the clarity of a premium HR platform.
+                  SQMS Control Panel
                 </h1>
                 <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 dark:text-slate-300 sm:text-base">
-                  Review approvals, monitor duty coverage, track attendance capture, and keep schedule sync tightly under control from one polished operational overview.
+                  Command ATC operations—manage approvals, ensure controller coverage, track attendance, and maintain precise roster alignment.
                 </p>
               </div>
 
@@ -496,15 +507,20 @@ export default function SupervisorDashboard() {
               </div>
 
               <div className="mt-6 space-y-3">
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+                <Link
+                  to="/supervisor/leaves"
+                  className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 transition-colors hover:bg-slate-100/90 dark:border-slate-800 dark:bg-slate-900/70 dark:hover:bg-slate-900"
+                >
                   <div>
-                    <p className="text-sm font-medium text-slate-950 dark:text-white">Leave API</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{leaveApiUrl ? "Connected and ready to refresh" : "Admin setup required"}</p>
+                    <p className="text-sm font-medium text-slate-950 dark:text-white">Leaves Approved</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {leavesLoading ? "Fetching records…" : leavesApprovedToday === 0 ? "No approvals recorded today" : `${leavesApprovedToday} request${leavesApprovedToday === 1 ? "" : "s"} approved today`}
+                    </p>
                   </div>
-                  <Badge className={cn("rounded-full", leaveApiUrl ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" : "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300")}>
-                    {leaveApiUrl ? "Connected" : "Blocked"}
+                  <Badge className={cn("rounded-full", leavesApprovedToday > 0 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300")}>
+                    {leavesLoading ? "—" : leavesApprovedToday}
                   </Badge>
-                </div>
+                </Link>
 
                 <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
                   <div>
