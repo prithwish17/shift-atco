@@ -26,6 +26,7 @@ export type Database = {
           status: Database["public"]["Enums"]["attendance_status"]
           time_in: string | null
           time_out: string | null
+          unit_assignment: string | null
           updated_at: string
           user_id: string
         }
@@ -40,6 +41,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["attendance_status"]
           time_in?: string | null
           time_out?: string | null
+          unit_assignment?: string | null
           updated_at?: string
           user_id: string
         }
@@ -54,6 +56,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["attendance_status"]
           time_in?: string | null
           time_out?: string | null
+          unit_assignment?: string | null
           updated_at?: string
           user_id?: string
         }

@@ -11,6 +11,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
     Table,
     TableBody,
@@ -22,7 +23,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Database } from "lucide-react";
 import { useRosters, type RosterEntry } from "@/hooks/useRosters";
-import { format, addDays, isToday, parse } from "date-fns";
+import { format, addDays, isToday } from "date-fns";
 
 const TEAMS = ["A", "B", "C", "D", "E"];
 const SHIFTS = ["Morning", "Afternoon", "Night"];
@@ -48,59 +49,22 @@ export default function EmployeeRoster() {
     }, [today]);
 
     const [selectedDate, setSelectedDate] = useState(formatDateForFilter(today));
-    const [selectedTeam, setSelectedTeam] = useState("");
-    const [selectedShift, setSelectedShift] = useState("");
+    const [selectedTeam, setSelectedTeam] = useState("all");
+    const [selectedShift, setSelectedShift] = useState("all");
     const [searchQuery, setSearchQuery] = useState("");
+    const [excludeSpecialEntries, setExcludeSpecialEntries] = useState(false);
 
     const {
         data: rosters = [],
         isLoading,
         isFetching,
     } = useRosters({
-        team: selectedTeam || undefined,
-        shift: selectedShift || undefined,
+        team: selectedTeam,
+        shift: selectedShift,
         search: searchQuery || undefined,
+        date: selectedDate,
+        excludeSpecialEntries,
     });
-
-    // Client-side date filtering — handles the dd-MMM-yyyy format from Google Sheets
-    const filteredRosters = useMemo(() => {
-        if (!selectedDate) return rosters;
-
-        const targetDate = parse(selectedDate, "yyyy-MM-dd", new Date());
-        const targetDay = targetDate.getDate();
-        const targetMonth = targetDate.getMonth();
-        const targetYear = targetDate.getFullYear();
-
-        const DATE_FORMATS = [
-            "dd-MMM-yyyy",
-            "d-MMM-yyyy",
-            "yyyy-MM-dd",
-            "dd/MM/yyyy",
-            "d/M/yyyy",
-            "dd-MM-yyyy",
-            "M/d/yyyy",
-            "MM/dd/yyyy",
-        ];
-
-        return rosters.filter((entry) => {
-            for (const fmt of DATE_FORMATS) {
-                try {
-                    const parsed = parse(entry.date, fmt, new Date());
-                    if (
-                        !isNaN(parsed.getTime()) &&
-                        parsed.getDate() === targetDay &&
-                        parsed.getMonth() === targetMonth &&
-                        parsed.getFullYear() === targetYear
-                    ) {
-                        return true;
-                    }
-                } catch {
-                    // try next format
-                }
-            }
-            return false;
-        });
-    }, [rosters, selectedDate]);
 
     return (
         <DashboardLayout role="employee">
@@ -176,6 +140,17 @@ export default function EmployeeRoster() {
                                 </div>
                             </div>
                         </div>
+
+                        <div className="mt-3 flex items-center gap-2">
+                            <Checkbox
+                                id="employee-hide-special-roster-entries"
+                                checked={excludeSpecialEntries}
+                                onCheckedChange={(checked) => setExcludeSpecialEntries(checked === true)}
+                            />
+                            <label htmlFor="employee-hide-special-roster-entries" className="text-sm text-muted-foreground cursor-pointer">
+                                Hide Extra Duty and Duty Exchange/Change entries
+                            </label>
+                        </div>
                     </CardContent>
                 </Card>
 
@@ -223,7 +198,7 @@ export default function EmployeeRoster() {
                 <div className="flex items-center gap-4">
                     <Badge variant="outline" className="gap-1">
                         <Database className="h-3 w-3" />
-                        {filteredRosters.length} records
+                        {rosters.length} records
                     </Badge>
                     {isFetching && !isLoading && (
                         <Badge variant="secondary">Refreshing...</Badge>
@@ -242,7 +217,7 @@ export default function EmployeeRoster() {
                                     <Skeleton key={i} className="h-12 w-full" />
                                 ))}
                             </div>
-                        ) : filteredRosters.length === 0 ? (
+                        ) : rosters.length === 0 ? (
                             <div className="text-center py-12 text-muted-foreground">
                                 <Database className="h-12 w-12 mx-auto mb-3 opacity-30" />
                                 <p className="font-medium">No roster data found</p>
@@ -255,6 +230,7 @@ export default function EmployeeRoster() {
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
+                                            <TableHead className="w-16">S.No</TableHead>
                                             <TableHead>Date</TableHead>
                                             <TableHead>Shift</TableHead>
                                             <TableHead>Team</TableHead>
@@ -264,7 +240,7 @@ export default function EmployeeRoster() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {filteredRosters.map(
+                                        {rosters.map(
                                             (entry: RosterEntry, idx: number) => (
                                                 <TableRow
                                                     key={entry.id || idx}
@@ -274,6 +250,7 @@ export default function EmployeeRoster() {
                                                             : "bg-slate-50/70 dark:bg-slate-800/55"
                                                     } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
                                                 >
+                                                    <TableCell className="font-medium text-muted-foreground">{idx + 1}</TableCell>
                                                     <TableCell className="font-mono text-sm">
                                                         {entry.date}
                                                     </TableCell>
@@ -311,13 +288,13 @@ export default function EmployeeRoster() {
                         </CardHeader>
                         <CardContent className="pt-3 pb-3">
                             <div className="divide-y text-sm">
-                                {filteredRosters.filter(r => r.position?.toUpperCase() === 'DUTY CHANGE').map((r, idx) => (
+                                {rosters.filter(r => r.position?.toUpperCase() === 'DUTY CHANGE').map((r, idx) => (
                                     <div key={r.id || idx} className="py-2 flex justify-between">
                                         <span className="font-medium">{r.employee_name}</span>
                                         <span className="text-muted-foreground ml-2">{r.unit}</span>
                                     </div>
                                 ))}
-                                {filteredRosters.filter(r => r.position?.toUpperCase() === 'DUTY CHANGE').length === 0 && (
+                                {rosters.filter(r => r.position?.toUpperCase() === 'DUTY CHANGE').length === 0 && (
                                     <div className="py-2 text-center text-muted-foreground">No duty changes</div>
                                 )}
                             </div>
@@ -331,13 +308,13 @@ export default function EmployeeRoster() {
                         </CardHeader>
                         <CardContent className="pt-3 pb-3">
                             <div className="divide-y text-sm">
-                                {filteredRosters.filter(r => r.position?.toUpperCase() === 'EXTRA DUTY').map((r, idx) => (
+                                {rosters.filter(r => r.position?.toUpperCase() === 'EXTRA DUTY').map((r, idx) => (
                                     <div key={r.id || idx} className="py-2 flex justify-between items-center">
                                         <span className="font-medium">{r.employee_name}</span>
                                         <span className="text-muted-foreground ml-2">{r.unit}</span>
                                     </div>
                                 ))}
-                                {filteredRosters.filter(r => r.position?.toUpperCase() === 'EXTRA DUTY').length === 0 && (
+                                {rosters.filter(r => r.position?.toUpperCase() === 'EXTRA DUTY').length === 0 && (
                                     <div className="py-2 text-center text-muted-foreground">No extra duties</div>
                                 )}
                             </div>
@@ -351,13 +328,13 @@ export default function EmployeeRoster() {
                         </CardHeader>
                         <CardContent className="pt-3 pb-3">
                             <div className="divide-y text-sm">
-                                {filteredRosters.filter(r => r.position?.toUpperCase().includes('LEAVE')).map((r, idx) => (
+                                {rosters.filter(r => r.position?.toUpperCase().includes('LEAVE')).map((r, idx) => (
                                     <div key={r.id || idx} className="py-2 flex justify-between items-center">
                                         <span className="font-medium">{r.employee_name}</span>
                                         <Badge variant="secondary" className="font-normal text-[10px] uppercase ml-2">{r.position}</Badge>
                                     </div>
                                 ))}
-                                {filteredRosters.filter(r => r.position?.toUpperCase().includes('LEAVE')).length === 0 && (
+                                {rosters.filter(r => r.position?.toUpperCase().includes('LEAVE')).length === 0 && (
                                     <div className="py-2 text-center text-muted-foreground">No one on leave</div>
                                 )}
                             </div>

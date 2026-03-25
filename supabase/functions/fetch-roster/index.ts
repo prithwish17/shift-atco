@@ -35,7 +35,6 @@ Deno.serve(async (req) => {
     const token = authHeader.replace("Bearer ", "");
 
     // Accept service_role tokens directly; validate user tokens via getUser
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     if (token !== serviceRoleKey) {
       const { data: userData, error: userError } =
         await userClient.auth.getUser(token);
@@ -47,10 +46,20 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Parse query params
+    // Parse params from either query string or JSON body so both direct invoke
+    // and proxy-based fetch paths can call the same function reliably.
     const url = new URL(req.url);
-    const team = url.searchParams.get("team") || "";
-    const shift = url.searchParams.get("shift") || "";
+    let requestBody: Record<string, unknown> = {};
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      try {
+        requestBody = await req.json();
+      } catch {
+        requestBody = {};
+      }
+    }
+
+    const team = String(url.searchParams.get("team") || requestBody.team || "");
+    const shift = String(url.searchParams.get("shift") || requestBody.shift || "");
 
     // Try to read the webapp URL from app_settings table (admin-configurable)
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
@@ -153,8 +162,9 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     console.error("Error:", error);
+    const message = error instanceof Error ? error.message : "Internal server error";
     return new Response(
-      JSON.stringify({ error: error.message || "Internal server error" }),
+      JSON.stringify({ error: message }),
       {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

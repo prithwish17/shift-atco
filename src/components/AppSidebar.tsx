@@ -18,6 +18,7 @@ import {
   X,
   Menu,
   UserCog,
+  Activity,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -43,6 +44,7 @@ const menuItems = {
     { title: "License Management", url: "/supervisor/licenses", icon: Shield },
     { title: "Ratings Management", url: "/supervisor/ratings", icon: Shield },
     { title: "Mark Attendance", url: "/supervisor/attendance", icon: ClipboardList },
+    { title: "View Attendance", url: "/supervisor/attendance-view", icon: Calendar },
     { title: "Duty Exchange", url: "/supervisor/duty-exchange", icon: Calendar },
     { title: "Shift Duty Grid", url: "/supervisor/atc-grid", icon: Radio },
     { title: "Shift Roster Data", url: "/supervisor/roster", icon: ClipboardList },
@@ -56,12 +58,14 @@ const menuItems = {
     { title: "BA Test Management", url: "/wso/ba-test", icon: Shield },
     { title: "Leave Requests", url: "/wso/leaves", icon: FileText },
     { title: "Duty Exchange", url: "/wso/duty-exchange", icon: ArrowLeftRight },
+    { title: "OPE Duty", url: "/wso/ope-assignments", icon: Activity },
     { title: "Roster Data", url: "/wso/roster", icon: Calendar },
     { title: "Profile Settings", url: "/wso/profile", icon: UserCog },
   ],
   employee: [
     { title: "Dashboard", url: "/employee", icon: LayoutDashboard },
     { title: "My Duty Schedule", url: "/employee/schedule", icon: Calendar },
+    { title: "My Attendance", url: "/employee/attendance", icon: ClipboardList },
     { title: "Shift Duty Roster", url: "/employee/atc-duties", icon: Table2 },
     { title: "Apply for Leave", url: "/employee/leave", icon: FileText },
     { title: "My Leave Summary", url: "/employee/leave-dashboard", icon: BarChart3 },

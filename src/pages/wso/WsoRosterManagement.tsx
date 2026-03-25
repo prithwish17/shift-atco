@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -33,7 +34,7 @@ import {
 } from "lucide-react";
 import { useFetchRoster, useRosters, type RosterEntry } from "@/hooks/useRosters";
 import { toast } from "sonner";
-import { format, addDays, isToday, parse } from "date-fns";
+import { format, addDays, isToday } from "date-fns";
 
 const TEAMS = ["A", "B", "C", "D", "E"];
 const SHIFTS = ["Morning", "Afternoon", "Night"];
@@ -59,9 +60,10 @@ export default function WsoRosterManagement() {
   }, [today]);
 
   const [selectedDate, setSelectedDate] = useState(formatDateForFilter(today));
-  const [selectedTeam, setSelectedTeam] = useState("");
-  const [selectedShift, setSelectedShift] = useState("");
+  const [selectedTeam, setSelectedTeam] = useState("all");
+  const [selectedShift, setSelectedShift] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [excludeSpecialEntries, setExcludeSpecialEntries] = useState(false);
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
 
   const fetchRoster = useFetchRoster();
@@ -71,16 +73,18 @@ export default function WsoRosterManagement() {
     isLoading,
     isFetching,
   } = useRosters({
-    team: selectedTeam || undefined,
-    shift: selectedShift || undefined,
+    team: selectedTeam,
+    shift: selectedShift,
     search: searchQuery || undefined,
+    date: selectedDate,
+    excludeSpecialEntries,
   });
 
   const handleFetchLatest = async () => {
     try {
       await fetchRoster.mutateAsync({
-        team: selectedTeam,
-        shift: selectedShift,
+        team: selectedTeam === "all" ? "" : selectedTeam,
+        shift: selectedShift === "all" ? "" : selectedShift,
       });
       setLastFetched(new Date());
       toast.success("Roster data synced successfully");
@@ -88,46 +92,6 @@ export default function WsoRosterManagement() {
       toast.error(err.message || "Failed to fetch roster");
     }
   };
-
-  // Client-side date filtering — handles multiple date formats from Google Sheets
-  const filteredRosters = useMemo(() => {
-    if (!selectedDate) return rosters;
-
-    const targetDate = parse(selectedDate, "yyyy-MM-dd", new Date());
-    const targetDay = targetDate.getDate();
-    const targetMonth = targetDate.getMonth();
-    const targetYear = targetDate.getFullYear();
-
-    const DATE_FORMATS = [
-      "dd-MMM-yyyy",
-      "d-MMM-yyyy",
-      "yyyy-MM-dd",
-      "dd/MM/yyyy",
-      "d/M/yyyy",
-      "dd-MM-yyyy",
-      "M/d/yyyy",
-      "MM/dd/yyyy",
-    ];
-
-    return rosters.filter((entry) => {
-      for (const fmt of DATE_FORMATS) {
-        try {
-          const parsed = parse(entry.date, fmt, new Date());
-          if (
-            !isNaN(parsed.getTime()) &&
-            parsed.getDate() === targetDay &&
-            parsed.getMonth() === targetMonth &&
-            parsed.getFullYear() === targetYear
-          ) {
-            return true;
-          }
-        } catch {
-          // try next format
-        }
-      }
-      return false;
-    });
-  }, [rosters, selectedDate]);
 
   return (
     <DashboardLayout role="wso">
@@ -236,6 +200,17 @@ export default function WsoRosterManagement() {
                   </Button>
                 </div>
 
+                <div className="mt-3 flex items-center gap-2">
+                  <Checkbox
+                    id="wso-hide-special-roster-entries"
+                    checked={excludeSpecialEntries}
+                    onCheckedChange={(checked) => setExcludeSpecialEntries(checked === true)}
+                  />
+                  <label htmlFor="wso-hide-special-roster-entries" className="text-sm text-muted-foreground cursor-pointer">
+                    Hide Extra Duty and Duty Exchange/Change entries
+                  </label>
+                </div>
+
                 {lastFetched && (
                   <p className="text-xs text-muted-foreground mt-2">
                     Last synced: {lastFetched.toLocaleTimeString()}
@@ -288,7 +263,7 @@ export default function WsoRosterManagement() {
             <div className="flex items-center gap-4">
               <Badge variant="outline" className="gap-1">
                 <Database className="h-3 w-3" />
-                {filteredRosters.length} records
+                {rosters.length} records
               </Badge>
               {isFetching && !isLoading && (
                 <Badge variant="secondary">Refreshing...</Badge>
@@ -307,7 +282,7 @@ export default function WsoRosterManagement() {
                       <Skeleton key={i} className="h-12 w-full" />
                     ))}
                   </div>
-                ) : filteredRosters.length === 0 ? (
+                ) : rosters.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
                     <Database className="h-12 w-12 mx-auto mb-3 opacity-30" />
                     <p className="font-medium">No roster data found</p>
@@ -321,6 +296,7 @@ export default function WsoRosterManagement() {
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          <TableHead className="w-16">S.No</TableHead>
                           <TableHead>Date</TableHead>
                           <TableHead>Shift</TableHead>
                           <TableHead>Team</TableHead>
@@ -330,7 +306,7 @@ export default function WsoRosterManagement() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredRosters.map(
+                        {rosters.map(
                           (entry: RosterEntry, idx: number) => (
                             <TableRow
                               key={entry.id || idx}
@@ -340,6 +316,7 @@ export default function WsoRosterManagement() {
                                   : "bg-slate-50/70 dark:bg-slate-800/55"
                               } hover:bg-blue-50/60 dark:hover:bg-blue-900/25`}
                             >
+                              <TableCell className="font-medium text-muted-foreground">{idx + 1}</TableCell>
                               <TableCell className="font-mono text-sm">
                                 {entry.date}
                               </TableCell>

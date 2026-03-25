@@ -14,8 +14,9 @@ import { useUsers } from "@/hooks/useUsers";
 import { useAttendance } from "@/hooks/useAttendance";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
+import { getAttendanceShiftTokens } from "@/lib/teamDutyRotation";
 
 interface AttendanceRow {
   userId: string;
@@ -155,21 +156,16 @@ export default function SupervisorAttendance() {
     return Array.from(teams).sort((a, b) => a.localeCompare(b));
   }, [scheduleEntries]);
 
-  /** Normalize a single token */
-  const normalizeToken = (t: string) => {
-    const s = t.trim().toUpperCase();
-    if (s === "GENERAL") return "G";
-    if (s === "MORNING") return "M";
-    if (s === "AFTERNOON") return "A";
-    if (s === "NIGHT") return "N";
-    return s;
-  };
-
   /** Split compound duty codes into individual shift tokens.
    *  e.g. "M+A" → ["M", "A"], "NO+N" → ["NO", "N"] */
   const getDutyShiftTokens = (code: string): string[] => {
     if (!code) return [];
-    return code.split("+").map(normalizeToken).filter(Boolean);
+    return getAttendanceShiftTokens(code).map((token) => {
+      if (token === "MORNING") return "M";
+      if (token === "AFTERNOON") return "A";
+      if (token === "NIGHT") return "N";
+      return token;
+    }).filter(Boolean);
   };
 
   // Compute counts for each shift category
@@ -294,10 +290,18 @@ export default function SupervisorAttendance() {
               Mark and track employee attendance
             </p>
           </div>
-          <Button>
-            <Download className="mr-2 h-4 w-4" />
-            Export Report
-          </Button>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <Button asChild variant="outline" className="w-full sm:w-auto">
+              <Link to="/supervisor/attendance-view">
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                View Attendance
+              </Link>
+            </Button>
+            <Button className="w-full sm:w-auto">
+              <Download className="mr-2 h-4 w-4" />
+              Export Report
+            </Button>
+          </div>
         </div>
 
         {/* Shift Category Filter Buttons */}
@@ -454,13 +458,13 @@ export default function SupervisorAttendance() {
             <CardHeader>
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <CardTitle>Mark Attendance</CardTitle>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button
                         variant="outline"
                         className={cn(
-                          "justify-start text-left font-normal"
+                          "w-full justify-start text-left font-normal sm:w-auto"
                         )}
                       >
                         <CalendarIcon className="mr-2 h-4 w-4" />
@@ -480,7 +484,7 @@ export default function SupervisorAttendance() {
                     value={selectedTeam}
                     onValueChange={setSelectedTeam}
                   >
-                    <SelectTrigger className="w-[180px]">
+                    <SelectTrigger className="w-full sm:w-[180px]">
                       <SelectValue placeholder="Select team" />
                     </SelectTrigger>
                     <SelectContent>
@@ -497,17 +501,18 @@ export default function SupervisorAttendance() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">
                       {attendanceRows.length} employees
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => handleMarkAll("present")}
+                      className="w-full sm:w-auto"
                     >
                       Mark All Present
                     </Button>
@@ -515,12 +520,14 @@ export default function SupervisorAttendance() {
                       variant="outline"
                       size="sm"
                       onClick={() => handleMarkAll("absent")}
+                      className="w-full sm:w-auto"
                     >
                       Mark All Absent
                     </Button>
                     <Button
                       onClick={handleSave}
                       size="sm"
+                      className="w-full sm:w-auto"
                       disabled={
                         isBulkUpserting || attendanceRows.length === 0
                       }
@@ -542,7 +549,7 @@ export default function SupervisorAttendance() {
                   </p>
                 ) : (
                   <div className="border rounded-lg">
-                    <div className="overflow-x-auto">
+                    <div className="hidden md:block overflow-x-auto">
                       <table className="w-full">
                         <thead className="bg-muted/50">
                           <tr>
@@ -627,6 +634,69 @@ export default function SupervisorAttendance() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+
+                    <div className="space-y-3 p-3 md:hidden">
+                      {attendanceRows.map((emp) => (
+                        <div
+                          key={emp.userId}
+                          className="rounded-lg border bg-background p-3 shadow-sm"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-medium leading-tight">{emp.name}</p>
+                              <p className="text-xs text-muted-foreground">{emp.empId}</p>
+                            </div>
+                            <span className="rounded bg-muted px-2 py-1 text-xs font-semibold">
+                              {(emp.team || "").toUpperCase() || "—"}
+                            </span>
+                          </div>
+
+                          <div className="mt-3 space-y-2">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Duty Code</p>
+                              <p className="text-sm font-medium">{emp.shift}</p>
+                              {emp.position ? (
+                                <p className="text-xs text-muted-foreground">{emp.position}</p>
+                              ) : null}
+                            </div>
+
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Status</p>
+                              <Button
+                                variant={emp.status === "present" ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => toggleStatus(emp.userId)}
+                                className={cn(
+                                  "mt-1 w-full",
+                                  emp.status === "present" && "bg-green-600 hover:bg-green-700",
+                                  emp.status === "absent" && "bg-red-600 hover:bg-red-700 text-white"
+                                )}
+                              >
+                                {emp.status === "present" ? "Present" : "Absent"}
+                              </Button>
+                            </div>
+
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Comments</p>
+                              <Input
+                                placeholder="Add note..."
+                                value={emp.comments}
+                                onChange={(e) =>
+                                  setAttendanceRows((prev) =>
+                                    prev.map((row) =>
+                                      row.userId === emp.userId
+                                        ? { ...row, comments: e.target.value }
+                                        : row
+                                    )
+                                  )
+                                }
+                                className="mt-1 w-full"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

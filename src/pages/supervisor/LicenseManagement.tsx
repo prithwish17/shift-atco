@@ -490,10 +490,10 @@ const TRAINING_VALIDITY_OPTIONS = ['ADC', 'APP+APP(S)', 'ACC', 'ACC+ACC(S)', 'OC
 function getExpiryBadge(expiryDate: string | null) {
     if (!expiryDate) return <Badge variant="secondary" className="text-[10px]">N/A</Badge>;
     const days = differenceInDays(new Date(expiryDate), startOfDay(new Date()));
-    if (days < 0) return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px]">Expired</Badge>;
-    if (days <= 30) return <Badge className="bg-red-100 text-red-600 border-red-200 text-[10px]">{days}d left</Badge>;
-    if (days <= 90) return <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px]">{days}d left</Badge>;
-    return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">Valid</Badge>;
+    if (days < 0) return <Badge className="border-red-200 bg-red-100 text-[10px] text-red-700 dark:border-red-900/60 dark:bg-red-900/30 dark:text-red-200">Expired</Badge>;
+    if (days <= 30) return <Badge className="border-red-200 bg-red-100 text-[10px] text-red-600 dark:border-red-900/60 dark:bg-red-900/30 dark:text-red-200">{days}d left</Badge>;
+    if (days <= 90) return <Badge className="border-amber-200 bg-amber-100 text-[10px] text-amber-700 dark:border-amber-900/60 dark:bg-amber-900/30 dark:text-amber-200">{days}d left</Badge>;
+    return <Badge className="border-emerald-200 bg-emerald-100 text-[10px] text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-900/30 dark:text-emerald-200">Valid</Badge>;
 }
 
 function parseTrainingDate(raw: string | undefined): string | null {
@@ -568,7 +568,7 @@ function ValidityBadge({ dateStr, label }: { dateStr?: string; label?: string })
 
     if (label) {
         // Compact badge with label for card summary display
-        const colorCls = days < 0 ? 'bg-red-100 text-red-700 border-red-200' : days <= 90 ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200';
+        const colorCls = days < 0 ? 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-900/60' : days <= 90 ? 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-900/60' : 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-900/60';
         return (
             <Badge className={`${colorCls} text-[10px] font-normal`}>
                 {label}: {format(new Date(parsed), 'd MMM yy')}
@@ -580,11 +580,11 @@ function ValidityBadge({ dateStr, label }: { dateStr?: string; label?: string })
         <span className="text-xs">
             {format(new Date(parsed), 'd MMM yyyy')}
             {days < 0 ? (
-                <Badge className="ml-1 bg-red-100 text-red-700 border-red-200 text-[10px]">Expired</Badge>
+                <Badge className="ml-1 border-red-200 bg-red-100 text-[10px] text-red-700 dark:border-red-900/60 dark:bg-red-900/30 dark:text-red-200">Expired</Badge>
             ) : days <= 90 ? (
-                <Badge className="ml-1 bg-amber-100 text-amber-700 border-amber-200 text-[10px]">{days}d</Badge>
+                <Badge className="ml-1 border-amber-200 bg-amber-100 text-[10px] text-amber-700 dark:border-amber-900/60 dark:bg-amber-900/30 dark:text-amber-200">{days}d</Badge>
             ) : (
-                <Badge className="ml-1 bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">Valid</Badge>
+                <Badge className="ml-1 border-emerald-200 bg-emerald-100 text-[10px] text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-900/30 dark:text-emerald-200">Valid</Badge>
             )}
         </span>
     );
@@ -730,53 +730,53 @@ export default function LicenseManagement() {
         <DashboardLayout role="supervisor">
             <div className="space-y-5">
                 <Tabs defaultValue="training" className="w-full">
-                    <div className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-indigo-50/70 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.45)]">
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(99,102,241,0.16),_transparent_32%),radial-gradient(circle_at_bottom_left,_rgba(14,165,233,0.12),_transparent_28%)]" />
-                        <div className="absolute right-0 top-0 h-40 w-40 translate-x-10 -translate-y-10 rounded-full bg-indigo-200/30 blur-3xl" />
-                        <div className="absolute bottom-0 left-0 h-32 w-32 -translate-x-8 translate-y-8 rounded-full bg-sky-200/40 blur-3xl" />
+                    <div className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-indigo-50/70 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(15,23,42,0.95)_45%,rgba(30,27,75,0.9)_100%)]">
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(99,102,241,0.16),_transparent_32%),radial-gradient(circle_at_bottom_left,_rgba(14,165,233,0.12),_transparent_28%)] dark:bg-[radial-gradient(circle_at_top_right,_rgba(99,102,241,0.2),_transparent_28%),radial-gradient(circle_at_bottom_left,_rgba(14,165,233,0.12),_transparent_24%)]" />
+                        <div className="absolute right-0 top-0 h-40 w-40 translate-x-10 -translate-y-10 rounded-full bg-indigo-200/30 blur-3xl dark:bg-indigo-500/20" />
+                        <div className="absolute bottom-0 left-0 h-32 w-32 -translate-x-8 translate-y-8 rounded-full bg-sky-200/40 blur-3xl dark:bg-sky-500/20" />
 
                         <div className="relative space-y-6 p-5 md:p-7">
                             <div className="max-w-2xl space-y-3">
-                                    <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-indigo-700 shadow-sm backdrop-blur">
+                                    <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-indigo-700 shadow-sm backdrop-blur dark:border-indigo-500/30 dark:bg-white/10 dark:text-indigo-200">
                                         <Shield className="h-3.5 w-3.5" />
                                         Supervisor Console
                                     </div>
                                     <div className="space-y-2">
-                                        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">License Management</h1>
-                                        <p className="max-w-xl text-sm leading-6 text-slate-600 md:text-[15px]">
+                                        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white md:text-3xl">License Management</h1>
+                                        <p className="max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300 md:text-[15px]">
                                             Manage training credentials, ELPA validity, and medical readiness from a single operational dashboard.
                                         </p>
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm">
+                                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
                                             {trainingData.length} training records
                                         </Badge>
-                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm">
+                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
                                             {elpaData.length} ELPA records
                                         </Badge>
-                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm">
+                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
                                             {medSyncData.length} medical records
                                         </Badge>
                                     </div>
                             </div>
 
-                            <div className="rounded-2xl border border-white/80 bg-white/80 p-1.5 shadow-sm backdrop-blur">
+                            <div className="rounded-2xl border border-white/80 bg-white/80 p-1.5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/10">
                                 <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-transparent p-0">
                                     <TabsTrigger
                                         value="training"
-                                        className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
+                                        className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition dark:text-slate-300 data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm dark:data-[state=active]:bg-white dark:data-[state=active]:text-slate-950"
                                     >
                                         <GraduationCap className="mr-1.5 h-3.5 w-3.5" /> Training ({trainingData.length})
                                     </TabsTrigger>
                                     <TabsTrigger
                                         value="elpa"
-                                        className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
+                                        className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition dark:text-slate-300 data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm dark:data-[state=active]:bg-white dark:data-[state=active]:text-slate-950"
                                     >
                                         <Languages className="mr-1.5 h-3.5 w-3.5" /> ELPA ({elpaData.length})
                                     </TabsTrigger>
                                     <TabsTrigger
                                         value="medical"
-                                        className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
+                                        className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition dark:text-slate-300 data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm dark:data-[state=active]:bg-white dark:data-[state=active]:text-slate-950"
                                     >
                                         <Stethoscope className="mr-1.5 h-3.5 w-3.5" /> Medical ({medSyncData.length})
                                     </TabsTrigger>

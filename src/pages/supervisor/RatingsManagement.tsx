@@ -259,51 +259,51 @@ function getRatingEditTheme(ratingKey: string) {
     switch (ratingKey) {
         case 'ADC':
             return {
-                panelClass: 'border-sky-200 bg-sky-50/40',
-                headerClass: 'border-sky-200 bg-sky-100/70',
+                panelClass: 'border-sky-200 bg-sky-50/40 dark:border-sky-900/60 dark:bg-sky-950/20',
+                headerClass: 'border-sky-200 bg-sky-100/70 dark:border-sky-900/60 dark:bg-sky-900/25',
                 badgeClass: 'border-sky-200 bg-sky-600 text-white',
                 accentClass: 'bg-sky-500',
-                sectionClass: 'border-sky-200/80 bg-white/80',
+                sectionClass: 'border-sky-200/80 bg-white/80 dark:border-sky-900/40 dark:bg-slate-950/60',
             };
         case 'APP':
             return {
-                panelClass: 'border-emerald-200 bg-emerald-50/40',
-                headerClass: 'border-emerald-200 bg-emerald-100/70',
+                panelClass: 'border-emerald-200 bg-emerald-50/40 dark:border-emerald-900/60 dark:bg-emerald-950/20',
+                headerClass: 'border-emerald-200 bg-emerald-100/70 dark:border-emerald-900/60 dark:bg-emerald-900/25',
                 badgeClass: 'border-emerald-200 bg-emerald-600 text-white',
                 accentClass: 'bg-emerald-500',
-                sectionClass: 'border-emerald-200/80 bg-white/80',
+                sectionClass: 'border-emerald-200/80 bg-white/80 dark:border-emerald-900/40 dark:bg-slate-950/60',
             };
         case 'ACC':
             return {
-                panelClass: 'border-amber-200 bg-amber-50/40',
-                headerClass: 'border-amber-200 bg-amber-100/70',
+                panelClass: 'border-amber-200 bg-amber-50/40 dark:border-amber-900/60 dark:bg-amber-950/20',
+                headerClass: 'border-amber-200 bg-amber-100/70 dark:border-amber-900/60 dark:bg-amber-900/25',
                 badgeClass: 'border-amber-200 bg-amber-500 text-white',
                 accentClass: 'bg-amber-500',
-                sectionClass: 'border-amber-200/80 bg-white/80',
+                sectionClass: 'border-amber-200/80 bg-white/80 dark:border-amber-900/40 dark:bg-slate-950/60',
             };
         case 'ACC(S)':
             return {
-                panelClass: 'border-violet-200 bg-violet-50/40',
-                headerClass: 'border-violet-200 bg-violet-100/70',
+                panelClass: 'border-violet-200 bg-violet-50/40 dark:border-violet-900/60 dark:bg-violet-950/20',
+                headerClass: 'border-violet-200 bg-violet-100/70 dark:border-violet-900/60 dark:bg-violet-900/25',
                 badgeClass: 'border-violet-200 bg-violet-600 text-white',
                 accentClass: 'bg-violet-500',
-                sectionClass: 'border-violet-200/80 bg-white/80',
+                sectionClass: 'border-violet-200/80 bg-white/80 dark:border-violet-900/40 dark:bg-slate-950/60',
             };
         case 'OCC':
             return {
-                panelClass: 'border-rose-200 bg-rose-50/40',
-                headerClass: 'border-rose-200 bg-rose-100/70',
+                panelClass: 'border-rose-200 bg-rose-50/40 dark:border-rose-900/60 dark:bg-rose-950/20',
+                headerClass: 'border-rose-200 bg-rose-100/70 dark:border-rose-900/60 dark:bg-rose-900/25',
                 badgeClass: 'border-rose-200 bg-rose-600 text-white',
                 accentClass: 'bg-rose-500',
-                sectionClass: 'border-rose-200/80 bg-white/80',
+                sectionClass: 'border-rose-200/80 bg-white/80 dark:border-rose-900/40 dark:bg-slate-950/60',
             };
         case 'PLR':
             return {
-                panelClass: 'border-slate-300 bg-slate-50/70',
-                headerClass: 'border-slate-300 bg-slate-100/80',
+                panelClass: 'border-slate-300 bg-slate-50/70 dark:border-slate-700 dark:bg-slate-900/60',
+                headerClass: 'border-slate-300 bg-slate-100/80 dark:border-slate-700 dark:bg-slate-800/70',
                 badgeClass: 'border-slate-300 bg-slate-700 text-white',
                 accentClass: 'bg-slate-500',
-                sectionClass: 'border-slate-200/90 bg-white/85',
+                sectionClass: 'border-slate-200/90 bg-white/85 dark:border-slate-800 dark:bg-slate-950/60',
             };
         default:
             return {
@@ -384,27 +384,27 @@ function getWorstProfStatus(record: RatingSyncRecord, today: Date): 'valid' | 'w
 function getTopCardExpiryBadge(daysLeft: number | null) {
     if (daysLeft === null) {
         return {
-            className: 'bg-red-100 text-red-700 border-red-200',
+            className: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-900/60',
             label: 'No prof date',
         };
     }
 
     if (daysLeft < 0) {
         return {
-            className: 'bg-red-100 text-red-700 border-red-200',
+            className: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-900/60',
             label: `${Math.abs(daysLeft)}d overdue`,
         };
     }
 
     if (daysLeft <= 90) {
         return {
-            className: 'bg-amber-100 text-amber-700 border-amber-200',
+            className: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-900/60',
             label: `${daysLeft}d left`,
         };
     }
 
     return {
-        className: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+        className: 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-900/60',
         label: `${daysLeft}d left`,
     };
 }
@@ -607,22 +607,22 @@ function OverviewTab({
                         <span className="text-lg md:text-xl font-bold">{totalActive}</span>
                     </CardContent>
                 </Card>
-                <Card className="border-red-200 bg-red-50/30">
+                <Card className="border-red-200 bg-red-50/30 dark:border-red-900/60 dark:bg-red-950/20">
                     <CardContent className="flex items-center justify-between py-2 px-3">
-                        <span className="text-[10px] md:text-xs font-medium uppercase tracking-wide text-red-600">Prof Expired</span>
-                        <span className="text-lg md:text-xl font-bold text-red-600">{profExpired}</span>
+                        <span className="text-[10px] md:text-xs font-medium uppercase tracking-wide text-red-600 dark:text-red-300">Prof Expired</span>
+                        <span className="text-lg md:text-xl font-bold text-red-600 dark:text-red-300">{profExpired}</span>
                     </CardContent>
                 </Card>
-                <Card className="border-amber-200 bg-amber-50/30">
+                <Card className="border-amber-200 bg-amber-50/30 dark:border-amber-900/60 dark:bg-amber-950/20">
                     <CardContent className="flex items-center justify-between py-2 px-3">
-                        <span className="text-[10px] md:text-xs font-medium uppercase tracking-wide text-amber-600">Prof ≤90d</span>
-                        <span className="text-lg md:text-xl font-bold text-amber-600">{profWarning}</span>
+                        <span className="text-[10px] md:text-xs font-medium uppercase tracking-wide text-amber-600 dark:text-amber-300">Prof ≤90d</span>
+                        <span className="text-lg md:text-xl font-bold text-amber-600 dark:text-amber-300">{profWarning}</span>
                     </CardContent>
                 </Card>
-                <Card className="border-emerald-200 bg-emerald-50/30">
+                <Card className="border-emerald-200 bg-emerald-50/30 dark:border-emerald-900/60 dark:bg-emerald-950/20">
                     <CardContent className="flex items-center justify-between py-2 px-3">
-                        <span className="text-[10px] md:text-xs font-medium uppercase tracking-wide text-emerald-600">Prof Valid</span>
-                        <span className="text-lg md:text-xl font-bold text-emerald-600">{profValid}</span>
+                        <span className="text-[10px] md:text-xs font-medium uppercase tracking-wide text-emerald-600 dark:text-emerald-300">Prof Valid</span>
+                        <span className="text-lg md:text-xl font-bold text-emerald-600 dark:text-emerald-300">{profValid}</span>
                     </CardContent>
                 </Card>
             </div>
@@ -677,10 +677,10 @@ function OverviewTab({
                                             const pv = getProfValidity(entry, today);
                                             const profLabel = pv ? format(pv.validUpto, 'd MMM yy') : '-';
                                             const profBadgeClass = !pv || pv.daysLeft < 0
-                                                ? 'bg-red-100 text-red-700 border-red-200'
+                                                ? 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-900/60'
                                                 : pv.daysLeft <= 90
-                                                    ? 'bg-amber-100 text-amber-700 border-amber-200'
-                                                    : 'bg-emerald-100 text-emerald-700 border-emerald-200';
+                                                    ? 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-900/60'
+                                                    : 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-900/60';
                                             const profDaysText = !pv ? 'No Prof'
                                                 : pv.daysLeft < 0 ? `${Math.abs(pv.daysLeft)}d over`
                                                     : `${pv.daysLeft}d left`;
@@ -1553,59 +1553,59 @@ export default function RatingsManagement() {
         <DashboardLayout role="supervisor">
             <div className="space-y-4 p-4 md:p-6">
                 <Tabs defaultValue="overview" className="w-full">
-                    <div className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-indigo-50/70 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.45)]">
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(99,102,241,0.16),_transparent_32%),radial-gradient(circle_at_bottom_left,_rgba(14,165,233,0.12),_transparent_28%)]" />
-                        <div className="absolute right-0 top-0 h-40 w-40 translate-x-10 -translate-y-10 rounded-full bg-indigo-200/30 blur-3xl" />
-                        <div className="absolute bottom-0 left-0 h-32 w-32 -translate-x-8 translate-y-8 rounded-full bg-sky-200/40 blur-3xl" />
+                    <div className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-indigo-50/70 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.45)] dark:border-slate-800 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(15,23,42,0.95)_45%,rgba(30,27,75,0.9)_100%)]">
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(99,102,241,0.16),_transparent_32%),radial-gradient(circle_at_bottom_left,_rgba(14,165,233,0.12),_transparent_28%)] dark:bg-[radial-gradient(circle_at_top_right,_rgba(99,102,241,0.2),_transparent_28%),radial-gradient(circle_at_bottom_left,_rgba(14,165,233,0.12),_transparent_24%)]" />
+                        <div className="absolute right-0 top-0 h-40 w-40 translate-x-10 -translate-y-10 rounded-full bg-indigo-200/30 blur-3xl dark:bg-indigo-500/20" />
+                        <div className="absolute bottom-0 left-0 h-32 w-32 -translate-x-8 translate-y-8 rounded-full bg-sky-200/40 blur-3xl dark:bg-sky-500/20" />
 
                         <div className="relative space-y-6 p-5 md:p-7">
                             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
                                 <div className="max-w-2xl space-y-3">
-                                    <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-indigo-700 shadow-sm backdrop-blur">
+                                    <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-indigo-700 shadow-sm backdrop-blur dark:border-indigo-500/30 dark:bg-white/10 dark:text-indigo-200">
                                         <Shield className="h-3.5 w-3.5" />
                                         Supervisor Console
                                     </div>
                                     <div className="space-y-2">
-                                        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">Ratings Management</h1>
-                                        <p className="max-w-xl text-sm leading-6 text-slate-600 md:text-[15px]">
+                                        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white md:text-3xl">Ratings Management</h1>
+                                        <p className="max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300 md:text-[15px]">
                                             Review operational ratings, isolate overdue proficiency checks, and switch between rating tracks from one control surface.
                                         </p>
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm">
+                                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
                                             {RATING_TYPES.length} rating tracks
                                         </Badge>
-                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm">
+                                        <Badge variant="secondary" className="rounded-full border border-white/70 bg-white/80 px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm dark:border-white/10 dark:bg-white/10 dark:text-slate-200">
                                             Live sync enabled
                                         </Badge>
                                     </div>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:min-w-[420px]">
-                                    <div className="rounded-2xl border border-white/80 bg-white/75 px-4 py-3 shadow-sm backdrop-blur">
-                                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Employees</p>
-                                        <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">{totalEmployees}</p>
+                                    <div className="rounded-2xl border border-white/80 bg-white/75 px-4 py-3 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/10">
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">Employees</p>
+                                        <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">{totalEmployees}</p>
                                     </div>
-                                    <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/80 px-4 py-3 shadow-sm">
-                                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Active Ratings</p>
-                                        <p className="mt-2 text-2xl font-semibold tracking-tight text-emerald-800">{activeRatings}</p>
+                                    <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/80 px-4 py-3 shadow-sm dark:border-emerald-900/60 dark:bg-emerald-950/20">
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-emerald-700 dark:text-emerald-300">Active Ratings</p>
+                                        <p className="mt-2 text-2xl font-semibold tracking-tight text-emerald-800 dark:text-emerald-200">{activeRatings}</p>
                                     </div>
-                                    <div className="rounded-2xl border border-red-200/80 bg-red-50/85 px-4 py-3 shadow-sm">
-                                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-red-700">Expired</p>
-                                        <p className="mt-2 text-2xl font-semibold tracking-tight text-red-800">{expiredRatings}</p>
+                                    <div className="rounded-2xl border border-red-200/80 bg-red-50/85 px-4 py-3 shadow-sm dark:border-red-900/60 dark:bg-red-950/20">
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-red-700 dark:text-red-300">Expired</p>
+                                        <p className="mt-2 text-2xl font-semibold tracking-tight text-red-800 dark:text-red-200">{expiredRatings}</p>
                                     </div>
-                                    <div className="rounded-2xl border border-amber-200/80 bg-amber-50/85 px-4 py-3 shadow-sm">
-                                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-700">Due ≤90d</p>
-                                        <p className="mt-2 text-2xl font-semibold tracking-tight text-amber-800">{expiringSoonRatings}</p>
+                                    <div className="rounded-2xl border border-amber-200/80 bg-amber-50/85 px-4 py-3 shadow-sm dark:border-amber-900/60 dark:bg-amber-950/20">
+                                        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-700 dark:text-amber-300">Due ≤90d</p>
+                                        <p className="mt-2 text-2xl font-semibold tracking-tight text-amber-800 dark:text-amber-200">{expiringSoonRatings}</p>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="rounded-2xl border border-white/80 bg-white/80 p-1.5 shadow-sm backdrop-blur">
+                            <div className="rounded-2xl border border-white/80 bg-white/80 p-1.5 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/10">
                                 <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-transparent p-0">
                                     <TabsTrigger
                                         value="overview"
-                                        className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
+                                        className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition dark:text-slate-300 data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm dark:data-[state=active]:bg-white dark:data-[state=active]:text-slate-950"
                                     >
                                         <Shield className="mr-1.5 h-3.5 w-3.5" /> Overview
                                     </TabsTrigger>
@@ -1613,7 +1613,7 @@ export default function RatingsManagement() {
                                         <TabsTrigger
                                             key={rt}
                                             value={rt}
-                                            className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm"
+                                            className="rounded-xl px-4 py-2 text-sm font-medium text-slate-600 transition dark:text-slate-300 data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:shadow-sm dark:data-[state=active]:bg-white dark:data-[state=active]:text-slate-950"
                                         >
                                             {rt}
                                         </TabsTrigger>

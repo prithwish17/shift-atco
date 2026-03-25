@@ -4,6 +4,10 @@ import { logApiCall } from '../_shared/logger.ts'
 const ENDPOINT  = '/functions/v1/sync-roster'
 const ALL_TEAMS = ['A', 'B', 'C', 'D']
 
+// Same fallback URL used by fetch-roster (manual fetch)
+const DEFAULT_APPS_SCRIPT_URL =
+  'https://script.google.com/macros/s/AKfycby0ZL9nspDkRuln1JRpr8llBRaNxvaO9Zo1X6zMg89i_inQSeDBJd6EyQE9Wj6dhQ-S1Q/exec'
+
 type RosterRecord = {
   date:          string
   shift:         string
@@ -69,10 +73,13 @@ async function fetchTeamRoster(
 
     const unit = (row.unit ?? '').toUpperCase().trim() === 'HQ' ? 'WSO' : (row.unit ?? '')
 
+    // IMPORTANT: Use the date/shift/team values returned by Google Apps Script,
+    // NOT our computed values. This ensures the same format as fetch-roster
+    // (manual fetch), so the frontend can query both consistently.
     return {
-      date,
-      shift,
-      team,
+      date:          row.date || date,
+      shift:         row.shift || shift,
+      team:          row.team || team,
       unit,
       employee_name: empName,
       position:      row.position ?? row.mark ?? row.remark ?? row.half ?? '',
@@ -96,7 +103,7 @@ Deno.serve(async (req) => {
 
     console.log(`[sync-roster] shift=${shift} targetDate=${targetDate}`)
 
-    // Resolve roster URL: env var first, then app_settings fallback
+    // Resolve roster URL: env var first, then app_settings, then hardcoded default
     let rosterUrl = Deno.env.get('ROSTER_SHEETS_URL') ?? ''
     if (!rosterUrl) {
       const { data: setting } = await supabase
@@ -106,7 +113,9 @@ Deno.serve(async (req) => {
         .single()
       rosterUrl = setting?.value ?? ''
     }
-    if (!rosterUrl) throw new Error('ROSTER_SHEETS_URL not configured')
+    if (!rosterUrl) {
+      rosterUrl = DEFAULT_APPS_SCRIPT_URL
+    }
 
     // Fetch all teams in parallel
     const results = await Promise.allSettled(
@@ -129,14 +138,21 @@ Deno.serve(async (req) => {
     }
 
     if (allRecords.length > 0) {
-      // Delete stale entries for this shift+date, then insert fresh data
-      const { error: delErr } = await supabase
-        .from('rosters')
-        .delete()
-        .eq('date',  targetDate)
-        .eq('shift', shift)
+      // Delete stale entries per unique (date, shift, team) combo from fetched data.
+      // This matches fetch-roster's delete pattern and ensures correct format matching.
+      const combos = new Set<string>()
+      allRecords.forEach(r => combos.add(`${r.date}|${r.shift}|${r.team}`))
 
-      if (delErr) throw delErr
+      for (const combo of combos) {
+        const [d, s, t] = combo.split('|')
+        const { error: delErr } = await supabase
+          .from('rosters')
+          .delete()
+          .eq('date', d)
+          .eq('shift', s)
+          .eq('team', t)
+        if (delErr) console.error(`[sync-roster] Delete error for ${combo}:`, delErr)
+      }
 
       const { error: insErr, count } = await supabase
         .from('rosters')

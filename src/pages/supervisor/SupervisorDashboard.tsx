@@ -39,6 +39,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useLeaveApiUrl, useLeaveRefresh } from "@/hooks/useLeaveData";
 import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
+import { getAttendanceShiftTokens } from "@/lib/teamDutyRotation";
 
 const DUTY_CYCLE: Array<"M" | "A" | "N" | "NO" | "CO"> = ["M", "A", "N", "NO", "CO"];
 const TODAY_TEAM_DUTY_BASE: Record<string, "M" | "A" | "N" | "NO" | "CO"> = {
@@ -272,7 +273,7 @@ export default function SupervisorDashboard() {
   }, [todaySchedules]);
 
   const generalCount = useMemo(
-    () => todaySchedules.filter((schedule) => schedule.duty_code?.toUpperCase().trim() === "G").length,
+    () => todaySchedules.filter((schedule) => getAttendanceShiftTokens(schedule.duty_code).includes("G")).length,
     [todaySchedules],
   );
 

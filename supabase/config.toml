@@ -11,3 +11,15 @@ verify_jwt = false
 
 [functions.fetch-roster]
 verify_jwt = false
+
+[functions.sync-roster]
+verify_jwt = false
+
+[functions.sync-leave-records]
+verify_jwt = false
+
+[functions.expire-records]
+verify_jwt = false
+
+[functions.fetch-schedule]
+verify_jwt = false

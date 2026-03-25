@@ -111,17 +111,17 @@ export default function EmployeeManagement() {
   return (
     <DashboardLayout role="supervisor">
       <div className="space-y-6">
-        <div className="rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-50 via-blue-50 to-cyan-50 p-5 md:p-6">
+        <div className="rounded-2xl border border-slate-200 bg-gradient-to-r from-slate-50 via-blue-50 to-cyan-50 p-5 dark:border-slate-800 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(15,23,42,0.95)_48%,rgba(8,47,73,0.88)_100%)] md:p-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:justify-between lg:items-center">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Employee Management</h1>
-            <p className="text-slate-600">Manage employee information and assignments</p>
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Employee Management</h1>
+            <p className="text-slate-600 dark:text-slate-300">Manage employee information and assignments</p>
           </div>
           <div className="flex flex-wrap gap-2 w-full lg:w-auto">
             <Button
               variant="outline"
               onClick={() => setEmpCsvImportOpen(true)}
-              className="w-full sm:w-auto bg-white/80 border-slate-300 hover:bg-slate-100"
+              className="w-full sm:w-auto border-slate-300 bg-white/80 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900/70 dark:hover:bg-slate-800"
             >
               <FileUp className="mr-2 h-4 w-4" />
               Import Employees
@@ -129,14 +129,14 @@ export default function EmployeeManagement() {
             <Button
               variant="outline"
               onClick={() => setCsvImportOpen(true)}
-              className="w-full sm:w-auto bg-white/80 border-slate-300 hover:bg-slate-100"
+              className="w-full sm:w-auto border-slate-300 bg-white/80 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900/70 dark:hover:bg-slate-800"
             >
               <Upload className="mr-2 h-4 w-4" />
               Import Licenses
             </Button>
             <Button
               onClick={() => setAddEmpOpen(true)}
-              className="w-full sm:w-auto bg-slate-900 text-white hover:bg-slate-800"
+              className="w-full sm:w-auto bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
             >
               <UserPlus className="mr-2 h-4 w-4" />
               Add Employee
@@ -145,10 +145,10 @@ export default function EmployeeManagement() {
         </div>
         </div>
 
-        <Card className="border-slate-200 shadow-sm">
+        <Card className="border-slate-200 shadow-sm dark:border-slate-800">
           <CardHeader>
-            <CardTitle className="text-slate-900">Search & Filter</CardTitle>
-            <CardDescription className="text-slate-600">Find employees by various criteria</CardDescription>
+            <CardTitle className="text-slate-900 dark:text-white">Search & Filter</CardTitle>
+            <CardDescription className="text-slate-600 dark:text-slate-400">Find employees by various criteria</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -158,12 +158,12 @@ export default function EmployeeManagement() {
                   placeholder="Search by name or ID..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 border-slate-200 bg-slate-50 focus-visible:ring-slate-300"
+                  className="pl-9 border-slate-200 bg-slate-50 focus-visible:ring-slate-300 dark:border-slate-700 dark:bg-slate-900/70 dark:focus-visible:ring-slate-600"
                 />
               </div>
 
               <Select value={shiftFilter} onValueChange={setShiftFilter}>
-                <SelectTrigger className="border-slate-200 bg-slate-50">
+                <SelectTrigger className="border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70">
                   <SelectValue placeholder="Filter by shift" />
                 </SelectTrigger>
                 <SelectContent>
@@ -178,7 +178,7 @@ export default function EmployeeManagement() {
               </Select>
 
               <Select value={licenseFilter} onValueChange={setLicenseFilter}>
-                <SelectTrigger className="border-slate-200 bg-slate-50">
+                <SelectTrigger className="border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/70">
                   <SelectValue placeholder="Filter by license" />
                 </SelectTrigger>
                 <SelectContent>
@@ -196,7 +196,7 @@ export default function EmployeeManagement() {
         </Card>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-slate-600 dark:text-slate-400">
             {filteredEmployees.length} employee{filteredEmployees.length === 1 ? "" : "s"}
           </p>
           <div className="flex items-center gap-2">
@@ -228,52 +228,52 @@ export default function EmployeeManagement() {
             ))}
           </div>
         ) : filteredEmployees.length === 0 ? (
-          <Card className="border-slate-200 shadow-sm">
-            <CardContent className="py-12 text-center text-slate-500">
+          <Card className="border-slate-200 shadow-sm dark:border-slate-800">
+            <CardContent className="py-12 text-center text-slate-500 dark:text-slate-400">
               No employees found
             </CardContent>
           </Card>
         ) : viewMode === "list" ? (
-          <Card className="border-slate-200 shadow-sm overflow-hidden">
+          <Card className="overflow-hidden border-slate-200 shadow-sm dark:border-slate-800">
             <CardContent className="p-0">
-              <div className="divide-y">
+              <div className="divide-y dark:divide-slate-800">
                 {filteredEmployees.map((employee) => {
                   const empLicenses = getEmployeeLicenses(employee.id);
                   return (
                     <div
                       key={employee.id}
-                      className="relative p-4 grid grid-cols-1 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] gap-3 lg:gap-4 items-start lg:items-center bg-white hover:bg-slate-50 transition-colors"
+                      className="relative grid grid-cols-1 items-start gap-3 bg-white p-4 transition-colors hover:bg-slate-50 dark:bg-slate-950/60 dark:hover:bg-slate-900 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto] lg:gap-4 lg:items-center"
                     >
                       <div className="flex items-center gap-3 min-w-0 pr-10 lg:pr-0">
-                        <Avatar className="h-12 w-12 shrink-0 ring-2 ring-slate-100">
+                        <Avatar className="h-12 w-12 shrink-0 ring-2 ring-slate-100 dark:ring-slate-800">
                           <AvatarImage src={employee.photo_url || undefined} />
-                          <AvatarFallback className="bg-blue-100 text-blue-700">{getInitials(employee.full_name)}</AvatarFallback>
+                          <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">{getInitials(employee.full_name)}</AvatarFallback>
                         </Avatar>
                         <div className="min-w-0">
-                          <p className="font-semibold text-slate-900 truncate">{employee.full_name}</p>
+                          <p className="truncate font-semibold text-slate-900 dark:text-white">{employee.full_name}</p>
                           <p className="text-sm text-slate-500 font-mono">{employee.employee_id}</p>
-                          <p className="text-sm text-slate-600 truncate">{employee.designation || "N/A"}</p>
+                          <p className="truncate text-sm text-slate-600 dark:text-slate-400">{employee.designation || "N/A"}</p>
                         </div>
                       </div>
 
-                      <div className="min-w-0 space-y-2 w-full border-t border-slate-100 pt-2 lg:border-0 lg:pt-0">
+                      <div className="min-w-0 w-full space-y-2 border-t border-slate-100 pt-2 dark:border-slate-800 lg:border-0 lg:pt-0">
                         <div className="flex items-center justify-between sm:justify-start gap-2">
-                          <span className="text-xs text-slate-500 min-w-[64px] shrink-0">Shift</span>
-                          <Badge variant="outline" className="uppercase border-blue-200 text-blue-700 bg-blue-50">
+                          <span className="min-w-[64px] shrink-0 text-xs text-slate-500 dark:text-slate-400">Shift</span>
+                          <Badge variant="outline" className="border-blue-200 bg-blue-50 uppercase text-blue-700 dark:border-blue-900/60 dark:bg-blue-900/30 dark:text-blue-200">
                             {employee.current_shift}
                           </Badge>
                         </div>
                         <div className="flex items-start justify-between sm:justify-start gap-2">
-                          <span className="text-xs text-slate-500 min-w-[64px] shrink-0 pt-1">Licenses</span>
+                          <span className="min-w-[64px] shrink-0 pt-1 text-xs text-slate-500 dark:text-slate-400">Licenses</span>
                           <div className="flex flex-wrap gap-1 min-w-0">
                             {empLicenses.length > 0 ? (
                               empLicenses.map((license) => (
-                                <Badge key={license.id} variant="secondary" className="bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <Badge key={license.id} variant="secondary" className="border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-900/30 dark:text-emerald-200">
                                   {LICENSE_LABELS[license.license_type] || license.license_type.toUpperCase()}
                                 </Badge>
                               ))
                             ) : (
-                              <span className="text-sm text-slate-500">No licenses</span>
+                              <span className="text-sm text-slate-500 dark:text-slate-400">No licenses</span>
                             )}
                           </div>
                         </div>
@@ -312,15 +312,15 @@ export default function EmployeeManagement() {
             {filteredEmployees.map((employee) => {
               const empLicenses = getEmployeeLicenses(employee.id);
               return (
-                <Card key={employee.id} className="border-slate-200 bg-gradient-to-b from-white to-slate-50/70 hover:shadow-md transition-shadow">
+                <Card key={employee.id} className="border-slate-200 bg-gradient-to-b from-white to-slate-50/70 transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.9)_0%,rgba(15,23,42,0.72)_100%)]">
                   <CardHeader className="flex flex-row items-center gap-4">
-                    <Avatar className="h-16 w-16 ring-2 ring-slate-100">
+                    <Avatar className="h-16 w-16 ring-2 ring-slate-100 dark:ring-slate-800">
                       <AvatarImage src={employee.photo_url || undefined} />
-                      <AvatarFallback className="bg-blue-100 text-blue-700">{getInitials(employee.full_name)}</AvatarFallback>
+                      <AvatarFallback className="bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">{getInitials(employee.full_name)}</AvatarFallback>
                     </Avatar>
                     <div className="flex-1">
-                      <CardTitle className="text-lg text-slate-900">{employee.full_name}</CardTitle>
-                      <CardDescription className="font-mono text-slate-500">{employee.employee_id}</CardDescription>
+                      <CardTitle className="text-lg text-slate-900 dark:text-white">{employee.full_name}</CardTitle>
+                      <CardDescription className="font-mono text-slate-500 dark:text-slate-400">{employee.employee_id}</CardDescription>
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -345,24 +345,24 @@ export default function EmployeeManagement() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <div>
-                      <p className="text-sm text-slate-500">Designation</p>
-                      <p className="font-medium text-slate-800">{employee.designation || "N/A"}</p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">Designation</p>
+                      <p className="font-medium text-slate-800 dark:text-slate-200">{employee.designation || "N/A"}</p>
                     </div>
                     <div>
-                      <p className="text-sm text-slate-500 mb-1">Current Shift</p>
-                      <Badge variant="outline" className="uppercase border-blue-200 text-blue-700 bg-blue-50">{employee.current_shift}</Badge>
+                      <p className="mb-1 text-sm text-slate-500 dark:text-slate-400">Current Shift</p>
+                      <Badge variant="outline" className="border-blue-200 bg-blue-50 uppercase text-blue-700 dark:border-blue-900/60 dark:bg-blue-900/30 dark:text-blue-200">{employee.current_shift}</Badge>
                     </div>
                     <div>
-                      <p className="text-sm text-slate-500 mb-1">Licenses</p>
+                      <p className="mb-1 text-sm text-slate-500 dark:text-slate-400">Licenses</p>
                       <div className="flex flex-wrap gap-1">
                         {empLicenses.length > 0 ? (
                           empLicenses.map((license) => (
-                            <Badge key={license.id} variant="secondary" className="bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            <Badge key={license.id} variant="secondary" className="border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-900/30 dark:text-emerald-200">
                               {LICENSE_LABELS[license.license_type] || license.license_type.toUpperCase()}
                             </Badge>
                           ))
                         ) : (
-                          <span className="text-sm text-slate-500">No licenses</span>
+                          <span className="text-sm text-slate-500 dark:text-slate-400">No licenses</span>
                         )}
                       </div>
                     </div>

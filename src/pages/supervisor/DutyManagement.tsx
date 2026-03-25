@@ -68,6 +68,10 @@ const normalizeTeam = (value: string | null | undefined): string => {
     return normalized;
 };
 
+const hasAssignedShift = (value: string | null | undefined): boolean => {
+    return Boolean((value || "").trim());
+};
+
 /* ── Duty cell color mapping (from Figma) ── */
 const getDutyColor = (duty: string) => {
     switch (duty?.toUpperCase()) {
@@ -326,7 +330,7 @@ export default function DutyManagement() {
 
         // 1. Add all employees from the profiles table
         for (const u of employees) {
-            if (!u.employee_id) continue;
+            if (!u.employee_id || !hasAssignedShift(u.current_shift)) continue;
             const code = u.employee_id.trim().toUpperCase();
             codesMap.set(code, {
                 code,
@@ -335,20 +339,8 @@ export default function DutyManagement() {
             });
         }
 
-        // 2. Add anyone in schedules who wasn't in profiles
-        for (const s of schedules) {
-            const code = (s.employee_code || "").trim().toUpperCase();
-            if (!codesMap.has(code)) {
-                codesMap.set(code, {
-                    code,
-                    name: s.employee_name || code,
-                    team: "—",
-                });
-            }
-        }
-
         return Array.from(codesMap.values());
-    }, [schedules, employees]);
+    }, [employees]);
 
     const teamOptions = useMemo(() => {
         const discovered = new Set(
@@ -376,7 +368,7 @@ export default function DutyManagement() {
                     !query ||
                     emp.name.toLowerCase().includes(query) ||
                     emp.code.toLowerCase().includes(query);
-                const matchesTeam = selectedTeams.includes(emp.team) || emp.team === "—";
+                const matchesTeam = selectedTeams.includes(emp.team);
                 return matchesSearch && matchesTeam;
             })
             .sort((a, b) => {

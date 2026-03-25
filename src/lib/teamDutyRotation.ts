@@ -76,6 +76,16 @@ export function parseDutyTokens(dutyCode?: string | null) {
     .filter(Boolean);
 }
 
+export function normalizeAttendanceShiftToken(token: string) {
+  const normalized = token.trim().toUpperCase();
+  if (normalized === "GENERAL" || normalized === "GO") return "G";
+  return normalized;
+}
+
+export function getAttendanceShiftTokens(dutyCode?: string | null) {
+  return parseDutyTokens(dutyCode).map(normalizeAttendanceShiftToken);
+}
+
 export function getDutyShiftMatches(dutyCode: string | null | undefined) {
   if (!dutyCode) return [] as TeamDutyCode[];
   const normalized = dutyCode.toUpperCase().trim();

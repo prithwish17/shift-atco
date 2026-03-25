@@ -27,8 +27,10 @@ import { useATCAssignments } from '@/hooks/useATCAssignments';
 import type { GridEmployee } from '@/hooks/useDutyGrid';
 import { supabase } from '@/integrations/supabase/client';
 import { SCHEDULE_QUERY_OPTIONS } from '@/lib/scheduleQueryConfig';
+import { buildNameIndex, findUniqueNameMatch, namesMatch } from '@/lib/nameMatching';
 import { getDutyShiftMatches, type TeamDutyCode } from '@/lib/teamDutyRotation';
 import { getLeaveTypeLabel } from '@/lib/leaveConstants';
+import { useAuth } from '@/contexts/AuthContext';
 
 type ScheduleMember = {
   id: string;
@@ -205,6 +207,7 @@ function SuggestionInput({
 }
 
 export default function WSOATCView() {
+  const { user } = useAuth();
   const [date, setDate] = useState<Date>(() => {
     if (typeof window === 'undefined') return new Date();
     const stored = localStorage.getItem(WSO_ATC_GRID_CACHE_KEY);
@@ -231,21 +234,24 @@ export default function WSOATCView() {
       return 'Morning';
     }
   });
-  const [team, setTeam] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    const stored = localStorage.getItem(WSO_ATC_GRID_CACHE_KEY);
-    if (!stored) return '';
-
-    try {
-      const parsed = JSON.parse(stored) as { team?: string };
-      return ['A', 'B', 'C', 'D', 'E'].includes(String(parsed.team || '').toUpperCase())
-        ? String(parsed.team).toUpperCase()
-        : '';
-    } catch {
-      return '';
-    }
-  });
   const [positionLabels, setPositionLabels] = useState<Record<string, string>>({});
+  const { data: wsoProfile } = useQuery({
+    queryKey: ['wso-atc-team', user?.id],
+    ...SCHEDULE_QUERY_OPTIONS,
+    queryFn: async () => {
+      if (!user?.id) return null;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('current_shift')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { current_shift: string | null } | null;
+    },
+    enabled: !!user?.id,
+  });
+  const team = wsoProfile?.current_shift ? normalizeTeam(wsoProfile.current_shift) : '';
 
   const isNight = shift === 'Night';
   const selectedShiftCode: TeamDutyCode | null =
@@ -262,9 +268,8 @@ export default function WSOATCView() {
     localStorage.setItem(WSO_ATC_GRID_CACHE_KEY, JSON.stringify({
       date: dateStr,
       shift,
-      team,
     }));
-  }, [dateStr, shift, team]);
+  }, [dateStr, shift]);
 
   const { data: roster, isLoading: rosterLoading } = useDutyRoster(date, shift, team);
   const createOrGetRoster = useCreateOrGetRoster();
@@ -308,6 +313,7 @@ export default function WSOATCView() {
       const profileMap = new Map(
         ((profiles || []) as any[]).map((profile) => [String(profile.employee_id || '').trim(), profile])
       );
+      const profileNameMap = buildNameIndex((profiles || []) as any[], (profile) => profile.full_name);
       const trainingMap = new Map(
         ((trainingRecords || []) as Array<{ emp_id: string | null; highest_rating: string | null }>)
           .map((record) => [String(record.emp_id || '').trim(), record.highest_rating || null])
@@ -316,7 +322,7 @@ export default function WSOATCView() {
       return scheduleRows
         .map((schedule) => {
           const employeeCode = String(schedule.employee_code || '').trim();
-          const profile = profileMap.get(employeeCode);
+          const profile = profileMap.get(employeeCode) || findUniqueNameMatch(profileNameMap, schedule.employee_name);
           if (!employeeCode) return null;
 
           return {
@@ -496,7 +502,7 @@ export default function WSOATCView() {
     const visible = markedDutyOptions.filter((employee) => !assignedEmployeeIds.has(employee.id));
     if (!currentValue) return visible;
 
-    const currentOption = allMarkedDutyOptions.find((employee) => employee.full_name === currentValue);
+    const currentOption = allMarkedDutyOptions.find((employee) => namesMatch(employee.full_name, currentValue));
     if (!currentOption || visible.some((employee) => employee.id === currentOption.id)) {
       return visible;
     }
@@ -660,14 +666,7 @@ export default function WSOATCView() {
                   {ATC_SHIFTS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Select value={team} onValueChange={setTeam}>
-                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Team" /></SelectTrigger>
-                <SelectContent>
-                  {['A', 'B', 'C', 'D', 'E'].map((t) => (
-                    <SelectItem key={t} value={t}>Team {t}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Badge variant="outline">Team {team || '—'}</Badge>
               <Button variant="outline" size="sm" onClick={() => refetchEdge()} disabled={edgeLoading}>
                 <RefreshCw className={`h-4 w-4 mr-1 ${edgeLoading ? 'animate-spin' : ''}`} /> Sync
               </Button>
@@ -836,7 +835,7 @@ export default function WSOATCView() {
                   ? teamScheduleLoading
                     ? `Loading schedule for ${format(date, 'dd MMM yyyy')}...`
                     : `Showing employees from Team ${team} whose schedule on ${format(date, 'dd MMM yyyy')} matches ${shift}.`
-                  : 'Select a team to load the schedule-linked employee pool for this date.'}
+                  : 'Loading the WSO team schedule-linked employee pool for this date.'}
               </div>
             </CardContent>
           </Card>
@@ -978,7 +977,7 @@ export default function WSOATCView() {
             </CardHeader>
             <CardContent className="pt-3 pb-3">
               {!team ? (
-                <div className="py-2 text-center text-muted-foreground text-sm">Select a team to view rating counts</div>
+                <div className="py-2 text-center text-muted-foreground text-sm">Loading WSO team rating counts</div>
               ) : (
                 <div className="divide-y text-sm">
                   {availabilitySummaryRows.map((row) => (

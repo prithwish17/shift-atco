@@ -286,36 +286,40 @@ export function useEmployeeDirectory() {
 
                 return allDirectoryRows as { id: string; employee_code: string; full_name: string; current_shift: string }[];
             } catch {
-                // Fallback: if RPC is unavailable, page through employee_schedules as well
-                let allScheduleRows: any[] = [];
+                // Fallback: RPC unavailable — query profiles table directly (same data the RPC returns)
+                const PAGE_SIZE = 1000;
+                let allProfileRows: any[] = [];
                 let from = 0;
                 let hasMore = true;
 
                 while (hasMore) {
-                    const { data: schedData, error: schedError } = await supabase
-                        .from('employee_schedules' as any)
-                        .select('employee_code, employee_name')
-                        .order('employee_name')
+                    const { data: profileData, error: profileError } = await supabase
+                        .from('profiles')
+                        .select('id, employee_id, full_name, current_shift')
+                        .neq('employee_id', '')
+                        .not('employee_id', 'is', null)
+                        .order('employee_id')
                         .range(from, from + PAGE_SIZE - 1);
 
-                    if (schedError) throw schedError;
+                    if (profileError) throw profileError;
 
-                    const rows = schedData || [];
-                    allScheduleRows = allScheduleRows.concat(rows);
+                    const rows = profileData || [];
+                    allProfileRows = allProfileRows.concat(rows);
                     hasMore = rows.length === PAGE_SIZE;
                     from += PAGE_SIZE;
                 }
 
                 const seen = new Set<string>();
                 const directory: { id: string; employee_code: string; full_name: string; current_shift: string }[] = [];
-                for (const row of allScheduleRows as any[]) {
-                    if (row.employee_code && !seen.has(row.employee_code)) {
-                        seen.add(row.employee_code);
+                for (const row of allProfileRows as any[]) {
+                    const code = row.employee_id;
+                    if (code && !seen.has(code)) {
+                        seen.add(code);
                         directory.push({
-                            id: '',
-                            employee_code: row.employee_code,
-                            full_name: row.employee_name || row.employee_code,
-                            current_shift: '',
+                            id: row.id || '',
+                            employee_code: code,
+                            full_name: row.full_name || code,
+                            current_shift: row.current_shift || '',
                         });
                     }
                 }

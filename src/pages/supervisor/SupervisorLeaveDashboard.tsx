@@ -102,28 +102,28 @@ type CalendarDaySummary = {
 
 const CALENDAR_TYPE_STYLES: Record<string, { cellClass: string; badgeClass: string; legendLabel: string }> = {
   CL: {
-    cellClass: "bg-amber-50 border-amber-200",
-    badgeClass: "bg-amber-100 text-amber-800",
+    cellClass: "bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-900/60",
+    badgeClass: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
     legendLabel: "Casual Leave",
   },
   EL: {
-    cellClass: "bg-blue-50 border-blue-200",
-    badgeClass: "bg-blue-100 text-blue-800",
+    cellClass: "bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-900/60",
+    badgeClass: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200",
     legendLabel: "Earned Leave",
   },
   COMP_OFF: {
-    cellClass: "bg-rose-50 border-rose-200",
-    badgeClass: "bg-rose-100 text-rose-800",
+    cellClass: "bg-rose-50 border-rose-200 dark:bg-rose-950/30 dark:border-rose-900/60",
+    badgeClass: "bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200",
     legendLabel: "Compensatory Off",
   },
   RH: {
-    cellClass: "bg-teal-50 border-teal-200",
-    badgeClass: "bg-teal-100 text-teal-800",
+    cellClass: "bg-teal-50 border-teal-200 dark:bg-teal-950/30 dark:border-teal-900/60",
+    badgeClass: "bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-200",
     legendLabel: "Restricted Holiday",
   },
   OTHER: {
-    cellClass: "bg-violet-50 border-violet-200",
-    badgeClass: "bg-violet-100 text-violet-800",
+    cellClass: "bg-violet-50 border-violet-200 dark:bg-violet-950/30 dark:border-violet-900/60",
+    badgeClass: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200",
     legendLabel: "Other Leave",
   },
 };
@@ -714,14 +714,14 @@ export default function SupervisorLeaveDashboard() {
   return (
     <DashboardLayout role="supervisor">
       <div className="space-y-6">
-        <div className="rounded-3xl border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-sky-50 p-5 shadow-sm sm:p-6">
+        <div className="rounded-3xl border border-slate-200 bg-gradient-to-r from-slate-50 via-white to-sky-50 p-5 shadow-sm dark:border-slate-800 dark:bg-[linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(15,23,42,0.94)_45%,rgba(8,47,73,0.9)_100%)] sm:p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-3">
-              <div className="rounded-2xl bg-blue-100 p-3 text-blue-700">
+              <div className="rounded-2xl bg-blue-100 p-3 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">
                 <Users className="h-6 w-6" />
               </div>
               <div>
-                <h1 className="text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">Supervisor Leave Dashboard</h1>
+                <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">Supervisor Leave Dashboard</h1>
                 <p className="mt-1 text-sm text-muted-foreground sm:text-base">
                   Track team leave balances, pending approvals, leave trends, and monthly activity.
                 </p>
@@ -750,8 +750,8 @@ export default function SupervisorLeaveDashboard() {
         </div>
 
         {errorMessage && (
-          <Card className="border-red-200 bg-red-50">
-            <CardContent className="pt-4 pb-4 text-sm text-red-800">
+          <Card className="border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/30">
+            <CardContent className="pt-4 pb-4 text-sm text-red-800 dark:text-red-200">
               {errorMessage || "Failed to load leave data"}
             </CardContent>
           </Card>
@@ -766,7 +766,7 @@ export default function SupervisorLeaveDashboard() {
             <section className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Leave Availability</h2>
+                  <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Leave Availability</h2>
                   <p className="text-sm text-muted-foreground">Team-wide balance snapshot for {selectedYear}</p>
                 </div>
                 <Badge variant="secondary" className="hidden sm:inline-flex">{stats.active} active employees</Badge>
@@ -778,11 +778,11 @@ export default function SupervisorLeaveDashboard() {
                     <Card key={card.label} className="shadow-sm">
                       <CardContent className="flex items-center justify-between gap-4 p-4">
                         <div className="min-w-0 flex-1">
-                          <div className="text-lg font-bold tracking-tight text-slate-900">{card.label}</div>
+                          <div className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">{card.label}</div>
                           <div className="mt-1 text-xs text-muted-foreground">{card.helper}</div>
                         </div>
                         <div className="shrink-0 text-right">
-                          <div className="text-[30px] font-black tracking-tight text-slate-900 sm:text-[34px]">
+                          <div className="text-[30px] font-black tracking-tight text-slate-900 dark:text-white sm:text-[34px]">
                             {card.value}
                           </div>
                         </div>
@@ -824,10 +824,10 @@ export default function SupervisorLeaveDashboard() {
                       No employees marked LEAVE on this date.
                     </div>
                   ) : (
-                    <div className="max-h-[320px] overflow-y-auto overflow-x-auto rounded-lg border border-slate-200">
+                    <div className="max-h-[320px] overflow-y-auto overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
                       <table className="w-full text-sm">
                         <thead className="sticky top-0 z-10">
-                          <tr className="border-b bg-slate-50 text-xs font-semibold text-slate-600">
+                          <tr className="border-b bg-slate-50 text-xs font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                             <th className="px-3 py-2.5 text-left">#</th>
                             <th className="px-3 py-2.5 text-left">Name</th>
                             <th className="px-3 py-2.5 text-left">ID</th>
@@ -836,9 +836,9 @@ export default function SupervisorLeaveDashboard() {
                         </thead>
                         <tbody>
                           {dailyLeaveEmployees.map((emp, idx) => (
-                            <tr key={emp.employeeCode} className="border-b last:border-0 hover:bg-slate-50/60 transition-colors">
+                            <tr key={emp.employeeCode} className="border-b last:border-0 transition-colors hover:bg-slate-50/60 dark:border-slate-800 dark:hover:bg-slate-900/70">
                               <td className="px-3 py-2 text-xs text-muted-foreground">{idx + 1}</td>
-                              <td className="px-3 py-2 font-medium text-slate-900">{emp.employeeName}</td>
+                              <td className="px-3 py-2 font-medium text-slate-900 dark:text-white">{emp.employeeName}</td>
                               <td className="px-3 py-2 font-mono text-xs text-slate-500">{emp.employeeCode}</td>
                               <td className="px-3 py-2">
                                 <Badge
@@ -977,8 +977,8 @@ export default function SupervisorLeaveDashboard() {
                             if (!active || !payload?.length) return null;
                             const entry = dayTeamLeaveTrack.find((e) => e.team === label);
                             return (
-                              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-md text-xs">
-                                <div className="mb-1.5 font-semibold text-slate-800">{label}</div>
+                              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-md text-xs dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                                <div className="mb-1.5 font-semibold text-slate-800 dark:text-white">{label}</div>
                                 {entry && (
                                   <div
                                     className="mb-2 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-medium"
@@ -993,8 +993,8 @@ export default function SupervisorLeaveDashboard() {
                                 {payload.map((p) => (
                                   <div key={p.name} className="flex items-center gap-2">
                                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color as string }} />
-                                    <span className="text-slate-600">{p.name}:</span>
-                                    <span className="font-semibold text-slate-900">{p.value}</span>
+                                    <span className="text-slate-600 dark:text-slate-400">{p.name}:</span>
+                                    <span className="font-semibold text-slate-900 dark:text-white">{p.value}</span>
                                   </div>
                                 ))}
                               </div>
@@ -1024,7 +1024,7 @@ export default function SupervisorLeaveDashboard() {
                   )}
                 </div>
                 {/* Bottom legend */}
-                <div className="mt-2 flex justify-center gap-5 text-xs text-slate-600">
+                <div className="mt-2 flex justify-center gap-5 text-xs text-slate-600 dark:text-slate-400">
                   <span className="flex items-center gap-1.5">
                     <span className="h-2.5 w-2.5 rounded-sm bg-blue-500 opacity-80" />
                     On Duty
@@ -1047,7 +1047,7 @@ export default function SupervisorLeaveDashboard() {
                   <Button variant="outline" size="icon" onClick={() => setCalendarDate((date) => subMonths(date, 1))}>
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <div className="min-w-[150px] text-center text-sm font-semibold text-slate-900">{monthLabel}</div>
+                  <div className="min-w-[150px] text-center text-sm font-semibold text-slate-900 dark:text-white">{monthLabel}</div>
                   <Button variant="outline" size="icon" onClick={() => setCalendarDate((date) => addMonths(date, 1))}>
                     <ChevronRight className="h-4 w-4" />
                   </Button>
@@ -1061,9 +1061,9 @@ export default function SupervisorLeaveDashboard() {
                     </Badge>
                   ))}
                 </div>
-                <div className="grid grid-cols-7 overflow-hidden rounded-2xl border border-slate-200 text-xs sm:text-sm">
+                <div className="grid grid-cols-7 overflow-hidden rounded-2xl border border-slate-200 text-xs dark:border-slate-800 sm:text-sm">
                   {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((day) => (
-                    <div key={day} className="border-b bg-slate-50 px-2 py-3 text-center font-semibold text-slate-700">
+                    <div key={day} className="border-b bg-slate-50 px-2 py-3 text-center font-semibold text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                       {day}
                     </div>
                   ))}
@@ -1081,11 +1081,11 @@ export default function SupervisorLeaveDashboard() {
                     return (
                       <div
                         key={`${cell.iso || "empty"}-${idx}`}
-                        className={`min-h-[92px] border-b border-r p-2 align-top ${cell.isCurrentMonth ? "bg-white" : "bg-slate-50/70"} ${singleTypeStyle ? singleTypeStyle.cellClass : ""}`}
+                        className={`min-h-[92px] border-b border-r p-2 align-top dark:border-slate-800 ${cell.isCurrentMonth ? "bg-white dark:bg-slate-950/60" : "bg-slate-50/70 dark:bg-slate-900/40"} ${singleTypeStyle ? singleTypeStyle.cellClass : ""}`}
                       >
                         {cell.day ? (
                           <div className="flex h-full flex-col">
-                            <div className={`text-sm font-semibold ${isToday ? "text-blue-700" : "text-slate-700"}`}>{cell.day}</div>
+                            <div className={`text-sm font-semibold ${isToday ? "text-blue-700 dark:text-blue-300" : "text-slate-700 dark:text-slate-200"}`}>{cell.day}</div>
                             {typeEntries.length > 0 ? (
                               <div className="mt-1 space-y-0.5">
                                 {typeEntries.map(([type, count]) => {
@@ -1100,7 +1100,7 @@ export default function SupervisorLeaveDashboard() {
                                   );
                                 })}
                                 {info && info.pending > 0 && (
-                                  <div className="text-[9px] font-medium text-amber-700">{info.pending} pending</div>
+                                  <div className="text-[9px] font-medium text-amber-700 dark:text-amber-300">{info.pending} pending</div>
                                 )}
                               </div>
                             ) : null}
@@ -1211,27 +1211,27 @@ export default function SupervisorLeaveDashboard() {
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
-                          <tr className="border-b bg-slate-50 text-left">
-                            <th className="px-3 py-2 font-semibold text-slate-700">Date</th>
-                            <th className="px-3 py-2 font-semibold text-slate-700">Employee</th>
-                            <th className="px-3 py-2 font-semibold text-slate-700">Team</th>
-                            <th className="px-3 py-2 font-semibold text-slate-700">Leave Type</th>
-                            <th className="px-3 py-2 font-semibold text-slate-700">Discrepancy</th>
+                          <tr className="border-b bg-slate-50 text-left dark:border-slate-800 dark:bg-slate-900">
+                            <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-300">Date</th>
+                            <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-300">Employee</th>
+                            <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-300">Team</th>
+                            <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-300">Leave Type</th>
+                            <th className="px-3 py-2 font-semibold text-slate-700 dark:text-slate-300">Discrepancy</th>
                           </tr>
                         </thead>
                         <tbody>
                           {discrepancyData.map((row, idx) => (
                             <tr
                               key={`${row.employeeCode}-${row.date}-${row.kind}`}
-                              className={`border-b transition-colors ${
-                                idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"
-                              } hover:bg-slate-100/60`}
+                              className={`border-b transition-colors dark:border-slate-800 ${
+                                idx % 2 === 0 ? "bg-white dark:bg-slate-950/60" : "bg-slate-50/60 dark:bg-slate-900/40"
+                              } hover:bg-slate-100/60 dark:hover:bg-slate-900/70`}
                             >
-                              <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-800">
+                              <td className="whitespace-nowrap px-3 py-2.5 font-medium text-slate-800 dark:text-slate-200">
                                 {format(parseISO(row.date), "dd MMM yyyy")}
                               </td>
                               <td className="px-3 py-2.5">
-                                <div className="font-medium text-slate-900">{row.employeeName}</div>
+                                <div className="font-medium text-slate-900 dark:text-white">{row.employeeName}</div>
                                 <div className="text-xs text-muted-foreground">{row.employeeCode}</div>
                               </td>
                               <td className="px-3 py-2.5">
@@ -1253,8 +1253,8 @@ export default function SupervisorLeaveDashboard() {
                                 <Badge
                                   className={`text-xs ${
                                     row.kind === "schedule_no_request"
-                                      ? "bg-orange-100 text-orange-800"
-                                      : "bg-blue-100 text-blue-800"
+                                      ? "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"
+                                      : "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
                                   }`}
                                 >
                                   {row.kind === "schedule_no_request"

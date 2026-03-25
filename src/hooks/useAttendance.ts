@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Tables, TablesInsert } from "@/integrations/supabase/types";
+import { isUuidLike } from "@/lib/nameMatching";
 
 export type Attendance = Tables<"attendance">;
 export type AttendanceInsert = Omit<TablesInsert<"attendance">, "id" | "created_at" | "updated_at">;
@@ -27,7 +28,7 @@ export function useAttendance(date?: string, shiftType?: string) {
       // Collect unique user IDs to resolve profile info
       const userIds = new Set<string>();
       for (const r of records) {
-        if (r.user_id) userIds.add(r.user_id);
+        if (isUuidLike(r.user_id)) userIds.add(r.user_id);
       }
 
       let profileMap: Record<string, { full_name: string; employee_id: string; photo_url: string | null }> = {};
@@ -172,5 +173,42 @@ export function useAttendance(date?: string, shiftType?: string) {
     isUpdating: updateAttendance.isPending,
     isBulkMarking: bulkMarkAttendance.isPending,
     isBulkUpserting: bulkUpsertAttendance.isPending,
+  };
+}
+
+export function useAttendanceRange(userId?: string, startDate?: string, endDate?: string) {
+  const { data: attendance = [], isLoading } = useQuery({
+    queryKey: ["attendance-range", userId, startDate, endDate],
+    queryFn: async () => {
+      if (!userId) return [] as Attendance[];
+
+      let query = supabase
+        .from("attendance")
+        .select("*")
+        .eq("user_id", userId)
+        .order("attendance_date", { ascending: true });
+
+      if (startDate) {
+        query = query.gte("attendance_date", startDate);
+      }
+
+      if (endDate) {
+        query = query.lte("attendance_date", endDate);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      return (data || []) as Attendance[];
+    },
+    enabled: !!userId,
+    staleTime: 1 * 60 * 1000,
+    gcTime: 3 * 60 * 1000,
+    refetchOnWindowFocus: true,
+  });
+
+  return {
+    attendance,
+    isLoading,
   };
 }

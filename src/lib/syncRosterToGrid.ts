@@ -1,5 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { POSITION_ROWS, NIGHT_SPAN_POSITIONS, NIGHT_FULL_SPAN_POSITIONS, NIGHT_TRIPLE_FULL_POSITIONS, NIGHT_FULL_DEPARTMENTS } from '@/lib/atcConstants';
+import { buildNameIndex, findUniqueNameMatch } from '@/lib/nameMatching';
 import { format, parse, addDays } from 'date-fns';
 
 /**
@@ -43,12 +44,7 @@ export async function syncRosterToGrid(
     if (profErr) throw profErr;
 
     // Build a case-insensitive lookup: normalized name → profile
-    const nameMap = new Map<string, { id: string; full_name: string }>();
-    (profiles || []).forEach((p: any) => {
-        if (p.full_name) {
-            nameMap.set(p.full_name.toLowerCase().trim(), p);
-        }
-    });
+    const nameMap = buildNameIndex((profiles || []) as Array<{ id: string; full_name: string }>, (profile) => profile.full_name);
 
     // Debug: log available profile names vs roster names for troubleshooting
     console.log('[SyncRoster] Profile names available:', Array.from(nameMap.keys()).slice(0, 20));
@@ -102,20 +98,9 @@ export async function syncRosterToGrid(
         return name;
     };
 
-    // Helper: normalize name for fuzzy matching (collapse whitespace, lowercase)
-    const normalizeName = (s: string): string =>
-        s.toLowerCase().replace(/\s+/g, ' ').trim();
-
     // Helper: resolve employee name to profile
     const resolveProfile = (empName: string): { id: string; full_name: string } | null => {
-        let profile = nameMap.get(empName.toLowerCase()) || null;
-        if (!profile) {
-            const norm = normalizeName(empName);
-            for (const [k, v] of nameMap) {
-                if (normalizeName(k) === norm) { profile = v; break; }
-            }
-        }
-        return profile;
+        return findUniqueNameMatch(nameMap, empName);
     };
 
     const assignments: any[] = [];

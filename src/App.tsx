@@ -29,6 +29,7 @@ const SupervisorAttendance = lazy(() => import("./pages/supervisor/SupervisorAtt
 const EmployeeManagement = lazy(() => import("./pages/supervisor/EmployeeManagement"));
 const SupervisorEmployeeOverview = lazy(() => import("./pages/supervisor/SupervisorEmployeeOverview"));
 const SupervisorDailyRoster = lazy(() => import("./pages/supervisor/SupervisorDailyRoster"));
+const SupervisorAttendanceView = lazy(() => import("./pages/supervisor/SupervisorAttendanceView"));
 const LeaveApprovals = lazy(() => import("./pages/supervisor/LeaveApprovals"));
 const SupervisorLeaveDashboard = lazy(() => import("./pages/supervisor/SupervisorLeaveDashboard"));
 const LeaveDiscrepancyPage = lazy(() => import("./pages/supervisor/LeaveDiscrepancyPage"));
@@ -45,11 +46,13 @@ const WsoRosterManagement = lazy(() => import("./pages/wso/WsoRosterManagement")
 const WSOAttendance = lazy(() => import("./pages/wso/WSOAttendance"));
 const BATestManagement = lazy(() => import("./pages/wso/BATestManagement"));
 const WSODutyExchangeApprovals = lazy(() => import("./pages/wso/WSODutyExchangeApprovals"));
+const WSOOPEAssignments = lazy(() => import("./pages/wso/WSOOPEAssignments"));
 
 // Employee
 const EmployeeDashboard = lazy(() => import("./pages/employee/EmployeeDashboard"));
 const EmployeeProfile = lazy(() => import("./pages/employee/EmployeeProfile"));
 const EmployeeSchedule = lazy(() => import("./pages/employee/EmployeeSchedule"));
+const EmployeeAttendance = lazy(() => import("./pages/employee/EmployeeAttendance"));
 const LeaveApplication = lazy(() => import("./pages/employee/LeaveApplication"));
 const LeaveHistory = lazy(() => import("./pages/employee/LeaveHistory"));
 const EmployeeLeavePage = lazy(() => import("./pages/employee/EmployeeLeavePage"));
@@ -113,6 +116,7 @@ const App = () => (
                   <Route path="/supervisor/employees" element={<ProtectedRoute allowedRoles={['supervisor']}><EmployeeManagement /></ProtectedRoute>} />
                   <Route path="/supervisor/employees/:employeeCode" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorEmployeeOverview /></ProtectedRoute>} />
                   <Route path="/supervisor/attendance" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorAttendance /></ProtectedRoute>} />
+                  <Route path="/supervisor/attendance-view" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorAttendanceView /></ProtectedRoute>} />
                   <Route path="/supervisor/leaves" element={<ProtectedRoute allowedRoles={['supervisor', 'wso']}><LeaveApprovals /></ProtectedRoute>} />
                   <Route path="/supervisor/leave-dashboard" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorLeaveDashboard /></ProtectedRoute>} />
                   <Route path="/supervisor/leave-discrepancy" element={<ProtectedRoute allowedRoles={['supervisor']}><LeaveDiscrepancyPage /></ProtectedRoute>} />
@@ -132,11 +136,13 @@ const App = () => (
                   <Route path="/wso/ba-test" element={<ProtectedRoute allowedRoles={['wso']}><BATestManagement /></ProtectedRoute>} />
                   <Route path="/wso/leaves" element={<ProtectedRoute allowedRoles={['wso']}><LeaveApprovals /></ProtectedRoute>} />
                   <Route path="/wso/duty-exchange" element={<ProtectedRoute allowedRoles={['wso']}><WSODutyExchangeApprovals /></ProtectedRoute>} />
+                  <Route path="/wso/ope-assignments" element={<ProtectedRoute allowedRoles={['wso']}><WSOOPEAssignments /></ProtectedRoute>} />
 
                   {/* Employee Routes */}
                   <Route path="/employee" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeDashboard /></ProtectedRoute>} />
                   <Route path="/employee/profile" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeProfile /></ProtectedRoute>} />
                   <Route path="/employee/schedule" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeSchedule /></ProtectedRoute>} />
+                  <Route path="/employee/attendance" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeAttendance /></ProtectedRoute>} />
                   <Route path="/employee/leave" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><LeaveApplication /></ProtectedRoute>} />
                   <Route path="/employee/leave-history" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><LeaveHistory /></ProtectedRoute>} />
                   <Route path="/employee/leave-dashboard" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeLeavePage /></ProtectedRoute>} />
