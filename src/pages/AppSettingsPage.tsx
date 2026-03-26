@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   BellRing,
   Bug,
@@ -202,7 +202,9 @@ function NotificationPermissionCard() {
 
 export default function AppSettingsPage() {
   const { userRole } = useAuth();
-  const role = normalizeRole(userRole);
+  const [searchParams] = useSearchParams();
+  const portalRole = searchParams.get("portal");
+  const role = normalizeRole(portalRole || userRole);
 
   return (
     <DashboardLayout role={role}>

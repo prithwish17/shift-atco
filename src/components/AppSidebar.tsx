@@ -195,7 +195,7 @@ export function AppSidebar({ role }: SidebarProps) {
         {/* Logout — always pinned to bottom of sidebar */}
         <div className="shrink-0 p-3 border-t border-slate-700">
           <Link
-            to="/settings"
+            to={`/settings?portal=${role}`}
             onClick={() => setMobileOpen(false)}
             className={`mb-2 flex items-center gap-3 px-3 py-2 rounded-lg w-full text-sm transition-colors ${currentPath === "/settings"
               ? "bg-blue-600 text-white"

@@ -46,14 +46,14 @@ export function DashboardLayout({ role, children }: DashboardLayoutProps) {
 
           <div className="flex items-center gap-2 md:gap-4">
             <Button asChild type="button" variant="outline" size="sm" className="hidden sm:inline-flex">
-              <Link to="/settings">
+              <Link to={`/settings?portal=${role}`}>
                 <Settings className="size-4" />
                 <span>Settings</span>
               </Link>
             </Button>
 
             <Link
-              to="/settings"
+              to={`/settings?portal=${role}`}
               className="rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-800 sm:hidden"
               aria-label="Open app settings"
             >
