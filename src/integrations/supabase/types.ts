@@ -79,6 +79,7 @@ export type Database = {
           notes: string | null
           selected_users: string[]
           shift_type: Database["public"]["Enums"]["shift_type"]
+          team_code: string | null
           test_date: string
           test_time: string
           updated_at: string
@@ -91,6 +92,7 @@ export type Database = {
           notes?: string | null
           selected_users: string[]
           shift_type: Database["public"]["Enums"]["shift_type"]
+          team_code?: string | null
           test_date: string
           test_time: string
           updated_at?: string
@@ -103,6 +105,7 @@ export type Database = {
           notes?: string | null
           selected_users?: string[]
           shift_type?: Database["public"]["Enums"]["shift_type"]
+          team_code?: string | null
           test_date?: string
           test_time?: string
           updated_at?: string
@@ -644,7 +647,7 @@ export type Database = {
       | "rejected"
       leave_type: "cl" | "rh" | "el" | "hpl" | "comp_off"
       license_type: "rdr" | "app" | "plr" | "adc" | "alpha" | "occ"
-      shift_type: "general" | "a" | "b" | "c" | "d" | "e"
+      shift_type: "general" | "a" | "b" | "c" | "d" | "e" | "g"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -794,7 +797,7 @@ export const Constants = {
       ],
       leave_type: ["cl", "rh", "el", "hpl", "comp_off"],
       license_type: ["rdr", "app", "plr", "adc", "alpha", "occ"],
-      shift_type: ["general", "a", "b", "c", "d", "e"],
+      shift_type: ["general", "a", "b", "c", "d", "e", "g"],
     },
   },
 } as const

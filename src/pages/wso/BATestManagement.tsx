@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,21 +8,39 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CalendarIcon, Download, Shuffle, FileText, Clock } from "lucide-react";
+import { CalendarIcon, Download, Shuffle, FileText, Clock, Eye } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile, useUsers } from "@/hooks/useUsers";
 import { useCreateBaTest, useBaTests } from "@/hooks/useBaTests";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { isUuidLike } from "@/lib/nameMatching";
 import {
   normalizeTeamKey,
   getTeamDutyForDateKey,
@@ -34,6 +52,9 @@ import {
 export default function BATestManagement() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
+  const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false);
+  const [resaveDialogOpen, setResaveDialogOpen] = useState(false);
+  const [viewingTest, setViewingTest] = useState<typeof baTests[number] | null>(null);
 
   const { user } = useAuth();
   const { profile } = useUserProfile(user?.id);
@@ -52,6 +73,11 @@ export default function BATestManagement() {
   const dateStr = format(selectedDate, "yyyy-MM-dd");
   const teamDutyToday = getTeamDutyForDateKey(selectedTeam, dateStr);
   const teamDutyLabel = teamDutyToday ? getTeamDutyLabel(teamDutyToday) : selectedTeam;
+  const selectedTeamShiftType = selectedTeam.toLowerCase() as "general" | "a" | "b" | "c" | "d" | "e" | "g";
+
+  useEffect(() => {
+    setSelectedEmployees([]);
+  }, [dateStr, selectedTeam]);
 
   // Fetch schedule entries for the selected date
   const { data: scheduleEntries = [], isLoading: scheduleLoading } = useQuery({
@@ -71,12 +97,38 @@ export default function BATestManagement() {
     enabled: !!dateStr,
   });
 
+  const { data: latestGeneratedTest, isLoading: latestGeneratedTestLoading } = useQuery({
+    queryKey: ["ba-test-existing", dateStr, selectedTeam],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ba_tests")
+        .select("id, test_date, test_time, team_code")
+        .eq("test_date", dateStr)
+        .eq("team_code", selectedTeam)
+        .order("test_time", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!dateStr && !!selectedTeam,
+  });
+
   // Build a lookup from employee_code → user profile
   const usersByCode = useMemo(() => {
     const map = new Map<string, NonNullable<typeof users>[number]>();
     users?.forEach((u) => {
       const code = String(u.employee_id || "").trim().toUpperCase();
       if (code) map.set(code, u);
+    });
+    return map;
+  }, [users]);
+
+  const usersById = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof users>[number]>();
+    users?.forEach((u) => {
+      if (u.id) map.set(u.id, u);
     });
     return map;
   }, [users]);
@@ -102,25 +154,128 @@ export default function BATestManagement() {
       });
   }, [scheduleEntries, teamDutyToday, usersByCode]);
 
-  const generateRandomList = () => {
+  const runRandomListGeneration = () => {
     const count = Math.max(1, Math.ceil(onDutyEmployees.length * 0.25));
     const shuffled = [...onDutyEmployees].sort(() => 0.5 - Math.random());
     const selected = shuffled.slice(0, count);
     setSelectedEmployees(selected.map(e => e.id));
   };
 
-  const handleSaveTest = () => {
+  const generateRandomList = () => {
+    if (latestGeneratedTest) {
+      setRegenerateDialogOpen(true);
+      return;
+    }
+
+    runRandomListGeneration();
+  };
+
+  const sendBaTestNotifications = async (baTestId?: string) => {
+    const recipientIds = selectedEmployees.filter((id) => isUuidLike(id));
+    if (!recipientIds.length) return { notified: 0, skipped: selectedEmployees.length };
+
+    const formattedDate = format(selectedDate, "dd MMM yyyy");
+    const title = "BA Test Selected";
+    const body = `You have been selected for the BA test on ${formattedDate} for Team ${selectedTeam} (${teamDutyLabel} duty). Please check with the WSO.`;
+
+    const payload = {
+      user_ids: recipientIds,
+      title,
+      body,
+      url: "/employee",
+      category: "ba_test_selected",
+      metadata: {
+        ba_test_id: baTestId || null,
+        test_date: dateStr,
+        team_code: selectedTeam,
+        shift_type: teamDutyToday,
+      },
+    };
+
+    let directError: any = null;
+    try {
+      const { error } = await supabase.functions.invoke("send-notification", {
+        body: payload,
+      });
+      if (!error) {
+        return { notified: recipientIds.length, skipped: selectedEmployees.length - recipientIds.length };
+      }
+      directError = error;
+    } catch (err) {
+      directError = err;
+    }
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      const base = getFunctionsProxyBaseUrl();
+      const res = await fetch(`${base}/api/functions/send-notification`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        return { notified: recipientIds.length, skipped: selectedEmployees.length - recipientIds.length };
+      }
+
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(
+          errBody.error ||
+          directError?.message ||
+          `Notification function failed via proxy: HTTP ${res.status}`,
+        );
+      }
+
+      throw new Error(
+        directError?.message ||
+        `Notification function failed via proxy: HTTP ${res.status}`,
+      );
+    }
+
+    throw directError instanceof Error ? directError : new Error("Failed to send BA test notifications.");
+  };
+
+  const saveBaTest = () => {
     if (!user || selectedEmployees.length === 0) return;
 
     createBaTest.mutate({
       generated_by: user.id,
       selected_users: selectedEmployees,
-      shift_type: teamDutyToday as any,
+      shift_type: selectedTeamShiftType,
+      team_code: selectedTeam,
       test_date: format(selectedDate, "yyyy-MM-dd"),
       test_time: new Date().toISOString(),
     }, {
-      onSuccess: () => {
+      onSuccess: async (savedTest) => {
         toast({ title: "BA Test saved", description: "Test list has been saved successfully." });
+
+        try {
+          const result = await sendBaTestNotifications(savedTest?.id);
+          if (result.notified > 0) {
+            toast({
+              title: "BA notifications sent",
+              description: `Sent push and in-app notifications to ${result.notified} selected employee${result.notified === 1 ? "" : "s"}.`,
+            });
+          }
+          if (result.skipped > 0) {
+            toast({
+              title: "Some notifications skipped",
+              description: `${result.skipped} selected employee${result.skipped === 1 ? " was" : "s were"} skipped because no linked user account was available.`,
+              variant: "destructive",
+            });
+          }
+        } catch (notifyErr: any) {
+          toast({
+            title: "BA test saved but notification failed",
+            description: notifyErr?.message || "The BA test was saved, but notifications could not be sent.",
+            variant: "destructive",
+          });
+        }
       },
       onError: (err: any) => {
         toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -128,28 +283,85 @@ export default function BATestManagement() {
     });
   };
 
-  const handleDownloadPDF = async () => {
-    const selected = onDutyEmployees.filter(e => selectedEmployees.includes(e.id));
-    if (selected.length === 0) return;
+  const handleSaveTest = () => {
+    if (latestGeneratedTest) {
+      setResaveDialogOpen(true);
+      return;
+    }
 
-    // Dynamic import — only loads jspdf when the user clicks Download
+    saveBaTest();
+  };
+
+  const exportBaTestPdf = async ({
+    employees,
+    testDate,
+    teamCode,
+    shiftLabel,
+    testTime,
+  }: {
+    employees: Array<{ full_name: string; employee_id: string }>;
+    testDate: Date;
+    teamCode: string;
+    shiftLabel: string;
+    testTime: Date;
+  }) => {
+    if (employees.length === 0) return;
+
     const { default: jsPDF } = await import("jspdf");
     const doc = new jsPDF();
     doc.setFontSize(18);
     doc.text("BA Test List", 20, 20);
     doc.setFontSize(12);
-    doc.text(`Date: ${format(selectedDate, "MMMM d, yyyy")}`, 20, 30);
-    doc.text(`Shift: ${teamDutyLabel} (Team ${selectedTeam})`, 20, 38);
-    doc.text(`Time: ${format(new Date(), "hh:mm a")}`, 20, 46);
+    doc.text(`Date: ${format(testDate, "MMMM d, yyyy")}`, 20, 30);
+    doc.text(`Shift: ${shiftLabel} (Team ${teamCode})`, 20, 38);
+    doc.text(`Time: ${format(testTime, "hh:mm a")}`, 20, 46);
 
     doc.setFontSize(10);
     let y = 60;
-    selected.forEach((emp, i) => {
+    employees.forEach((emp, i) => {
       doc.text(`${i + 1}. ${emp.full_name} (${emp.employee_id})`, 20, y);
       y += 8;
     });
 
-    doc.save(`BA_Test_${format(selectedDate, "yyyy-MM-dd")}.pdf`);
+    doc.save(`BA_Test_Team_${teamCode}_${format(testDate, "yyyy-MM-dd")}.pdf`);
+  };
+
+  const handleDownloadPDF = async () => {
+    const selected = onDutyEmployees.filter(e => selectedEmployees.includes(e.id));
+    if (selected.length === 0) return;
+
+    await exportBaTestPdf({
+      employees: selected.map((emp) => ({
+        full_name: emp.full_name,
+        employee_id: emp.employee_id,
+      })),
+      testDate: selectedDate,
+      teamCode: selectedTeam,
+      shiftLabel: teamDutyLabel,
+      testTime: new Date(),
+    });
+  };
+
+  const handleDownloadHistoryPDF = async () => {
+    if (!viewingTest) return;
+
+    const historyDutyKey = getTeamDutyForDateKey(viewingTest.team_code || "", viewingTest.test_date);
+    const historyShiftLabel = historyDutyKey ? getTeamDutyLabel(historyDutyKey) : viewingTest.shift_type.toUpperCase();
+    const historyEmployees = viewingTest.selected_users.map((uid) => {
+      const matched = usersById.get(uid);
+      return {
+        full_name: matched?.full_name || uid,
+        employee_id: matched?.employee_id || "-",
+      };
+    });
+
+    await exportBaTestPdf({
+      employees: historyEmployees,
+      testDate: new Date(viewingTest.test_date),
+      teamCode: viewingTest.team_code || viewingTest.shift_type.toUpperCase(),
+      shiftLabel: historyShiftLabel,
+      testTime: new Date(viewingTest.test_time),
+    });
   };
 
   const toggleEmployee = (id: string) => {
@@ -230,7 +442,7 @@ export default function BATestManagement() {
               </div>
 
               <div className="flex gap-2">
-                <Button onClick={generateRandomList} className="flex-1" disabled={onDutyEmployees.length === 0}>
+                <Button onClick={generateRandomList} className="flex-1" disabled={onDutyEmployees.length === 0 || latestGeneratedTestLoading}>
                   <Shuffle className="mr-2 h-4 w-4" />
                   Generate Random List
                 </Button>
@@ -240,7 +452,12 @@ export default function BATestManagement() {
                 </Button>
               </div>
               {selectedEmployees.length > 0 && (
-                <Button variant="secondary" className="w-full" onClick={handleSaveTest} disabled={createBaTest.isPending}>
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={handleSaveTest}
+                  disabled={createBaTest.isPending || latestGeneratedTestLoading}
+                >
                   {createBaTest.isPending ? "Saving..." : "Save Test to History"}
                 </Button>
               )}
@@ -328,32 +545,6 @@ export default function BATestManagement() {
           </CardContent>
         </Card>
 
-        {selectedEmployees.length > 0 && (
-          <Card className="border-primary">
-            <CardHeader>
-              <CardTitle>Selected for BA Test - {format(selectedDate, "MMMM d, yyyy")}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {onDutyEmployees
-                  .filter(e => selectedEmployees.includes(e.id))
-                  .map((employee, index) => (
-                    <div key={employee.id} className="flex items-center justify-between p-3 bg-accent rounded-lg">
-                      <div className="flex items-center gap-4">
-                        <span className="font-bold text-lg text-muted-foreground">#{index + 1}</span>
-                        <div>
-                          <p className="font-medium">{employee.full_name}</p>
-                          <p className="text-sm text-muted-foreground">{employee.employee_id}</p>
-                        </div>
-                      </div>
-                      <span className="text-sm text-muted-foreground">{format(new Date(), "hh:mm a")}</span>
-                    </div>
-                  ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
         {/* ── Test History ────────────────────────────────────────── */}
         <Card>
           <CardHeader>
@@ -365,29 +556,128 @@ export default function BATestManagement() {
           <CardContent>
             {testsLoading ? (
               <div className="space-y-2">
-                {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+                {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
               </div>
             ) : baTests.length > 0 ? (
-              <div className="space-y-2">
-                {baTests.map((test) => (
-                  <div key={test.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors">
-                    <div>
-                      <p className="font-medium">{format(new Date(test.test_date), "MMMM d, yyyy")}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {test.selected_users.length} employees · {test.shift_type.toUpperCase()}
-                      </p>
+              <div className="divide-y">
+                {baTests.map((test, index) => {
+                  const dutyLabel = getTeamDutyForDateKey(test.team_code || "", test.test_date);
+                  const shiftText = dutyLabel ? getTeamDutyLabel(dutyLabel) : test.shift_type.toUpperCase();
+                  return (
+                    <div key={test.id} className="flex items-center gap-3 py-2.5 text-sm">
+                      <span className="w-6 shrink-0 text-right text-xs font-mono text-muted-foreground">{index + 1}.</span>
+                      <Badge variant="outline" className="shrink-0">Team {test.team_code || test.shift_type.toUpperCase()}</Badge>
+                      <span className="text-muted-foreground">{format(new Date(test.test_date), "dd MMM yyyy")}</span>
+                      <span className="hidden sm:inline text-muted-foreground">·</span>
+                      <span className="hidden sm:inline">{shiftText}</span>
+                      <span className="text-muted-foreground">·</span>
+                      <span className="text-muted-foreground">{format(new Date(test.test_time), "hh:mm a")}</span>
+                      <span className="text-muted-foreground">·</span>
+                      <span className="font-medium">{test.selected_users.length} emp</span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="ml-auto h-7 w-7 shrink-0"
+                        onClick={() => setViewingTest(test)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <Badge className={test.completed ? "bg-green-600" : ""} variant={test.completed ? "default" : "outline"}>
-                      {test.completed ? "Completed" : "Pending"}
-                    </Badge>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground text-center py-6">No test history yet</p>
             )}
           </CardContent>
         </Card>
+
+        {/* ── View Selected Employees Dialog ──────────────────────── */}
+        <Dialog open={!!viewingTest} onOpenChange={(open) => !open && setViewingTest(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                BA Test — Team {viewingTest?.team_code || viewingTest?.shift_type.toUpperCase()}
+              </DialogTitle>
+              <p className="text-sm text-muted-foreground">
+                {viewingTest && format(new Date(viewingTest.test_date), "dd MMM yyyy")}
+                {" · "}
+                {viewingTest && format(new Date(viewingTest.test_time), "hh:mm a")}
+              </p>
+            </DialogHeader>
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" onClick={handleDownloadHistoryPDF} disabled={!viewingTest?.selected_users.length}>
+                <Download className="mr-2 h-4 w-4" />
+                Download PDF
+              </Button>
+            </div>
+            <div className="space-y-1 max-h-[60vh] overflow-y-auto">
+              {viewingTest?.selected_users.map((uid, idx) => {
+                const matched = usersById.get(uid);
+                return (
+                  <div key={uid} className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent/50 text-sm">
+                    <span className="w-5 shrink-0 text-right text-muted-foreground font-mono text-xs">{idx + 1}.</span>
+                    <span className="font-medium truncate">{matched?.full_name || uid}</span>
+                    {matched?.employee_id && (
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">{matched.employee_id}</span>
+                    )}
+                  </div>
+                );
+              })}
+              {(!viewingTest?.selected_users.length) && (
+                <p className="text-sm text-muted-foreground text-center py-4">No employees recorded</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <AlertDialog open={regenerateDialogOpen} onOpenChange={setRegenerateDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>BA List Already Generated</AlertDialogTitle>
+              <AlertDialogDescription>
+                {latestGeneratedTest
+                  ? `A BA list was already generated on ${format(new Date(latestGeneratedTest.test_date), "dd MMMM yyyy")} at ${format(new Date(latestGeneratedTest.test_time), "hh:mm a")} for Team ${selectedTeam}. Are you sure you want to generate the list again?`
+                  : `A BA list was already generated for Team ${selectedTeam} on this date. Are you sure you want to generate the list again?`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  runRandomListGeneration();
+                  setRegenerateDialogOpen(false);
+                }}
+              >
+                Generate Again
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={resaveDialogOpen} onOpenChange={setResaveDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>BA Test Already Saved</AlertDialogTitle>
+              <AlertDialogDescription>
+                {latestGeneratedTest
+                  ? `A BA list was already saved on ${format(new Date(latestGeneratedTest.test_date), "dd MMMM yyyy")} at ${format(new Date(latestGeneratedTest.test_time), "hh:mm a")} for Team ${selectedTeam}. Are you sure you want to save another list for the same team and date?`
+                  : `A BA list was already saved for Team ${selectedTeam} on this date. Are you sure you want to save another list?`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  saveBaTest();
+                  setResaveDialogOpen(false);
+                }}
+              >
+                Save Again
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </DashboardLayout>
   );

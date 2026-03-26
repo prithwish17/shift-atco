@@ -14,6 +14,8 @@ import { formatDistanceToNow } from "date-fns";
 
 function categoryIcon(category: string | null) {
   switch (category) {
+    case "ba_test_selected":
+      return <Stethoscope className="size-4 text-cyan-600 shrink-0" />;
     case "ope_reminder":
       return <Calendar className="size-4 text-blue-500 shrink-0" />;
     case "leave_status":

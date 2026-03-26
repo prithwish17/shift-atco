@@ -1,0 +1,1 @@
+ALTER TYPE public.shift_type ADD VALUE IF NOT EXISTS 'g';

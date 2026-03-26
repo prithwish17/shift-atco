@@ -60,66 +60,30 @@ const EMPTY_ASSIGNMENTS: import("@/hooks/useDutyGrid").RosterAssignment[] = [];
 const EMPTY_ROSTER_ENTRIES: Array<{ employee_name: string; unit: string; position: string; date: string; shift: string; team: string }> = [];
 
 const EXCLUDED_ROSTER_POSITIONS = new Set(["DUTY CHANGE", "EXTRA DUTY"]);
-const ATTENDANCE_ALLOWED_UNITS = ["UBN", "UKN", "UKW", "URP", "UBS", "UKE", "UGT", "OCCN & OCC-S", "UKJ"];
-const ATTENDANCE_ALLOWED_POSITION_PREFIXES = ["RSR", "ACC-PLR", "ACC-A"];
 
-function normalizeAttendanceUnitLabel(value: string) {
-  return value.toUpperCase().replace(/\s+/g, " ").trim();
+/** Light cleanup: collapse whitespace, normalise ampersands, uppercase. */
+function normalizeAttendanceLabel(value: string) {
+  return value
+    .toUpperCase()
+    .replace(/\s*&\s*/g, " & ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-function findAttendanceDepartment(value: string) {
-  const normalized = normalizeAttendanceUnitLabel(value);
-
-  if (normalized.includes("ACC-PLR")) return "ACC-PLR";
-  if (normalized.includes("ACC-A") || normalized === "ACC") return "ACC-A";
-  if (normalized.includes("RSR")) return "RSR";
-  return "";
-}
-
-function extractAttendanceUnit(value: string) {
-  const parts = value
-    .split(" - ")
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  const nonDepartmentParts = parts.filter((part) => !findAttendanceDepartment(part));
-  if (nonDepartmentParts.length > 0) return nonDepartmentParts[0];
-
-  const normalized = normalizeAttendanceUnitLabel(value);
-  if (!findAttendanceDepartment(normalized)) return value.trim();
-  return "";
-}
-
-function isAllowedAttendanceUnit(value: string) {
-  const normalized = normalizeAttendanceUnitLabel(value);
-  return ATTENDANCE_ALLOWED_UNITS.some((unit) => normalized.includes(normalizeAttendanceUnitLabel(unit)));
-}
-
+/**
+ * Simply deduplicate pipe-separated labels and normalise each segment.
+ * The labels are already built correctly upstream (e.g. "ACC-PLR - UKN"),
+ * so we do NOT decompose them — just clean up and dedupe.
+ */
 function formatAttendanceUnitAssignment(value?: string | null) {
   if (!value) return "";
 
-  const visibleParts = value
+  const parts = value
     .split("|")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const department = findAttendanceDepartment(part);
-      const unit = extractAttendanceUnit(part);
-
-      if (unit) {
-        const isAllowedUnit = isAllowedAttendanceUnit(unit);
-        if (department && ATTENDANCE_ALLOWED_POSITION_PREFIXES.includes(department) && isAllowedUnit) {
-          return `${department} - ${unit}`;
-        }
-        return unit;
-      }
-
-      if (department && ATTENDANCE_ALLOWED_POSITION_PREFIXES.includes(department)) return department;
-      return "";
-    })
+    .map((p) => normalizeAttendanceLabel(p))
     .filter(Boolean);
 
-  return Array.from(new Set(visibleParts)).join(" | ");
+  return Array.from(new Set(parts)).join(" | ");
 }
 
 export default function WSOAttendance() {
@@ -352,13 +316,16 @@ export default function WSOAttendance() {
       if (!comparisonKey || seen.has(comparisonKey)) return;
       seen.add(comparisonKey);
 
-      const rosterUnitAssignment =
-        formatAttendanceUnitAssignment(
-          (matchedEmployee.id ? rawRosterPositionByUserId.get(matchedEmployee.id) : "") ||
-          (employeeCode ? rawRosterPositionByEmployeeCode.get(employeeCode) : "") ||
-          rawRosterPositionByNormalizedName.get(normalizedName) ||
-          ""
-        );
+      // Merge both data sources: raw roster entries AND duty-grid assignments
+      const rawLabel =
+        (matchedEmployee.id ? rawRosterPositionByUserId.get(matchedEmployee.id) : "") ||
+        (employeeCode ? rawRosterPositionByEmployeeCode.get(employeeCode) : "") ||
+        rawRosterPositionByNormalizedName.get(normalizedName) ||
+        "";
+      const gridLabel = matchedEmployee.id ? rosterPositionByUserId.get(matchedEmployee.id) || "" : "";
+
+      // Prefer raw-roster label (has separate unit+position columns); fall back to duty-grid
+      const rosterUnitAssignment = formatAttendanceUnitAssignment(rawLabel || gridLabel);
 
       members.push({
         userId: matchedEmployee.id || employeeCode || comparisonKey,
@@ -377,6 +344,7 @@ export default function WSOAttendance() {
     rawRosterPositionByEmployeeCode,
     rawRosterPositionByNormalizedName,
     rawRosterPositionByUserId,
+    rosterPositionByUserId,
     rosterShift,
     scheduleEntries,
     teamDutyToday,
@@ -458,6 +426,16 @@ export default function WSOAttendance() {
       toast({
         title: "Attendance window closed",
         description: "Attendance can only be saved for today or yesterday.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const employeesWithBlankUnits = savableEmployees.filter((employee) => !employee.unitAssignment.trim());
+    if (employeesWithBlankUnits.length > 0) {
+      toast({
+        title: "Unit is mandatory",
+        description: `Add a unit / position for all employees before saving. ${employeesWithBlankUnits.length} row(s) are still blank.`,
         variant: "destructive",
       });
       return;
@@ -608,8 +586,9 @@ export default function WSOAttendance() {
         <Input
           value={emp.unitAssignment}
           onChange={e => setAttendanceState(prev => ({ ...prev, [emp.userId]: { ...prev[emp.userId], unitAssignment: e.target.value } }))}
-          placeholder="Unit assigned"
+          placeholder="Unit / position"
           className="w-full sm:w-56"
+          required
         />
         <Button
           variant={emp.status === "present" ? "default" : "outline"}
@@ -695,6 +674,9 @@ export default function WSOAttendance() {
                   <CardTitle>Mark Attendance - Team {wsoTeamKey} ({teamDutyLabel})</CardTitle>
                   <span className="inline-flex w-fit items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
                     Blank unit position: {blankUnitCount}
+                  </span>
+                  <span className="inline-flex w-fit items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                    Unit required
                   </span>
                 </div>
               <Button className="w-full sm:w-auto" onClick={handleSave} disabled={isBulkUpserting || allEmployees.length === 0}>

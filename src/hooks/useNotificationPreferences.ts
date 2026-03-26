@@ -10,6 +10,7 @@ export interface NotificationPreference {
 }
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
+  ba_test_selected: "BA Test Selection Alerts",
   leave_status: "Leave Approvals / Rejections",
   leave_request: "New Leave Requests (Approvers)",
   duty_exchange: "Duty Exchange Updates",
