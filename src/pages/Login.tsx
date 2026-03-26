@@ -28,7 +28,7 @@ export default function Login() {
   // Redirect if already logged in (wait for auth to fully initialize)
   useEffect(() => {
     if (!loading && user && userRole) {
-      navigate(getHomeRouteForRole(userRole));
+      navigate('/employee');
     }
   }, [user, userRole, loading, navigate]);
 

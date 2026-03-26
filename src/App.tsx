@@ -15,6 +15,7 @@ import { PWAOnboardingBanner } from "./components/PWAOnboardingBanner";
 const Index = lazy(() => import("./pages/Index"));
 const Login = lazy(() => import("./pages/Login"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const Register = lazy(() => import("./pages/Register"));
 const SetupAdmin = lazy(() => import("./pages/admin/SetupAdmin"));
 const AppSettingsPage = lazy(() => import("./pages/AppSettingsPage"));
@@ -108,6 +109,7 @@ const App = () => (
                     <Route path="/" element={<Index />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/forgot-password" element={<ForgotPassword />} />
+                    <Route path="/reset-password" element={<ResetPassword />} />
                     <Route path="/register" element={<Register />} />
                     <Route path="/setup-admin" element={<SetupAdmin />} />
                     <Route path="/settings" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><AppSettingsPage /></ProtectedRoute>} />

@@ -86,8 +86,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Fetch user role after successful login
       if (data.user) {
-        const role = await fetchUserRole(data.user.id);
-        navigate(getHomeRouteForRole(role));
+        await fetchUserRole(data.user.id);
+        navigate('/employee');
       }
 
       return { error: null };
