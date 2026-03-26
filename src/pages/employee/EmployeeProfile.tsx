@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertTriangle,
   Award,
+  Bell,
   Briefcase,
   Building2,
   Calendar,
@@ -46,6 +47,7 @@ import { useUserProfile, useUsers } from "@/hooks/useUsers";
 import { buildEmployeeLicenseHealth, getHealthStatusLabel, type LicenseWithExtras } from "@/hooks/useLicenseDashboard";
 import { cn } from "@/lib/utils";
 import ProfilePictureUpload from "@/components/ProfilePictureUpload";
+import { NotificationSettings } from "@/components/NotificationSettings";
 import type { ProfilePictureUploadHandle } from "@/components/ProfilePictureUpload";
 
 const ICAO_LEVELS = [
@@ -191,6 +193,7 @@ const PROFILE_TABS: Array<{ value: string; icon: ComponentType<{ className?: str
   { value: "operational", icon: Radio, label: "Operational" },
   { value: "training", icon: GraduationCap, label: "Training" },
   { value: "language", icon: Globe, label: "Language" },
+  { value: "notifications", icon: Bell, label: "Notifications" },
 ];
 
 const LABEL_CLASS = "flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-700 dark:text-slate-300";
@@ -1121,6 +1124,10 @@ export default function EmployeeProfile() {
                       </div>
                     </div>
                   </SectionCard>
+                </TabsContent>
+
+                <TabsContent value="notifications" className="space-y-4">
+                  <NotificationSettings />
                 </TabsContent>
               </Tabs>
             </CardContent>

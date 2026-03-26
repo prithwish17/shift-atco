@@ -6,8 +6,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
+import { PWAOnboardingProvider } from "./contexts/PWAOnboardingContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { PWAOnboardingBanner } from "./components/PWAOnboardingBanner";
 
 // --- Lazy-loaded page components (code splitting) ---
 const Index = lazy(() => import("./pages/Index"));
@@ -15,6 +17,7 @@ const Login = lazy(() => import("./pages/Login"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const Register = lazy(() => import("./pages/Register"));
 const SetupAdmin = lazy(() => import("./pages/admin/SetupAdmin"));
+const AppSettingsPage = lazy(() => import("./pages/AppSettingsPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Admin
@@ -98,76 +101,80 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <AuthProvider>
-              <Suspense fallback={<PageLoader />}>
-                <Routes>
-                  <Route path="/" element={<Index />} />
-                  <Route path="/login" element={<Login />} />
-                  <Route path="/forgot-password" element={<ForgotPassword />} />
-                  <Route path="/register" element={<Register />} />
-                  <Route path="/setup-admin" element={<SetupAdmin />} />
+              <PWAOnboardingProvider>
+                <PWAOnboardingBanner />
+                <Suspense fallback={<PageLoader />}>
+                  <Routes>
+                    <Route path="/" element={<Index />} />
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/forgot-password" element={<ForgotPassword />} />
+                    <Route path="/register" element={<Register />} />
+                    <Route path="/setup-admin" element={<SetupAdmin />} />
+                    <Route path="/settings" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><AppSettingsPage /></ProtectedRoute>} />
 
-                  {/* Admin Routes */}
-                  <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
-                  <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin']}><UserManagement /></ProtectedRoute>} />
-                  <Route path="/admin/change-password" element={<ProtectedRoute allowedRoles={['admin']}><ChangePassword /></ProtectedRoute>} />
-                  <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={['admin']}><AdminSettings /></ProtectedRoute>} />
+                    {/* Admin Routes */}
+                    <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
+                    <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin']}><UserManagement /></ProtectedRoute>} />
+                    <Route path="/admin/change-password" element={<ProtectedRoute allowedRoles={['admin']}><ChangePassword /></ProtectedRoute>} />
+                    <Route path="/admin/settings" element={<ProtectedRoute allowedRoles={['admin']}><AdminSettings /></ProtectedRoute>} />
 
-                  {/* Supervisor Routes */}
-                  <Route path="/supervisor" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDashboard /></ProtectedRoute>} />
-                  <Route path="/supervisor/employees" element={<ProtectedRoute allowedRoles={['supervisor']}><EmployeeManagement /></ProtectedRoute>} />
-                  <Route path="/supervisor/employees/:employeeCode" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorEmployeeOverview /></ProtectedRoute>} />
-                  <Route path="/supervisor/attendance" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorAttendance /></ProtectedRoute>} />
-                  <Route path="/supervisor/attendance-view" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorAttendanceView /></ProtectedRoute>} />
-                  <Route path="/supervisor/leaves" element={<ProtectedRoute allowedRoles={['supervisor', 'wso']}><LeaveApprovals /></ProtectedRoute>} />
-                  <Route path="/supervisor/approved-leaves" element={<ProtectedRoute allowedRoles={['supervisor', 'wso']}><ApprovedLeavesRegister /></ProtectedRoute>} />
-                  <Route path="/supervisor/leave-dashboard" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorLeaveDashboard /></ProtectedRoute>} />
-                  <Route path="/supervisor/leave-discrepancy" element={<ProtectedRoute allowedRoles={['supervisor']}><LeaveDiscrepancyPage /></ProtectedRoute>} />
-                  <Route path="/supervisor/duty-exchange" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyExchangeApprovals /></ProtectedRoute>} />
-                  <Route path="/supervisor/duty-exchanges" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyExchangeApprovals /></ProtectedRoute>} />
-                  <Route path="/supervisor/holidays" element={<ProtectedRoute allowedRoles={['supervisor']}><HolidayManagement /></ProtectedRoute>} />
-                  <Route path="/supervisor/ope-assignments" element={<ProtectedRoute allowedRoles={['supervisor']}><OPEAssignments /></ProtectedRoute>} />
-                  <Route path="/supervisor/duty-management" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyManagement /></ProtectedRoute>} />
-                  <Route path="/supervisor/roster" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDailyRoster /></ProtectedRoute>} />
-                  <Route path="/supervisor/licenses" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><LicenseManagement /></ProtectedRoute>} />
-                  <Route path="/supervisor/ratings" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><RatingsManagement /></ProtectedRoute>} />
+                    {/* Supervisor Routes */}
+                    <Route path="/supervisor" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDashboard /></ProtectedRoute>} />
+                    <Route path="/supervisor/employees" element={<ProtectedRoute allowedRoles={['supervisor']}><EmployeeManagement /></ProtectedRoute>} />
+                    <Route path="/supervisor/employees/:employeeCode" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorEmployeeOverview /></ProtectedRoute>} />
+                    <Route path="/supervisor/attendance" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorAttendance /></ProtectedRoute>} />
+                    <Route path="/supervisor/attendance-view" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorAttendanceView /></ProtectedRoute>} />
+                    <Route path="/supervisor/leaves" element={<ProtectedRoute allowedRoles={['supervisor', 'wso']}><LeaveApprovals /></ProtectedRoute>} />
+                    <Route path="/supervisor/approved-leaves" element={<ProtectedRoute allowedRoles={['supervisor', 'wso']}><ApprovedLeavesRegister /></ProtectedRoute>} />
+                    <Route path="/supervisor/leave-dashboard" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorLeaveDashboard /></ProtectedRoute>} />
+                    <Route path="/supervisor/leave-discrepancy" element={<ProtectedRoute allowedRoles={['supervisor']}><LeaveDiscrepancyPage /></ProtectedRoute>} />
+                    <Route path="/supervisor/duty-exchange" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyExchangeApprovals /></ProtectedRoute>} />
+                    <Route path="/supervisor/duty-exchanges" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyExchangeApprovals /></ProtectedRoute>} />
+                    <Route path="/supervisor/holidays" element={<ProtectedRoute allowedRoles={['supervisor']}><HolidayManagement /></ProtectedRoute>} />
+                    <Route path="/supervisor/ope-assignments" element={<ProtectedRoute allowedRoles={['supervisor']}><OPEAssignments /></ProtectedRoute>} />
+                    <Route path="/supervisor/duty-management" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyManagement /></ProtectedRoute>} />
+                    <Route path="/supervisor/roster" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDailyRoster /></ProtectedRoute>} />
+                    <Route path="/supervisor/licenses" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><LicenseManagement /></ProtectedRoute>} />
+                    <Route path="/supervisor/ratings" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><RatingsManagement /></ProtectedRoute>} />
 
-                  {/* WSO Routes */}
-                  <Route path="/wso" element={<ProtectedRoute allowedRoles={['wso']}><WSODashboard /></ProtectedRoute>} />
-                  <Route path="/wso/roster" element={<ProtectedRoute allowedRoles={['wso']}><WsoRosterManagement /></ProtectedRoute>} />
-                  <Route path="/wso/attendance" element={<ProtectedRoute allowedRoles={['wso']}><WSOAttendance /></ProtectedRoute>} />
-                  <Route path="/wso/ba-test" element={<ProtectedRoute allowedRoles={['wso']}><BATestManagement /></ProtectedRoute>} />
-                  <Route path="/wso/leaves" element={<ProtectedRoute allowedRoles={['wso']}><LeaveApprovals /></ProtectedRoute>} />
-                  <Route path="/wso/approved-leaves" element={<ProtectedRoute allowedRoles={['wso', 'supervisor']}><ApprovedLeavesRegister /></ProtectedRoute>} />
-                  <Route path="/wso/duty-exchange" element={<ProtectedRoute allowedRoles={['wso']}><WSODutyExchangeApprovals /></ProtectedRoute>} />
-                  <Route path="/wso/ope-assignments" element={<ProtectedRoute allowedRoles={['wso']}><WSOOPEAssignments /></ProtectedRoute>} />
+                    {/* WSO Routes */}
+                    <Route path="/wso" element={<ProtectedRoute allowedRoles={['wso']}><WSODashboard /></ProtectedRoute>} />
+                    <Route path="/wso/roster" element={<ProtectedRoute allowedRoles={['wso']}><WsoRosterManagement /></ProtectedRoute>} />
+                    <Route path="/wso/attendance" element={<ProtectedRoute allowedRoles={['wso']}><WSOAttendance /></ProtectedRoute>} />
+                    <Route path="/wso/ba-test" element={<ProtectedRoute allowedRoles={['wso']}><BATestManagement /></ProtectedRoute>} />
+                    <Route path="/wso/leaves" element={<ProtectedRoute allowedRoles={['wso']}><LeaveApprovals /></ProtectedRoute>} />
+                    <Route path="/wso/approved-leaves" element={<ProtectedRoute allowedRoles={['wso', 'supervisor']}><ApprovedLeavesRegister /></ProtectedRoute>} />
+                    <Route path="/wso/duty-exchange" element={<ProtectedRoute allowedRoles={['wso']}><WSODutyExchangeApprovals /></ProtectedRoute>} />
+                    <Route path="/wso/ope-assignments" element={<ProtectedRoute allowedRoles={['wso']}><WSOOPEAssignments /></ProtectedRoute>} />
 
-                  {/* Employee Routes */}
-                  <Route path="/employee" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeDashboard /></ProtectedRoute>} />
-                  <Route path="/employee/profile" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeProfile /></ProtectedRoute>} />
-                  <Route path="/employee/schedule" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeSchedule /></ProtectedRoute>} />
-                  <Route path="/employee/attendance" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeAttendance /></ProtectedRoute>} />
-                  <Route path="/employee/leave" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><LeaveApplication /></ProtectedRoute>} />
-                  <Route path="/employee/leave-history" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><LeaveHistory /></ProtectedRoute>} />
-                  <Route path="/employee/leave-dashboard" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeLeavePage /></ProtectedRoute>} />
-                  <Route path="/employee/comp-off" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeCompOffPage /></ProtectedRoute>} />
-                  <Route path="/employee/duty-exchange" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><DutyExchangeRequest /></ProtectedRoute>} />
-                  <Route path="/employee/atc-duties" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeATCDuties /></ProtectedRoute>} />
-                  <Route path="/employee/roster" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeRoster /></ProtectedRoute>} />
-                  <Route path="/employee/holidays" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeHolidays /></ProtectedRoute>} />
-                  <Route path="/employee/licenses" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeLicenses /></ProtectedRoute>} />
+                    {/* Employee Routes */}
+                    <Route path="/employee" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeDashboard /></ProtectedRoute>} />
+                    <Route path="/employee/profile" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeProfile /></ProtectedRoute>} />
+                    <Route path="/employee/schedule" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeSchedule /></ProtectedRoute>} />
+                    <Route path="/employee/attendance" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeAttendance /></ProtectedRoute>} />
+                    <Route path="/employee/leave" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><LeaveApplication /></ProtectedRoute>} />
+                    <Route path="/employee/leave-history" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><LeaveHistory /></ProtectedRoute>} />
+                    <Route path="/employee/leave-dashboard" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeLeavePage /></ProtectedRoute>} />
+                    <Route path="/employee/comp-off" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeCompOffPage /></ProtectedRoute>} />
+                    <Route path="/employee/duty-exchange" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><DutyExchangeRequest /></ProtectedRoute>} />
+                    <Route path="/employee/atc-duties" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeATCDuties /></ProtectedRoute>} />
+                    <Route path="/employee/roster" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeRoster /></ProtectedRoute>} />
+                    <Route path="/employee/holidays" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeHolidays /></ProtectedRoute>} />
+                    <Route path="/employee/licenses" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeLicenses /></ProtectedRoute>} />
 
-                  {/* ATC Routes */}
-                  <Route path="/atc/grid" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><ATCDutyGrid /></ProtectedRoute>} />
-                  <Route path="/wso/atc-grid" element={<ProtectedRoute allowedRoles={['wso']}><WSOATCView /></ProtectedRoute>} />
-                  <Route path="/supervisor/atc-grid" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorATCView /></ProtectedRoute>} />
+                    {/* ATC Routes */}
+                    <Route path="/atc/grid" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><ATCDutyGrid /></ProtectedRoute>} />
+                    <Route path="/wso/atc-grid" element={<ProtectedRoute allowedRoles={['wso']}><WSOATCView /></ProtectedRoute>} />
+                    <Route path="/supervisor/atc-grid" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorATCView /></ProtectedRoute>} />
 
-                  {/* Shared Roster Route — redirects to employee roster view */}
-                  <Route path="/roster" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'wso']}><EmployeeRoster /></ProtectedRoute>} />
+                    {/* Shared Roster Route — redirects to employee roster view */}
+                    <Route path="/roster" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'wso']}><EmployeeRoster /></ProtectedRoute>} />
 
-                  {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </Suspense>
+                    {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </Suspense>
+              </PWAOnboardingProvider>
             </AuthProvider>
           </BrowserRouter>
         </TooltipProvider>

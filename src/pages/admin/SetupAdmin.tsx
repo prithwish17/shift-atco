@@ -52,7 +52,7 @@ export default function SetupAdmin() {
         <CardHeader>
           <CardTitle>Admin Account Setup</CardTitle>
           <CardDescription>
-            Set up the permanent admin account for ShiftAtco
+            Set up the permanent admin account for ATCORA
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

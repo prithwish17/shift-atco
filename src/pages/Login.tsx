@@ -9,6 +9,7 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Moon, Sun, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { getHomeRouteForRole } from "@/lib/roleRoutes";
 import { loginSchema, LoginInput } from "@/lib/validations";
 
 export default function Login() {
@@ -27,7 +28,7 @@ export default function Login() {
   // Redirect if already logged in (wait for auth to fully initialize)
   useEffect(() => {
     if (!loading && user && userRole) {
-      navigate('/employee');
+      navigate(getHomeRouteForRole(userRole));
     }
   }, [user, userRole, loading, navigate]);
 
@@ -74,10 +75,10 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="flex flex-col items-center space-y-3">
-          <img src="/logo.png" alt="ShiftAtco" className="h-16 w-auto" />
+          <img src="/logo.png" alt="ATCORA" className="h-16 w-auto" />
           <div className="flex items-center justify-between w-full">
             <div className="flex-1" />
-            <h1 className="text-3xl font-bold text-primary">ShiftAtco</h1>
+            <h1 className="text-3xl font-bold tracking-[0.2em] text-primary">ATCORA</h1>
             <div className="flex-1 flex justify-end">
               <Button
                 variant="ghost"
@@ -94,7 +95,7 @@ export default function Login() {
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            Comprehensive Shift Management System
+            ATC operations and roster management
           </p>
         </div>
 
@@ -181,7 +182,7 @@ export default function Login() {
         </Card>
 
         <div className="text-center text-xs text-muted-foreground">
-          ShiftAtco v1.0.0 - Secure Authentication
+          ATCORA v1.0.0 - Secure Authentication
         </div>
       </div>
     </div>

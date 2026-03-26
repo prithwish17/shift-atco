@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { eachDayOfInterval, format, isAfter, isBefore, parseISO } from 'date-fns';
+import { getFunctionsProxyBaseUrl } from '@/lib/appConfig';
 import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from '@/lib/scheduleQueryConfig';
 
 // Duty code legend from Google Sheet
@@ -198,9 +199,7 @@ export function useFetchSchedule() {
                 const { data: { session } } = await supabase.auth.getSession();
                 if (!session) throw error;
 
-                const base =
-                    import.meta.env.VITE_FUNCTIONS_PROXY_BASE_URL ||
-                    'https://shift-atco.vercel.app';
+                const base = getFunctionsProxyBaseUrl();
 
                 const res = await fetch(`${base}/api/functions/fetch-schedule`, {
                     method: 'POST',

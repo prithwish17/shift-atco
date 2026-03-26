@@ -3,7 +3,10 @@
  * Sends Web Push notifications and inserts in-app notification records.
  */
 
+declare const Deno: any
+
 import { supabase } from './supabase.ts'
+import { enqueueNotification } from './enqueue.ts'
 
 interface NotifyParams {
   user_ids: string[]
@@ -12,6 +15,14 @@ interface NotifyParams {
   url?:     string
   category: string
   metadata?: Record<string, unknown>
+  /** Set to false to skip email queueing (default: true) */
+  sendEmail?: boolean
+  /** Email priority 1-10 (default: 5) */
+  emailPriority?: number
+  /** Email template name — queue processor uses this to render HTML */
+  emailTemplate?: string
+  /** Extra data for email template rendering */
+  emailData?: Record<string, unknown>
 }
 
 interface PushSubscription {
@@ -23,13 +34,13 @@ interface PushSubscription {
 }
 
 /**
- * Send push notifications to specified users and insert in-app notification rows.
+ * Send push notifications to specified users, insert in-app notification rows,
+ * and enqueue email delivery jobs.
  * Silently skips push delivery if VAPID keys are not configured.
  */
-export async function notifyUsers(params: NotifyParams): Promise<{ sent: number; failed: number; inApp: number }> {
-  const { user_ids, title, body, url, category, metadata } = params
-  if (!user_ids.length) return { sent: 0, failed: 0, inApp: 0 }
-
+export async function notifyUsers(params: NotifyParams): Promise<{ sent: number; failed: number; inApp: number; emailQueued: number }> {
+  const { user_ids, title, body, url, category, metadata, sendEmail = true, emailPriority = 5, emailTemplate, emailData } = params
+  if (!user_ids.length) return { sent: 0, failed: 0, inApp: 0, emailQueued: 0 }
   // Deduplicate user IDs
   const uniqueUserIds = [...new Set(user_ids)]
 
@@ -50,13 +61,40 @@ export async function notifyUsers(params: NotifyParams): Promise<{ sent: number;
     console.error('[notify] Failed to insert notifications:', insertError.message)
   }
 
+  // 2. Enqueue email delivery (best-effort, non-blocking)
+  let emailQueued = 0
+  if (sendEmail) {
+    for (const uid of uniqueUserIds) {
+      try {
+        const queueId = await enqueueNotification({
+          userId: uid,
+          channel: 'email',
+          eventType: category,
+          priority: emailPriority,
+          payload: {
+            title,
+            body,
+            url: url || '/',
+            category,
+            metadata,
+            template: emailTemplate || category,
+            templateData: emailData,
+          },
+        })
+        if (queueId) emailQueued++
+      } catch (err) {
+        console.warn(`[notify] Email enqueue failed for ${uid}:`, (err as Error).message)
+      }
+    }
+  }
+
   // 2. Send Web Push (best-effort — skip if VAPID not configured)
   const vapidPublicKey  = Deno.env.get('VAPID_PUBLIC_KEY')
   const vapidPrivateKey = Deno.env.get('VAPID_PRIVATE_KEY')
 
   if (!vapidPublicKey || !vapidPrivateKey) {
     console.warn('[notify] VAPID keys not configured — skipping push delivery')
-    return { sent: 0, failed: 0, inApp: uniqueUserIds.length }
+    return { sent: 0, failed: 0, inApp: uniqueUserIds.length, emailQueued }
   }
 
   // Fetch push subscriptions for target users
@@ -66,7 +104,7 @@ export async function notifyUsers(params: NotifyParams): Promise<{ sent: number;
     .in('user_id', uniqueUserIds)
 
   if (subError || !subscriptions?.length) {
-    return { sent: 0, failed: 0, inApp: uniqueUserIds.length }
+    return { sent: 0, failed: 0, inApp: uniqueUserIds.length, emailQueued }
   }
 
   const payload = JSON.stringify({ title, body, url: url || '/' })
@@ -98,7 +136,7 @@ export async function notifyUsers(params: NotifyParams): Promise<{ sent: number;
     await supabase.from('push_subscriptions').delete().in('id', expiredIds)
   }
 
-  return { sent, failed, inApp: uniqueUserIds.length }
+  return { sent, failed, inApp: uniqueUserIds.length, emailQueued }
 }
 
 // ─── Web Push implementation using Web Crypto API (no npm deps) ───
@@ -145,7 +183,7 @@ async function sendWebPush(
 async function createVapidJwt(audience: string, publicKey: string, privateKey: string): Promise<string> {
   const header = { typ: 'JWT', alg: 'ES256' }
   const now = Math.floor(Date.now() / 1000)
-  const claims = { aud: audience, exp: now + 86400, sub: 'mailto:shift-atco@notification.local' }
+  const claims = { aud: audience, exp: now + 86400, sub: 'mailto:admin@atcora.in' }
 
   const headerB64 = base64urlEncode(new TextEncoder().encode(JSON.stringify(header)))
   const claimsB64 = base64urlEncode(new TextEncoder().encode(JSON.stringify(claims)))

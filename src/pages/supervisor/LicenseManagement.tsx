@@ -15,6 +15,7 @@ import { Shield, Heart, AlertTriangle, Plus, GraduationCap, RefreshCw, Search, C
 import { format, differenceInDays, startOfDay } from 'date-fns';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { getFunctionsProxyBaseUrl } from '@/lib/appConfig';
 import { toast } from 'sonner';
 
 // ---------- Types ----------
@@ -166,9 +167,7 @@ function useSyncTrainingData() {
                 const { data: { session } } = await supabase.auth.getSession();
                 if (!session) throw error;
 
-                const base =
-                    import.meta.env.VITE_FUNCTIONS_PROXY_BASE_URL ||
-                    'https://shift-atco.vercel.app';
+                const base = getFunctionsProxyBaseUrl();
 
                 const res = await fetch(`${base}/api/functions/fetch-training-data`, {
                     method: 'POST',
@@ -210,7 +209,7 @@ async function invokeUpdateTrainingRecord(empId: string, updates: Record<string,
         if (import.meta.env.DEV) {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) throw error;
-            const base = import.meta.env.VITE_FUNCTIONS_PROXY_BASE_URL || 'https://shift-atco.vercel.app';
+            const base = getFunctionsProxyBaseUrl();
             const res = await fetch(`${base}/api/functions/update-training-record`, {
                 method: 'POST',
                 headers: {
@@ -339,9 +338,7 @@ function useSyncElpaData() {
                 const { data: { session } } = await supabase.auth.getSession();
                 if (!session) throw error;
 
-                const base =
-                    import.meta.env.VITE_FUNCTIONS_PROXY_BASE_URL ||
-                    'https://shift-atco.vercel.app';
+                const base = getFunctionsProxyBaseUrl();
 
                 const res = await fetch(`${base}/api/functions/fetch-elpa-data`, {
                     method: 'POST',
@@ -419,9 +416,7 @@ function useSyncMedicalData() {
                 const { data: { session } } = await supabase.auth.getSession();
                 if (!session) throw error;
 
-                const base =
-                    import.meta.env.VITE_FUNCTIONS_PROXY_BASE_URL ||
-                    'https://shift-atco.vercel.app';
+                const base = getFunctionsProxyBaseUrl();
 
                 const res = await fetch(`${base}/api/functions/fetch-medical-data`, {
                     method: 'POST',

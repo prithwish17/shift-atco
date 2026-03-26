@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
+const SAVE_SUBSCRIPTION_ENDPOINT = '/api/save-subscription';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -16,16 +17,84 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 export function isPushSupported(): boolean {
   return (
     typeof window !== 'undefined' &&
+    'Notification' in window &&
     'serviceWorker' in navigator &&
     'PushManager' in window &&
     !!VAPID_PUBLIC_KEY
   );
 }
 
-export async function subscribeToPush(): Promise<void> {
-  if (!isPushSupported()) return;
+export function isNotificationPermissionSupported(): boolean {
+  return typeof window !== 'undefined' && 'Notification' in window;
+}
+
+export function getNotificationPermissionState(): NotificationPermission | 'unsupported' {
+  if (!isNotificationPermissionSupported()) return 'unsupported';
+  return Notification.permission;
+}
+
+async function saveSubscriptionToBackend(subscription: PushSubscription, userId: string, accessToken: string) {
+  const keys = subscription.toJSON().keys;
+
+  if (!keys?.p256dh || !keys?.auth) {
+    throw new Error('Missing push subscription keys');
+  }
+
+  const payload = {
+    user_id: userId,
+    endpoint: subscription.endpoint,
+    keys: {
+      p256dh: keys.p256dh,
+      auth: keys.auth,
+    },
+  };
 
   try {
+    const response = await fetch(SAVE_SUBSCRIPTION_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || 'Failed to save push subscription');
+    }
+  } catch (error) {
+    if (!import.meta.env.DEV) {
+      throw error;
+    }
+
+    await supabase
+      .from('push_subscriptions' as any)
+      .upsert(
+        {
+          user_id: userId,
+          endpoint: subscription.endpoint,
+          p256dh: keys.p256dh,
+          auth_key: keys.auth,
+        } as any,
+        { onConflict: 'user_id,endpoint' }
+      );
+  }
+}
+
+export async function subscribeToPush(): Promise<PushSubscription | null> {
+  if (!isPushSupported()) return null;
+  if (getNotificationPermissionState() !== 'granted') return null;
+
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.user || !session.access_token) {
+      throw new Error('You must be signed in to enable notifications on this device.');
+    }
+
     const registration = await navigator.serviceWorker.ready;
 
     // Check if already subscribed
@@ -37,25 +106,11 @@ export async function subscribeToPush(): Promise<void> {
       });
     }
 
-    const keys = subscription.toJSON().keys;
-    if (!keys?.p256dh || !keys?.auth) return;
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    await supabase
-      .from('push_subscriptions' as any)
-      .upsert(
-        {
-          user_id: user.id,
-          endpoint: subscription.endpoint,
-          p256dh: keys.p256dh,
-          auth_key: keys.auth,
-        } as any,
-        { onConflict: 'user_id,endpoint' }
-      );
+    await saveSubscriptionToBackend(subscription, session.user.id, session.access_token);
+    return subscription;
   } catch (err) {
     if (import.meta.env.DEV) console.warn('[Push] Subscription failed:', err);
+    throw err instanceof Error ? err : new Error('Push subscription failed');
   }
 }
 

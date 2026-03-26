@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { getHomeRouteForRole } from "@/lib/roleRoutes";
 import { useNavigate } from "react-router-dom";
-import { isPushSupported, subscribeToPush, unsubscribeFromPush } from "@/utils/pushSubscription";
+import { isPushSupported, unsubscribeFromPush } from "@/utils/pushSubscription";
 
 interface AuthContextType {
   user: User | null;
@@ -49,8 +50,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (session?.user) {
         await fetchUserRole(session.user.id);
-        // Register push subscription after login (fire-and-forget)
-        if (isPushSupported()) subscribeToPush().catch(() => {});
       }
       setLoading(false);
       initialLoad = false;
@@ -68,9 +67,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) throw error;
       setUserRole(data);
+      return data;
     } catch (error) {
       if (import.meta.env.DEV) console.error("Error fetching user role:", error);
       setUserRole(null);
+      return null;
     }
   };
 
@@ -85,10 +86,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Fetch user role after successful login
       if (data.user) {
-        await fetchUserRole(data.user.id);
-
-        // Always redirect to employee dashboard
-        navigate('/employee');
+        const role = await fetchUserRole(data.user.id);
+        navigate(getHomeRouteForRole(role));
       }
 
       return { error: null };

@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard,
@@ -139,9 +139,9 @@ export function AppSidebar({ role }: SidebarProps) {
         {/* Logo */}
         <div className="p-4 border-b border-slate-700 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="ShiftAtco" className="h-9 w-auto rounded-lg" />
+            <img src="/logo.png" alt="ATCORA" className="h-9 w-auto rounded-lg" />
             <div>
-              <div className="text-blue-400 font-bold text-base leading-tight">ShiftAtco</div>
+              <div className="text-blue-400 font-bold text-base leading-tight tracking-[0.18em]">ATCORA</div>
               <div className="text-xs text-slate-400 capitalize">{role} Portal</div>
             </div>
           </div>
@@ -194,6 +194,16 @@ export function AppSidebar({ role }: SidebarProps) {
 
         {/* Logout — always pinned to bottom of sidebar */}
         <div className="shrink-0 p-3 border-t border-slate-700">
+          <Link
+            to="/settings"
+            onClick={() => setMobileOpen(false)}
+            className={`mb-2 flex items-center gap-3 px-3 py-2 rounded-lg w-full text-sm transition-colors ${currentPath === "/settings"
+              ? "bg-blue-600 text-white"
+              : "text-slate-300 hover:bg-slate-800 hover:text-white"}`}
+          >
+            <Settings className="size-4" />
+            <span>App Settings</span>
+          </Link>
           <button
             onClick={handleLogout}
             className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-300 hover:bg-red-600/20 hover:text-red-400 w-full text-sm transition-colors"

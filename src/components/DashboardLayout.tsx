@@ -1,10 +1,11 @@
-import { ReactNode, useState } from "react";
+import { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
-import { Moon, Sun, Menu } from "lucide-react";
+import { Moon, Sun, Menu, Settings } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { AppSidebar } from "./AppSidebar";
 import { NotificationDropdown } from "./NotificationDropdown";
 
@@ -44,6 +45,21 @@ export function DashboardLayout({ role, children }: DashboardLayoutProps) {
           <div className="flex-1 lg:flex-none" />
 
           <div className="flex items-center gap-2 md:gap-4">
+            <Button asChild type="button" variant="outline" size="sm" className="hidden sm:inline-flex">
+              <Link to="/settings">
+                <Settings className="size-4" />
+                <span>Settings</span>
+              </Link>
+            </Button>
+
+            <Link
+              to="/settings"
+              className="rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-800 sm:hidden"
+              aria-label="Open app settings"
+            >
+              <Settings className="size-5 text-gray-600 dark:text-gray-300" />
+            </Link>
+
             {/* Notification bell */}
             <NotificationDropdown />
 
@@ -83,6 +99,7 @@ export function DashboardLayout({ role, children }: DashboardLayoutProps) {
           {children}
         </main>
       </div>
+
     </div>
   );
 }

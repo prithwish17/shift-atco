@@ -69,7 +69,7 @@ export default function ForgotPassword() {
                 <ArrowLeft className="h-5 w-5" />
               </Button>
             </Link>
-            <h1 className="text-3xl font-bold text-primary">ShiftAtco</h1>
+            <h1 className="text-3xl font-bold tracking-[0.2em] text-primary">ATCORA</h1>
             <Button
               variant="ghost"
               size="icon"

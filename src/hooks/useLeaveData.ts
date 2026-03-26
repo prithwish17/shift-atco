@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
 import { normalizeLeaveRecords } from "@/utils/leaveCalculations";
 import type { RawLeaveRecord } from "@/services/leaveApi";
 
@@ -342,9 +343,7 @@ export function useLeaveData(year?: number, empId?: string | null) {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) throw directError;
 
-        const base =
-          import.meta.env.VITE_FUNCTIONS_PROXY_BASE_URL ||
-          "https://shift-atco.vercel.app";
+        const base = getFunctionsProxyBaseUrl();
 
         const res = await fetch(`${base}/api/functions/fetch-leave-data`, {
           method: "POST",
@@ -413,9 +412,7 @@ export function useLeaveRefresh() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) throw directError;
 
-        const base =
-          import.meta.env.VITE_FUNCTIONS_PROXY_BASE_URL ||
-          "https://shift-atco.vercel.app";
+        const base = getFunctionsProxyBaseUrl();
 
         const res = await fetch(`${base}/api/functions/fetch-leave-data`, {
           method: "POST",

@@ -1,8 +1,8 @@
 /* eslint-disable no-restricted-globals */
 
-// Service Worker for SHIFT ATCO PWA — caching + push notifications
+// Service Worker for ATCORA PWA — caching + push notifications
 
-const CACHE_NAME = 'shift-atco-v1';
+const CACHE_NAME = 'atcora-v2';
 const APP_SHELL = ['/', '/index.html'];
 
 // ──── Install: pre-cache app shell ────
@@ -69,10 +69,10 @@ self.addEventListener('push', (event) => {
   try {
     data = event.data ? event.data.json() : {};
   } catch {
-    data = { title: 'SHIFT Notification', body: event.data?.text() || '' };
+    data = { title: 'ATCORA Notification', body: event.data?.text() || '' };
   }
 
-  const title = data.title || 'SHIFT Notification';
+  const title = data.title || 'ATCORA Notification';
   const options = {
     body: data.body || '',
     icon: '/favicon.ico',

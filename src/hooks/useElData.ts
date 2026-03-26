@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
 
 export function useElApiUrl() {
     return useQuery({
@@ -174,9 +175,7 @@ export function useSyncElData() {
                 const { data: { session } } = await supabase.auth.getSession();
                 if (!session) throw directError;
 
-                const base =
-                    import.meta.env.VITE_FUNCTIONS_PROXY_BASE_URL ||
-                    "https://shift-atco.vercel.app";
+                const base = getFunctionsProxyBaseUrl();
 
                 const res = await fetch(`${base}/api/functions/fetch-el-data`, {
                     method: "POST",

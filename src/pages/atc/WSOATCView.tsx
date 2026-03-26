@@ -30,6 +30,7 @@ import { SCHEDULE_QUERY_OPTIONS } from '@/lib/scheduleQueryConfig';
 import { buildNameIndex, findUniqueNameMatch, namesMatch } from '@/lib/nameMatching';
 import { getDutyShiftMatches, type TeamDutyCode } from '@/lib/teamDutyRotation';
 import { getLeaveTypeLabel } from '@/lib/leaveConstants';
+import { safeStorage } from '@/lib/safeStorage';
 import { useAuth } from '@/contexts/AuthContext';
 
 type ScheduleMember = {
@@ -210,7 +211,7 @@ export default function WSOATCView() {
   const { user } = useAuth();
   const [date, setDate] = useState<Date>(() => {
     if (typeof window === 'undefined') return new Date();
-    const stored = localStorage.getItem(WSO_ATC_GRID_CACHE_KEY);
+    const stored = safeStorage.getItem(WSO_ATC_GRID_CACHE_KEY);
     if (!stored) return new Date();
 
     try {
@@ -224,7 +225,7 @@ export default function WSOATCView() {
   });
   const [shift, setShift] = useState(() => {
     if (typeof window === 'undefined') return 'Morning';
-    const stored = localStorage.getItem(WSO_ATC_GRID_CACHE_KEY);
+    const stored = safeStorage.getItem(WSO_ATC_GRID_CACHE_KEY);
     if (!stored) return 'Morning';
 
     try {
@@ -265,7 +266,7 @@ export default function WSOATCView() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    localStorage.setItem(WSO_ATC_GRID_CACHE_KEY, JSON.stringify({
+    safeStorage.setItem(WSO_ATC_GRID_CACHE_KEY, JSON.stringify({
       date: dateStr,
       shift,
     }));

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format, parse } from "date-fns";
+import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
 
 export interface RosterEntry {
   id?: string;
@@ -94,10 +95,7 @@ export function useFetchRoster() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw error;
 
-      const base =
-        import.meta.env.DEV
-          ? (import.meta.env.VITE_FUNCTIONS_PROXY_BASE_URL || "https://shift-atco.vercel.app")
-          : window.location.origin;
+      const base = import.meta.env.DEV ? getFunctionsProxyBaseUrl() : window.location.origin;
 
       const res = await fetch(`${base}/api/functions/fetch-roster`, {
         method: "POST",

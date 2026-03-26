@@ -1,6 +1,7 @@
 import { ReactNode, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { getHomeRouteForRole } from "@/lib/roleRoutes";
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -16,8 +17,7 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
       if (!user) {
         navigate("/login");
       } else if (userRole && allowedRoles && !allowedRoles.includes(userRole)) {
-        // Role loaded but not authorized — redirect to employee dashboard
-        navigate('/employee');
+        navigate(getHomeRouteForRole(userRole));
       }
       // If user exists but userRole is still null, wait — don't redirect yet
     }

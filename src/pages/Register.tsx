@@ -118,7 +118,7 @@ export default function Register() {
             <UserPlus className="h-10 w-10 text-primary" />
           </div>
           <CardTitle className="text-3xl">User Registration</CardTitle>
-          <CardDescription>Create your ShiftAtco account</CardDescription>
+          <CardDescription>Create your ATCORA account</CardDescription>
         </CardHeader>
         <CardContent>
           {authError && (

@@ -1,7 +1,7 @@
 {
-  "name": "SHIFT ATCO",
-  "short_name": "SHIFT",
-  "description": "ATC Shift Management System",
+  "name": "ATCORA",
+  "short_name": "ATCORA",
+  "description": "ATCORA | ATC operations and roster management",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

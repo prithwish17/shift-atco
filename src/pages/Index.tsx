@@ -23,8 +23,8 @@ const Index = () => {
       <header className="border-b">
         <div className="container mx-auto flex items-center justify-between px-4 py-4">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="ShiftAtco" className="h-9 w-auto" />
-            <h1 className="text-2xl font-bold text-primary">ShiftAtco</h1>
+            <img src="/logo.png" alt="ATCORA" className="h-9 w-auto" />
+            <h1 className="text-2xl font-bold tracking-[0.18em] text-primary">ATCORA</h1>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -48,12 +48,12 @@ const Index = () => {
 
       <main className="container mx-auto px-4 py-12">
         <div className="text-center space-y-4 mb-12">
-          <img src="/logo.png" alt="ShiftAtco" className="h-20 w-auto mx-auto mb-2" />
+          <img src="/logo.png" alt="ATCORA" className="h-20 w-auto mx-auto mb-2" />
           <h2 className="text-4xl font-bold tracking-tight">
-            Comprehensive Shift Management System
+            ATC operations and roster management
           </h2>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            ShiftAtco helps organizations manage complex rotating shift schedules,
+            ATCORA helps organizations manage complex rotating shift schedules,
             attendance tracking, leave management, and compliance monitoring.
           </p>
         </div>
@@ -109,7 +109,7 @@ const Index = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              This is the foundational setup for ShiftAtco. The authentication system,
+              This is the foundational setup for ATCORA. The authentication system,
               dashboard interfaces, and backend integration will be implemented in subsequent phases.
             </p>
             <div className="flex justify-center">
@@ -125,7 +125,7 @@ const Index = () => {
 
       <footer className="border-t mt-12">
         <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
-          ShiftAtco v1.0.0 - Phase 1 Implementation
+          ATCORA v1.0.0 - Phase 1 Implementation
         </div>
       </footer>
     </div>
