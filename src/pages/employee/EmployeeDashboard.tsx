@@ -75,8 +75,8 @@ function getRosterAssignmentLabel(shift?: string, unit?: string, position?: stri
   const shiftLabel = shift?.trim() || "—";
   const unitLabel = unit?.trim() || "—";
   const positionLabel = position?.trim() || "";
-  const hidePosition = positionLabel.toUpperCase() === "EXTRA DUTY";
-  const hideUnit = unitLabel.toUpperCase() === "SPECIAL";
+  const hidePosition = shouldHideRosterValue(positionLabel);
+  const hideUnit = shouldHideRosterValue(unitLabel);
   if (hideUnit || hidePosition) return "";
   const parts = [shiftLabel];
 
@@ -86,8 +86,13 @@ function getRosterAssignmentLabel(shift?: string, unit?: string, position?: stri
   return parts.join(" - ");
 }
 
+function shouldHideRosterValue(value?: string): boolean {
+  const normalizedValue = value?.trim().toUpperCase() || "";
+  return ["SPECIAL", "LEAVE", "LEAVES", "TRAINING", "EXTRA DUTY"].some((token) => normalizedValue.includes(token));
+}
+
 function shouldHideRosterEntry(unit?: string, position?: string): boolean {
-  return unit?.trim().toUpperCase() === "SPECIAL" || position?.trim().toUpperCase() === "EXTRA DUTY";
+  return shouldHideRosterValue(unit) || shouldHideRosterValue(position);
 }
 
 function sortRosterEntriesByShift<T extends { shift: string }>(entries: T[]): T[] {
@@ -177,10 +182,12 @@ export default function EmployeeDashboard() {
   }));
   const visibleTodayRosters = todayRosters.filter((roster) => !shouldHideRosterEntry(roster.unit, roster.position));
   const visibleTomorrowRosters = tomorrowRosters.filter((roster) => !shouldHideRosterEntry(roster.unit, roster.position));
-  const todayRoster = visibleTodayRosters[0];
-  const tomorrowRoster = visibleTomorrowRosters[0];
   const todaySchedule = mySchedule.find(s => s.duty_date === today);
   const tomorrowSchedule = mySchedule.find(s => s.duty_date === tomorrowStr);
+  const shouldShowTodayRosterList = visibleTodayRosters.length > 1 || (todaySchedule && isDoubleDuty(todaySchedule.duty_code) && visibleTodayRosters.length > 0);
+  const shouldShowTomorrowRosterList = visibleTomorrowRosters.length > 1 || (tomorrowSchedule && isDoubleDuty(tomorrowSchedule.duty_code) && visibleTomorrowRosters.length > 0);
+  const todayRoster = visibleTodayRosters[0];
+  const tomorrowRoster = visibleTomorrowRosters[0];
 
   const dashboardCalendarCells = useMemo(() => {
     const year = currentMonthDate.getFullYear();
@@ -356,7 +363,7 @@ export default function EmployeeDashboard() {
               <div className="text-sm text-purple-700 dark:text-purple-300 mb-3 md:mb-4">{format(now, "EEE, dd MMM")}</div>
               {(rosterLoading || scheduleLoading) ? (
                 <p className="text-sm text-purple-600 dark:text-purple-400">Loading…</p>
-              ) : todaySchedule && isDoubleDuty(todaySchedule.duty_code) && visibleTodayRosters.length > 0 ? (
+              ) : shouldShowTodayRosterList ? (
                 <div className="space-y-1">
                   {visibleTodayRosters
                     .map((roster) => ({
@@ -400,7 +407,7 @@ export default function EmployeeDashboard() {
               <div className="text-sm text-blue-700 dark:text-blue-300 mb-3 md:mb-4">{format(tomorrow, "EEE, dd MMM")}</div>
               {(rosterLoading || scheduleLoading) ? (
                 <p className="text-sm text-blue-600 dark:text-blue-400">Loading…</p>
-              ) : tomorrowSchedule && isDoubleDuty(tomorrowSchedule.duty_code) && visibleTomorrowRosters.length > 0 ? (
+              ) : shouldShowTomorrowRosterList ? (
                 <div className="space-y-1">
                   {visibleTomorrowRosters
                     .map((roster) => ({

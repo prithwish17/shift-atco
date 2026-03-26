@@ -17,6 +17,11 @@ type RosterRecord = {
   position:      string
 }
 
+// Normalise shift values to title-case ("NIGHT" → "Night") so queries
+// and the frontend work consistently regardless of the API's casing.
+const normaliseShift = (s: string) =>
+  s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s
+
 // ── Date helpers (IST = UTC + 5:30) ──────────────────────────────────────────
 
 function getISTDateString(offsetDays = 0): string {
@@ -78,7 +83,7 @@ async function fetchTeamRoster(
     // (manual fetch), so the frontend can query both consistently.
     return {
       date:          row.date || date,
-      shift:         row.shift || shift,
+      shift:         normaliseShift(row.shift || shift),
       team:          row.team || team,
       unit,
       employee_name: empName,

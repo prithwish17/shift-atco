@@ -50,7 +50,7 @@ export default function WSODashboard() {
   const teamDutyLabel = getTeamDutyLabel(teamDutyToday);
   const rosterShift =
     teamDutyToday === "M" ? "Morning" :
-    teamDutyToday === "A" ? "AFTERNOON" :
+    teamDutyToday === "A" ? "Afternoon" :
     teamDutyToday === "N" ? "Night" :
     null;
 

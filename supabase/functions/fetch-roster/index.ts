@@ -98,6 +98,11 @@ Deno.serve(async (req) => {
     // Ensure data is an array
     const rows = Array.isArray(data) ? data : [];
 
+    // Normalise shift values to title-case ("NIGHT" → "Night") so queries
+    // and the frontend work consistently regardless of the API's casing.
+    const normaliseShift = (s: string) =>
+      s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
+
     // Delete old entries + insert fresh data using service role
     if (rows.length > 0) {
       const adminClient = createClient(supabaseUrl, serviceRoleKey);
@@ -121,7 +126,7 @@ Deno.serve(async (req) => {
 
         return {
           date: row.date || "",
-          shift: row.shift || "",
+          shift: normaliseShift(row.shift || ""),
           team: row.team || "",
           unit: (row.unit || "").toUpperCase().trim() === "HQ" ? "WSO" : (row.unit || ""),
           employee_name: empName,
