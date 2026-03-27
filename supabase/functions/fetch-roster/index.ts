@@ -134,9 +134,18 @@ Deno.serve(async (req) => {
         };
       });
 
+      // Deduplicate by unique constraint columns (date, shift, employee_name, unit, position)
+      const seen = new Set<string>();
+      const dedupedInsert = toInsert.filter((r: any) => {
+        const key = `${r.date}|${r.shift}|${r.employee_name}|${r.unit}|${r.position}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
       // Build unique (date, shift, team) combos from incoming data
       const combos = new Set<string>();
-      toInsert.forEach((r) => combos.add(`${r.date}|${r.shift}|${r.team}`));
+      dedupedInsert.forEach((r: any) => combos.add(`${r.date}|${r.shift}|${r.team}`));
 
       // Delete old entries for each combo to avoid duplicates
       for (const combo of combos) {
@@ -152,10 +161,12 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Insert fresh data
+      // Upsert fresh data to handle any remaining conflicts
       const { error: insertError } = await adminClient
         .from("rosters")
-        .insert(toInsert);
+        .upsert(dedupedInsert, {
+          onConflict: "date,shift,employee_name,unit,position",
+        });
 
       if (insertError) {
         console.error("Insert error:", insertError);

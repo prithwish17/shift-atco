@@ -22,7 +22,7 @@ export function PWAOnboardingBanner() {
   }
 
   const title = shouldShowInstallBanner
-    ? "Install ATCORA"
+    ? "Install Atcora"
     : shouldShowNotificationBanner
       ? "Enable notifications"
       : "Install on iPhone";
@@ -31,7 +31,7 @@ export function PWAOnboardingBanner() {
     ? "Install the app for faster access, offline support, and a full-screen experience."
     : shouldShowNotificationBanner
       ? "Enable notifications for duty alerts, approvals, and updates."
-      : "Open Share and choose Add to Home Screen to install ATCORA on iPhone.";
+      : "Open Share and choose Add to Home Screen to install Atcora on iPhone.";
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">

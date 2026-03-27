@@ -388,7 +388,6 @@ export default function LeaveApprovals() {
                             {req.status === 'Approved' && req.supervisor_approved_at && (
                               <div className="text-[11px] text-green-700">
                                 {req.direct_supervisor_approved ? 'Directly approved by Supervisor' : 'Final approved by Supervisor'}
-                                {req.supervisor_approver_profile?.full_name ? `: ${req.supervisor_approver_profile.full_name}` : ''}
                               </div>
                             )}
                             {req.wso_comments && <div className="text-[11px]">WSO remarks: {req.wso_comments}</div>}

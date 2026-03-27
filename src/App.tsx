@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -10,6 +10,7 @@ import { PWAOnboardingProvider } from "./contexts/PWAOnboardingContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PWAOnboardingBanner } from "./components/PWAOnboardingBanner";
+import { AppSplash, APP_SPLASH_FADE_MS, APP_SPLASH_PLAY_MS } from "./components/AppSplash";
 
 // --- Lazy-loaded page components (code splitting) ---
 const Index = lazy(() => import("./pages/Index"));
@@ -73,13 +74,6 @@ const EmployeeATCDuties = lazy(() => import("./pages/atc/EmployeeATCDuties"));
 const WSOATCView = lazy(() => import("./pages/atc/WSOATCView"));
 const SupervisorATCView = lazy(() => import("./pages/atc/SupervisorATCView"));
 
-// --- Suspense fallback spinner ---
-const PageLoader = () => (
-  <div className="flex items-center justify-center min-h-screen">
-    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
-  </div>
-);
-
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -93,19 +87,34 @@ const queryClient = new QueryClient({
   },
 });
 
-const App = () => (
-  <ErrorBoundary>
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <AuthProvider>
-              <PWAOnboardingProvider>
-                <PWAOnboardingBanner />
-                <Suspense fallback={<PageLoader />}>
-                  <Routes>
+function App() {
+  const [showBootSplash, setShowBootSplash] = useState(true);
+  const [bootSplashExiting, setBootSplashExiting] = useState(false);
+
+  useEffect(() => {
+    const exitTimer = window.setTimeout(() => setBootSplashExiting(true), APP_SPLASH_PLAY_MS);
+    const hideTimer = window.setTimeout(() => setShowBootSplash(false), APP_SPLASH_PLAY_MS + APP_SPLASH_FADE_MS);
+
+    return () => {
+      window.clearTimeout(exitTimer);
+      window.clearTimeout(hideTimer);
+    };
+  }, []);
+
+  return (
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            {showBootSplash ? <AppSplash isExiting={bootSplashExiting} /> : null}
+            <BrowserRouter>
+              <AuthProvider>
+                <PWAOnboardingProvider>
+                  <PWAOnboardingBanner />
+                  <Suspense fallback={showBootSplash ? null : <AppSplash fullscreen={false} />}>
+                    <Routes>
                     <Route path="/" element={<Index />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -174,15 +183,16 @@ const App = () => (
 
                     {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                     <Route path="*" element={<NotFound />} />
-                  </Routes>
-                </Suspense>
-              </PWAOnboardingProvider>
-            </AuthProvider>
-          </BrowserRouter>
-        </TooltipProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
-  </ErrorBoundary>
-);
+                    </Routes>
+                  </Suspense>
+                </PWAOnboardingProvider>
+              </AuthProvider>
+            </BrowserRouter>
+          </TooltipProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
+  );
+}
 
 export default App;

@@ -1,4 +1,4 @@
-export const APP_NAME = "ATCORA";
+export const APP_NAME = "Atcora";
 export const APP_SUPPORT_EMAIL = "admin@atcora.in";
 
 function trimTrailingSlash(value: string) {

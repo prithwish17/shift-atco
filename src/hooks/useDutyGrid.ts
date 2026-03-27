@@ -131,6 +131,7 @@ export function useCreateOrGetRoster() {
 // ---------- Assignments ----------
 
 export function useRosterAssignments(rosterId: string | undefined) {
+    const qc = useQueryClient();
     return useQuery({
         queryKey: ['roster-assignments', rosterId],
         queryFn: async () => {
@@ -141,9 +142,16 @@ export function useRosterAssignments(rosterId: string | undefined) {
                 .eq('roster_id', rosterId);
             if (error) throw error;
 
-            // Manually enrich with profile data since roster_assignments FK goes to auth.users, not profiles
             const records = (data || []) as RosterAssignment[];
-            if (records.length > 0) {
+            // Enrich from cached grid-employees (avoids a second DB round-trip)
+            const employees = qc.getQueryData<GridEmployee[]>(['grid-employees']);
+            if (records.length > 0 && employees && employees.length > 0) {
+                const profileMap = new Map(employees.map(e => [e.id, { full_name: e.full_name, designation: e.designation }]));
+                for (const rec of records) {
+                    rec.profiles = rec.employee_id ? profileMap.get(rec.employee_id) || null : null;
+                }
+            } else if (records.length > 0) {
+                // Fallback: employees cache not yet loaded
                 const empIds = [...new Set(records.filter(r => r.employee_id).map(r => r.employee_id!))];
                 if (empIds.length > 0) {
                     const { data: profiles } = await supabase
@@ -200,7 +208,53 @@ export function useUpsertAssignment() {
                 return data;
             }
         },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ['roster-assignments'] }),
+        onMutate: async (assignment) => {
+            const queryKey = ['roster-assignments', assignment.roster_id] as const;
+            await qc.cancelQueries({ queryKey });
+            const previous = qc.getQueryData<RosterAssignment[]>(queryKey);
+
+            // Resolve profile from cached employees for instant display
+            const employees = qc.getQueryData<GridEmployee[]>(['grid-employees']) || [];
+            const emp = assignment.employee_id ? employees.find(e => e.id === assignment.employee_id) : null;
+            const profileData = emp ? { full_name: emp.full_name, designation: emp.designation } : null;
+
+            qc.setQueryData<RosterAssignment[]>(queryKey, (old) => {
+                if (!old) return old;
+                if (assignment.id) {
+                    // Optimistic update existing
+                    return old.map(a => a.id === assignment.id ? {
+                        ...a,
+                        employee_id: assignment.employee_id ?? a.employee_id,
+                        remark: assignment.remark !== undefined ? assignment.remark : a.remark,
+                        position_label: assignment.position_label ?? a.position_label,
+                        profiles: assignment.employee_id !== undefined ? profileData : a.profiles,
+                    } : a);
+                }
+                // Optimistic insert
+                return [...old, {
+                    id: `optimistic-${Date.now()}`,
+                    roster_id: assignment.roster_id,
+                    position_name: assignment.position_name,
+                    position_label: assignment.position_label || null,
+                    department: assignment.department,
+                    employee_id: assignment.employee_id || null,
+                    remark: assignment.remark || null,
+                    section_type: assignment.section_type,
+                    created_at: new Date().toISOString(),
+                    profiles: profileData,
+                }];
+            });
+
+            return { previous, queryKey };
+        },
+        onError: (_err, _vars, context) => {
+            if (context?.previous !== undefined) {
+                qc.setQueryData(context.queryKey, context.previous);
+            }
+        },
+        onSettled: (_data, _error, assignment) => {
+            qc.invalidateQueries({ queryKey: ['roster-assignments', assignment.roster_id] });
+        },
     });
 }
 
@@ -208,6 +262,7 @@ export function useUpsertAssignment() {
 
 export function useGridLeaveRecords(date: Date) {
     const dateStr = format(date, 'yyyy-MM-dd');
+    const qc = useQueryClient();
     return useQuery({
         queryKey: ['grid-leave', dateStr],
         queryFn: async () => {
@@ -217,9 +272,15 @@ export function useGridLeaveRecords(date: Date) {
                 .eq('leave_date', dateStr);
             if (error) throw error;
 
-            // Manually enrich with profile data since employee_leave_dates FK goes to auth.users, not profiles
             const records = (data || []) as GridLeaveRecord[];
-            if (records.length > 0) {
+            const employees = qc.getQueryData<GridEmployee[]>(['grid-employees']);
+            if (records.length > 0 && employees && employees.length > 0) {
+                const profileMap = new Map(employees.map(e => [e.id, { full_name: e.full_name, designation: e.designation }]));
+                for (const rec of records) {
+                    rec.profiles = profileMap.get(rec.employee_id) || null;
+                }
+            } else if (records.length > 0) {
+                // Fallback: employees cache not yet loaded
                 const empIds = [...new Set(records.map(r => r.employee_id))];
                 const { data: profiles } = await supabase
                     .from('profiles')
@@ -240,6 +301,7 @@ export function useGridLeaveRecords(date: Date) {
 // ---------- Extra Duties ----------
 
 export function useGridExtraDuties(rosterId: string | undefined) {
+    const qc = useQueryClient();
     return useQuery({
         queryKey: ['grid-extra-duties', rosterId],
         queryFn: async () => {
@@ -250,9 +312,15 @@ export function useGridExtraDuties(rosterId: string | undefined) {
                 .eq('roster_id', rosterId);
             if (error) throw error;
 
-            // Manually enrich with profile data since extra_duties FK goes to auth.users, not profiles
             const records = (data || []) as GridExtraDuty[];
-            if (records.length > 0) {
+            const employees = qc.getQueryData<GridEmployee[]>(['grid-employees']);
+            if (records.length > 0 && employees && employees.length > 0) {
+                const profileMap = new Map(employees.map(e => [e.id, { full_name: e.full_name, designation: e.designation }]));
+                for (const rec of records) {
+                    rec.profiles = rec.employee_id ? profileMap.get(rec.employee_id) || null : null;
+                }
+            } else if (records.length > 0) {
+                // Fallback: employees cache not yet loaded
                 const empIds = [...new Set(records.filter(r => r.employee_id).map(r => r.employee_id!))];
                 if (empIds.length > 0) {
                     const { data: profiles } = await supabase
@@ -290,21 +358,66 @@ export function useCreateExtraDuty() {
             if (error) throw error;
             return data;
         },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ['grid-extra-duties'] }),
+        onMutate: async (duty) => {
+            const queryKey = ['grid-extra-duties', duty.roster_id] as const;
+            await qc.cancelQueries({ queryKey });
+            const previous = qc.getQueryData<GridExtraDuty[]>(queryKey);
+
+            const employees = qc.getQueryData<GridEmployee[]>(['grid-employees']) || [];
+            const emp = duty.employee_id ? employees.find(e => e.id === duty.employee_id) : null;
+
+            qc.setQueryData<GridExtraDuty[]>(queryKey, (old) => [
+                ...(old || []),
+                {
+                    id: `optimistic-${Date.now()}`,
+                    roster_id: duty.roster_id,
+                    employee_id: duty.employee_id || null,
+                    duty_type: duty.duty_type,
+                    remarks: duty.remarks || null,
+                    created_at: new Date().toISOString(),
+                    profiles: emp ? { full_name: emp.full_name, designation: emp.designation } : null,
+                },
+            ]);
+            return { previous, queryKey };
+        },
+        onError: (_err, _vars, context) => {
+            if (context?.previous !== undefined) {
+                qc.setQueryData(context.queryKey, context.previous);
+            }
+        },
+        onSettled: (_data, _error, duty) => {
+            qc.invalidateQueries({ queryKey: ['grid-extra-duties', duty.roster_id] });
+        },
     });
 }
 
 export function useDeleteExtraDuty() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: async (id: string) => {
+        mutationFn: async ({ id, rosterId }: { id: string; rosterId: string }) => {
             const { error } = await supabase
                 .from('extra_duties' as any)
                 .delete()
                 .eq('id', id);
             if (error) throw error;
         },
-        onSuccess: () => qc.invalidateQueries({ queryKey: ['grid-extra-duties'] }),
+        onMutate: async ({ id, rosterId }) => {
+            const queryKey = ['grid-extra-duties', rosterId] as const;
+            await qc.cancelQueries({ queryKey });
+            const previous = qc.getQueryData<GridExtraDuty[]>(queryKey);
+            qc.setQueryData<GridExtraDuty[]>(queryKey, (old) =>
+                (old || []).filter(d => d.id !== id)
+            );
+            return { previous, queryKey };
+        },
+        onError: (_err, _vars, context) => {
+            if (context?.previous !== undefined) {
+                qc.setQueryData(context.queryKey, context.previous);
+            }
+        },
+        onSettled: (_data, _error, { rosterId }) => {
+            qc.invalidateQueries({ queryKey: ['grid-extra-duties', rosterId] });
+        },
     });
 }
 

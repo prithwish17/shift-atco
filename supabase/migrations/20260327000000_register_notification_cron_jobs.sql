@@ -1,13 +1,9 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Register notification cron jobs via pg_cron + pg_net.
--- Run after deploying the check-ope-reminders, check-compoff-expiry,
--- and check-license-expiry Edge Functions.
+-- Register cron jobs for the notification/email delivery system.
 --
--- Timing (UTC → IST):
---   check-ope-reminders    at 18:05 UTC = 23:35 IST (daily)
---   check-compoff-expiry   at 18:15 UTC = 23:45 IST (daily)
---   check-license-expiry   at 18:30 UTC = 00:00 IST (daily)
--- All run after expire-records (18:00 UTC) finishes.
+-- Uses format() to embed the service_role_key into the command at
+-- schedule time, avoiding the runtime error:
+--   "unrecognized configuration parameter app.settings.service_role_key"
 -- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
@@ -19,9 +15,12 @@ DECLARE
   );
 
   jobs text[][] := ARRAY[
-    ARRAY['check-ope-reminders',    '5 18 * * *',   'check-ope-reminders',    '{}'],
-    ARRAY['check-compoff-expiry',   '15 18 * * *',  'check-compoff-expiry',   '{}'],
-    ARRAY['check-license-expiry',   '30 18 * * *',  'check-license-expiry',   '{}']
+    -- name,                        cron (UTC),      function,                       payload
+    ARRAY['process-notification-queue', '*/2 * * * *',  'process-notification-queue', '{}'],
+    ARRAY['check-duty-changes',         '0 3 * * *',    'check-duty-changes',         '{}'],
+    ARRAY['check-ope-reminders',        '5 18 * * *',   'check-ope-reminders',        '{}'],
+    ARRAY['check-compoff-expiry',       '15 18 * * *',  'check-compoff-expiry',       '{}'],
+    ARRAY['check-license-expiry',       '30 18 * * *',  'check-license-expiry',       '{}']
   ];
 
   j text[];
@@ -31,7 +30,7 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Unschedule existing jobs before re-registering
+  -- Unschedule if they already exist
   FOREACH j SLICE 1 IN ARRAY jobs LOOP
     BEGIN
       PERFORM cron.unschedule(j[1]);
@@ -40,6 +39,7 @@ BEGIN
     END;
   END LOOP;
 
+  -- Register with key embedded at schedule time (not resolved at runtime)
   FOREACH j SLICE 1 IN ARRAY jobs LOOP
     PERFORM cron.schedule(
       j[1], j[2],
@@ -59,6 +59,6 @@ BEGIN
         j[4]
       )
     );
-    RAISE NOTICE 'Registered notification cron job: %', j[1];
+    RAISE NOTICE 'Registered cron job: %', j[1];
   END LOOP;
 END $$;

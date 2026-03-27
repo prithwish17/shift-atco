@@ -69,14 +69,14 @@ self.addEventListener('push', (event) => {
   try {
     data = event.data ? event.data.json() : {};
   } catch {
-    data = { title: 'ATCORA Notification', body: event.data?.text() || '' };
+    data = { title: 'Atcora Notification', body: event.data?.text() || '' };
   }
 
-  const title = data.title || 'ATCORA Notification';
+  const title = data.title || 'Atcora Notification';
   const options = {
     body: data.body || '',
-    icon: '/favicon.ico',
-    badge: '/favicon.ico',
+    icon: '/web-app-manifest-192x192.png',
+    badge: '/favicon-96x96.png',
     data: { url: data.url || '/' },
     tag: data.tag || undefined,
   };

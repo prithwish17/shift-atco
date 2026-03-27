@@ -77,14 +77,52 @@ function getHolidayNoticeTone(holidayType: 'NH' | 'RH' | 'CH'): string {
 function getStatusTone(status: string): string {
   switch (status) {
     case 'Approved':
-      return 'border-emerald-200 bg-emerald-50/80 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300';
+      return 'border-emerald-200 bg-emerald-50/90 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300';
     case 'Rejected':
-      return 'border-rose-200 bg-rose-50/80 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300';
+      return 'border-rose-200 bg-rose-50/90 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300';
     case 'Cancelled':
-      return 'border-slate-200 bg-slate-100/80 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-300';
+      return 'border-stone-200 bg-stone-100/90 text-stone-700 dark:border-stone-800 dark:bg-stone-900/60 dark:text-stone-300';
+    case 'Pending Supervisor':
+      return 'border-orange-200 bg-orange-50/90 text-orange-700 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-orange-300';
     default:
-      return 'border-amber-200 bg-amber-50/80 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300';
+      return 'border-amber-200 bg-amber-50/90 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300';
   }
+}
+
+function getLeaveTypeTone(leaveType: string): string {
+  if (leaveType === 'CL') {
+    return 'border-sky-200 bg-sky-50/90 text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300';
+  }
+
+  if (leaveType.startsWith('CL_1ST') || leaveType.startsWith('CL_2ND')) {
+    return 'border-cyan-200 bg-cyan-50/90 text-cyan-700 dark:border-cyan-900/60 dark:bg-cyan-950/30 dark:text-cyan-300';
+  }
+
+  if (leaveType === 'COMP_OFF') {
+    return 'border-violet-200 bg-violet-50/90 text-violet-700 dark:border-violet-900/60 dark:bg-violet-950/30 dark:text-violet-300';
+  }
+
+  if (leaveType === 'RH') {
+    return 'border-fuchsia-200 bg-fuchsia-50/90 text-fuchsia-700 dark:border-fuchsia-900/60 dark:bg-fuchsia-950/30 dark:text-fuchsia-300';
+  }
+
+  if (leaveType === 'EL') {
+    return 'border-emerald-200 bg-emerald-50/90 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300';
+  }
+
+  if (leaveType === 'NEE') {
+    return 'border-teal-200 bg-teal-50/90 text-teal-700 dark:border-teal-900/60 dark:bg-teal-950/30 dark:text-teal-300';
+  }
+
+  if (leaveType === 'HPL') {
+    return 'border-indigo-200 bg-indigo-50/90 text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-300';
+  }
+
+  if (leaveType === 'COMM') {
+    return 'border-rose-200 bg-rose-50/90 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300';
+  }
+
+  return 'border-slate-200 bg-slate-50/90 text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300';
 }
 
 function getRequestBorderTone(status: string): string {
@@ -540,7 +578,7 @@ export default function LeaveApplication() {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline" className="rounded-full border-slate-300 text-[10px] dark:border-slate-700 sm:text-xs">
+                        <Badge className={`rounded-full border text-[10px] sm:text-xs ${getLeaveTypeTone(upcomingRequest.leave_type)}`}>
                           {getLeaveTypeLabel(upcomingRequest.leave_type)}
                         </Badge>
                         <Badge className={`rounded-full border text-[10px] sm:text-xs ${getStatusTone(upcomingRequest.status)}`}>
@@ -938,7 +976,7 @@ export default function LeaveApplication() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                          <Badge className={`rounded-full border px-3 py-1 text-[10px] font-medium sm:text-[11px] ${statusInfo.color}`}>
+                          <Badge className={`rounded-full border px-3 py-1 text-[10px] font-medium sm:text-[11px] ${getStatusTone(req.status)}`}>
                             {statusInfo.label}
                           </Badge>
                           {cancelable && (
@@ -970,7 +1008,11 @@ export default function LeaveApplication() {
                         </div>
                         <div className="rounded-2xl bg-slate-50/90 p-3 dark:bg-slate-900/80 sm:p-4">
                           <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400 sm:text-[11px] sm:tracking-[0.2em]">Request</div>
-                          <div className="mt-1 text-[13px] font-semibold text-slate-900 dark:text-slate-100 sm:text-sm">{getLeaveTypeLabel(req.leave_type)}</div>
+                          <div className="mt-1">
+                            <Badge className={`rounded-full border text-[11px] font-medium sm:text-xs ${getLeaveTypeTone(req.leave_type)}`}>
+                              {getLeaveTypeLabel(req.leave_type)}
+                            </Badge>
+                          </div>
                         </div>
                       </div>
 

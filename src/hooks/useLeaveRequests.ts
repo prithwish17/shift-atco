@@ -489,7 +489,7 @@ export function useCancelApprovedLeaveRequest() {
                     body: `Your ${cancelled.leave_type} leave (${cancelled.start_date} to ${cancelled.end_date}) has been cancelled.`,
                     url: '/employee/leave',
                     category: 'leave_status',
-                    metadata: { leave_request_id: cancelled.id, leave_type: cancelled.leave_type, status: 'Cancelled' },
+                    metadata: { leave_request_id: cancelled.id, leave_type: cancelled.leave_type, status: 'Cancelled', start_date: cancelled.start_date, end_date: cancelled.end_date },
                 },
             }).catch(() => {});
 
@@ -598,7 +598,7 @@ export function useReviewLeaveRequest() {
                         body: `Your ${req.leave_type} leave (${req.start_date} to ${req.end_date}) has been ${statusLabel.toLowerCase()}.`,
                         url: '/employee/leave',
                         category: 'leave_status',
-                        metadata: { leave_request_id: req.id, leave_type: req.leave_type, status: req.status },
+                        metadata: { leave_request_id: req.id, leave_type: req.leave_type, status: req.status, start_date: req.start_date, end_date: req.end_date },
                     },
                 }).catch(() => {});
             }

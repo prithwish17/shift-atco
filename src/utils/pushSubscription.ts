@@ -83,8 +83,15 @@ async function saveSubscriptionToBackend(subscription: PushSubscription, userId:
 }
 
 export async function subscribeToPush(): Promise<PushSubscription | null> {
-  if (!isPushSupported()) return null;
-  if (getNotificationPermissionState() !== 'granted') return null;
+  if (!isPushSupported()) {
+    if (!VAPID_PUBLIC_KEY) throw new Error('Push notification configuration (VAPID key) is missing. Contact admin.');
+    if (!('serviceWorker' in navigator)) throw new Error('Service workers are not supported on this browser.');
+    if (!('PushManager' in window)) throw new Error('Push notifications are not supported on this browser.');
+    return null;
+  }
+  if (getNotificationPermissionState() !== 'granted') {
+    throw new Error('Notification permission was not granted.');
+  }
 
   try {
     const {

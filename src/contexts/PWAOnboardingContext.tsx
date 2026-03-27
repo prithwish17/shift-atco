@@ -250,12 +250,28 @@ export function PWAOnboardingProvider({ children }: { children: ReactNode }) {
   };
 
   const enableNotifications = async () => {
-    if (!canAskForNotifications) return;
+    if (!canAskForNotifications) {
+      toast({
+        variant: "destructive",
+        title: "Notifications not supported",
+        description: "Push notifications are not available on this device or browser.",
+      });
+      return;
+    }
 
     setIsWorking(true);
 
     try {
-      const permission = await Notification.requestPermission();
+      // Handle both Promise-based and callback-based requestPermission (Safari compat)
+      let permission: NotificationPermission;
+      try {
+        permission = await Notification.requestPermission();
+      } catch {
+        // Fallback for older callback-based API (some mobile browsers)
+        permission = await new Promise<NotificationPermission>((resolve) => {
+          Notification.requestPermission(resolve);
+        });
+      }
       setNotificationPermission(permission);
 
       if (permission === "denied") {
@@ -263,11 +279,20 @@ export function PWAOnboardingProvider({ children }: { children: ReactNode }) {
         setNotificationDismissed(true);
         writeStoredFlag(NOTIFICATION_ENABLED_KEY, false);
         writeStoredFlag(NOTIFICATION_DISMISSED_KEY, true);
+        toast({
+          variant: "destructive",
+          title: "Notifications blocked",
+          description: "You blocked notifications. Re-enable them from your browser's site settings.",
+        });
         console.info("[PWA] notification permission denied");
         return;
       }
 
       if (permission !== "granted") {
+        toast({
+          title: "Permission not granted",
+          description: "Please allow notifications when prompted to receive alerts.",
+        });
         return;
       }
 

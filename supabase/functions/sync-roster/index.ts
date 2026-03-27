@@ -143,10 +143,20 @@ Deno.serve(async (req) => {
     }
 
     if (allRecords.length > 0) {
+      // Deduplicate by unique constraint columns (date, shift, employee_name, unit, position)
+      // to avoid duplicate key violations within the same batch.
+      const seen = new Set<string>()
+      const dedupedRecords = allRecords.filter(r => {
+        const key = `${r.date}|${r.shift}|${r.employee_name}|${r.unit}|${r.position}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+
       // Delete stale entries per unique (date, shift, team) combo from fetched data.
       // This matches fetch-roster's delete pattern and ensures correct format matching.
       const combos = new Set<string>()
-      allRecords.forEach(r => combos.add(`${r.date}|${r.shift}|${r.team}`))
+      dedupedRecords.forEach(r => combos.add(`${r.date}|${r.shift}|${r.team}`))
 
       for (const combo of combos) {
         const [d, s, t] = combo.split('|')
@@ -159,12 +169,16 @@ Deno.serve(async (req) => {
         if (delErr) console.error(`[sync-roster] Delete error for ${combo}:`, delErr)
       }
 
+      // Use upsert to handle any remaining conflicts from concurrent runs
       const { error: insErr, count } = await supabase
         .from('rosters')
-        .insert(allRecords, { count: 'exact' })
+        .upsert(dedupedRecords, {
+          count: 'exact',
+          onConflict: 'date,shift,employee_name,unit,position',
+        })
 
       if (insErr) throw insErr
-      totalRows = count ?? allRecords.length
+      totalRows = count ?? dedupedRecords.length
     }
 
     message = errors.length > 0

@@ -23,3 +23,18 @@ verify_jwt = false
 
 [functions.fetch-schedule]
 verify_jwt = false
+
+[functions.process-notification-queue]
+verify_jwt = false
+
+[functions.check-duty-changes]
+verify_jwt = false
+
+[functions.check-ope-reminders]
+verify_jwt = false
+
+[functions.check-compoff-expiry]
+verify_jwt = false
+
+[functions.check-license-expiry]
+verify_jwt = false

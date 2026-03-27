@@ -25,6 +25,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePWAOnboarding } from "@/contexts/PWAOnboardingContext";
+import { APP_NAME } from "@/lib/appConfig";
+import { cn } from "@/lib/utils";
 
 type Role = "admin" | "supervisor" | "wso" | "employee";
 
@@ -48,6 +50,15 @@ const appMeta = {
   version: "Phase 8 build",
   lastUpdated: "26 Mar 2026",
 };
+
+const sectionLinks = [
+  ["password", "Reset Password", "Security and account recovery"],
+  ["notifications", "Notification Settings", "Browser, push, email, and in-app alerts"],
+  ["about", "About the App", "Platform overview and operational scope"],
+  ["contact", "Feedback and Problem Contact", "Support channels and issue reporting"],
+  ["faq", "FAQ", "Common questions and quick answers"],
+  ["privacy", "Privacy and Data Use", "How operational data is used in the app"],
+] as const;
 
 const faqs = [
   {
@@ -136,6 +147,43 @@ function ContactCard({
   );
 }
 
+function SectionFrame({
+  id,
+  eyebrow,
+  title,
+  description,
+  children,
+}: {
+  id: string;
+  eyebrow: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section id={id} className="scroll-mt-24 rounded-[24px] border border-slate-200/80 bg-white/90 p-4 shadow-[0_18px_60px_rgba(15,23,42,0.06)] backdrop-blur md:rounded-[28px] md:p-6 dark:border-slate-800/80 dark:bg-slate-950/80">
+      <div className="mb-4 flex flex-col gap-1.5 border-b border-slate-200/80 pb-3 md:mb-5 md:gap-2 md:pb-4 dark:border-slate-800/80">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-sky-700 dark:text-sky-300">{eyebrow}</p>
+        <h2 className="text-xl font-semibold tracking-tight text-slate-950 md:text-2xl dark:text-slate-50">{title}</h2>
+        <p className="hidden max-w-3xl text-sm leading-6 text-slate-600 sm:block dark:text-slate-300">{description}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function OverviewMetric({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "success" | "warning"; }) {
+  return (
+    <div className="rounded-2xl border border-white/12 bg-white/8 p-3 backdrop-blur-sm md:p-4 dark:border-white/10 dark:bg-white/5">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300">{label}</div>
+      <div className={cn(
+        "mt-2 text-sm font-semibold",
+        tone === "success" ? "text-emerald-300" : tone === "warning" ? "text-amber-300" : "text-white",
+      )}>{value}</div>
+    </div>
+  );
+}
+
 function NotificationPermissionCard() {
   const { notificationPermission, enableNotifications, isWorking } = usePWAOnboarding();
 
@@ -202,69 +250,134 @@ function NotificationPermissionCard() {
 
 export default function AppSettingsPage() {
   const { userRole } = useAuth();
+  const { notificationPermission } = usePWAOnboarding();
   const [searchParams] = useSearchParams();
   const portalRole = searchParams.get("portal");
   const role = normalizeRole(portalRole || userRole);
 
+  const notificationStatusLabel = notificationPermission === "unsupported"
+    ? "Unsupported on this device"
+    : notificationPermission === "granted"
+      ? "Enabled"
+      : notificationPermission === "denied"
+        ? "Blocked"
+        : "Needs setup";
+
   return (
     <DashboardLayout role={role}>
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex items-start gap-4">
-            <img src="/logo.png" alt="ATCORA" className="mt-1 h-14 w-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-800 dark:bg-slate-950" />
-            <div>
-            <div className="flex items-center gap-2">
-              <Badge className="rounded-full bg-sky-600 px-3 py-1 text-white hover:bg-sky-600">Settings</Badge>
-              <Badge variant="outline" className="rounded-full px-3 py-1">ATCORA</Badge>
+      <div className="mx-auto max-w-7xl space-y-8">
+        <section className="relative overflow-hidden rounded-[28px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.2),_transparent_30%),radial-gradient(circle_at_88%_18%,_rgba(134,239,172,0.16),_transparent_18%),linear-gradient(135deg,_#0b1934_0%,_#122849_42%,_#0f172a_100%)] p-5 shadow-[0_24px_80px_rgba(15,23,42,0.16)] md:rounded-[32px] md:p-8">
+          <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(255,255,255,0.08),transparent_28%,transparent_72%,rgba(255,255,255,0.03))]" />
+          <div className="relative grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_340px]">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] border border-white/15 bg-slate-950/30 shadow-[0_18px_48px_rgba(2,6,23,0.35)] backdrop-blur-md sm:h-20 sm:w-20 sm:rounded-[26px]">
+                <img src="/logo.png" alt={APP_NAME} className="h-11 w-11 object-contain sm:h-14 sm:w-14" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="rounded-full border-0 bg-sky-500/90 px-3 py-1 text-[11px] text-white hover:bg-sky-500/90">Settings Hub</Badge>
+                  <Badge variant="outline" className="rounded-full border-white/20 bg-white/8 px-3 py-1 text-[11px] text-slate-100">
+                    {APP_NAME}
+                  </Badge>
+                  <Badge variant="outline" className="rounded-full border-emerald-300/30 bg-emerald-300/10 px-3 py-1 text-[11px] text-emerald-100 capitalize">
+                    {role} portal
+                  </Badge>
+                </div>
+                <h1 className="mt-4 whitespace-nowrap text-[2.55rem] font-semibold leading-none tracking-tight text-white sm:text-4xl md:text-5xl">App Settings</h1>
+                <p className="mt-4 hidden max-w-3xl text-base leading-8 text-slate-200/90 sm:block">
+                  A single place to manage account security, notification delivery, support access, and product information in a way that feels operationally clear and dependable.
+                </p>
+                <div className="mt-5 hidden flex-wrap gap-3 text-sm text-slate-200/85 sm:flex">
+                  <div className="rounded-full border border-white/10 bg-white/8 px-4 py-2">Designed for high-trust HR workflows</div>
+                  <div className="rounded-full border border-white/10 bg-white/8 px-4 py-2">Prioritized actions first</div>
+                  <div className="rounded-full border border-white/10 bg-white/8 px-4 py-2">Support and governance in one view</div>
+                </div>
+              </div>
             </div>
-            <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-950 dark:text-slate-50">App Settings</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-              Manage your account, notification access, and app information in one place. The most important controls are listed first.
-            </p>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              <OverviewMetric label="Portal" value={`${role[0].toUpperCase()}${role.slice(1)} workspace`} />
+              <OverviewMetric label="Notifications" value={notificationStatusLabel} tone={notificationPermission === "granted" ? "success" : notificationPermission === "denied" ? "warning" : "default"} />
+              <OverviewMetric label="Release" value={appMeta.version} />
+              <OverviewMetric label="Last updated" value={appMeta.lastUpdated} />
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
           <aside className="xl:sticky xl:top-24 xl:self-start">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Settings List</CardTitle>
-                <CardDescription>Use this list to jump to each section.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {[
-                  ["password", "Reset Password"],
-                  ["notifications", "Notification Settings"],
-                  ["about", "About the App"],
-                  ["contact", "Feedback and Problem Contact"],
-                  ["faq", "FAQ"],
-                  ["privacy", "Privacy and Data Use"],
-                ].map(([id, label], index) => (
+            <div className="space-y-4">
+              <Card className="rounded-[24px] border-slate-200/80 bg-white/90 shadow-[0_18px_60px_rgba(15,23,42,0.06)] backdrop-blur md:rounded-[28px] dark:border-slate-800/80 dark:bg-slate-950/80">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base text-slate-950 dark:text-slate-50">Workspace Guide</CardTitle>
+                  <CardDescription className="hidden sm:block">Jump straight to the section you need without hunting through the page.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-2 sm:space-y-2">
+                  {sectionLinks.map(([id, label, description], index) => (
                   <a
                     key={id}
                     href={`#${id}`}
-                    className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900"
+                    className="group flex items-center justify-between rounded-2xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 transition-all hover:border-sky-300 hover:bg-white dark:border-slate-800 dark:bg-slate-900/70 dark:hover:border-sky-800 dark:hover:bg-slate-950"
                   >
-                    <span>{index + 1}. {label}</span>
-                    <ChevronRight className="h-4 w-4 text-slate-400" />
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{index + 1}. {label}</div>
+                      <div className="mt-1 hidden text-xs leading-5 text-slate-500 sm:block dark:text-slate-400">{description}</div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5 group-hover:text-sky-600" />
                   </a>
-                ))}
-              </CardContent>
-            </Card>
+                  ))}
+                </CardContent>
+              </Card>
+
+              <Card className="hidden rounded-[28px] border-slate-200/80 bg-gradient-to-br from-white to-slate-50 shadow-[0_18px_60px_rgba(15,23,42,0.06)] sm:block dark:border-slate-800/80 dark:from-slate-950 dark:to-slate-900">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Support Posture</CardTitle>
+                  <CardDescription>Built to feel more like a professional people-operations workspace than a utility page.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                  <div className="rounded-2xl bg-slate-100/80 p-4 dark:bg-slate-900">
+                    Security-sensitive actions are placed first, notification controls are grouped together, and support information is clearly separated from product guidance.
+                  </div>
+                  <Button asChild variant="outline" className="w-full justify-between rounded-2xl">
+                    <Link to={`/settings?portal=${role}#contact`}>
+                      Contact support
+                      <ChevronRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
           </aside>
 
           <div className="space-y-6">
-            <section id="password" className="scroll-mt-24">
+            <SectionFrame
+              id="password"
+              eyebrow="Account Security"
+              title="Password and Access Recovery"
+              description="Keep account access protected and make sure recovery emails can be sent without friction."
+            >
               <SettingsPasswordForm />
-            </section>
+            </SectionFrame>
 
-            <section id="notifications" className="scroll-mt-24 space-y-4">
+            <SectionFrame
+              id="notifications"
+              eyebrow="Delivery Controls"
+              title="Notification Permissions and Preferences"
+              description="Manage how updates reach you across browser push, in-app alerts, and email so important workflow events are never missed."
+            >
+              <div className="space-y-4">
               <NotificationPermissionCard />
               <NotificationSettings />
-            </section>
+              </div>
+            </SectionFrame>
 
-            <section id="about" className="scroll-mt-24 space-y-6">
+            <SectionFrame
+              id="about"
+              eyebrow="Platform Overview"
+              title="Why this workspace exists"
+              description="A clearer view of what the app supports, who it serves, and how the broader workflow pieces fit together."
+            >
+              <div className="space-y-6">
               <Card className="border-slate-200 bg-gradient-to-br from-sky-50 via-white to-slate-50 dark:border-slate-800 dark:from-slate-900 dark:via-slate-950 dark:to-slate-900">
                 <CardContent className="p-6">
                   <div className="flex flex-wrap items-center gap-2">
@@ -272,7 +385,7 @@ export default function AppSettingsPage() {
                     <Badge variant="outline" className="rounded-full px-3 py-1">Personal Project</Badge>
                   </div>
                   <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-                    ATCORA is a working operations helper for the Kolkata ATCO community.
+                    {APP_NAME} is a working operations helper for the Kolkata ATCO community.
                   </h2>
                   <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-700 dark:text-slate-300">
                     This webapp is focused on practical day-to-day needs: checking shifts, staying aware of roster changes,
@@ -344,9 +457,16 @@ export default function AppSettingsPage() {
                   </CardContent>
                 </Card>
               </div>
-            </section>
+              </div>
+            </SectionFrame>
 
-            <section id="contact" className="scroll-mt-24 space-y-4">
+            <SectionFrame
+              id="contact"
+              eyebrow="Support Channels"
+              title="Feedback, problem reporting, and direct contact"
+              description="Use the right route depending on whether you are sharing an idea, reporting a fault, or reaching out for operational follow-up."
+            >
+              <div className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <ContactCard
                   icon={MessageCircleMore}
@@ -374,9 +494,15 @@ export default function AppSettingsPage() {
                 href="https://t.me/atcaro12"
                 value="@atcaro12"
               />
-            </section>
+              </div>
+            </SectionFrame>
 
-            <section id="faq" className="scroll-mt-24">
+            <SectionFrame
+              id="faq"
+              eyebrow="Reference"
+              title="Frequently asked questions"
+              description="Short answers to the questions people usually ask when first using the app or evaluating how it fits into daily operations."
+            >
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -399,9 +525,14 @@ export default function AppSettingsPage() {
                   </Accordion>
                 </CardContent>
               </Card>
-            </section>
+            </SectionFrame>
 
-            <section id="privacy" className="scroll-mt-24">
+            <SectionFrame
+              id="privacy"
+              eyebrow="Governance"
+              title="Privacy and data use"
+              description="A plain-language overview of the data involved in delivering schedules, workflow visibility, and notification features."
+            >
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -411,7 +542,7 @@ export default function AppSettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm leading-6 text-slate-700 dark:text-slate-300">
                   <p>
-                    ATCORA stores operational and profile-related data that helps the app deliver schedules, leave workflows,
+                    {APP_NAME} stores operational and profile-related data that helps the app deliver schedules, leave workflows,
                     attendance visibility, roster context, and alerting features.
                   </p>
                   <p>
@@ -424,7 +555,7 @@ export default function AppSettingsPage() {
                   </p>
                 </CardContent>
               </Card>
-            </section>
+            </SectionFrame>
           </div>
         </div>
       </div>
