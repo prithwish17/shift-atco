@@ -16,6 +16,7 @@ import {
   isPushSupported,
   subscribeToPush,
 } from "@/utils/pushSubscription";
+import type { PushStatus } from "@/hooks/usePushNotifications";
 
 const INSTALL_DISMISSED_KEY = "installDismissed";
 const NOTIFICATION_DISMISSED_KEY = "notificationDismissed";
@@ -36,6 +37,7 @@ interface PWAOnboardingContextValue {
   shouldShowNotificationBanner: boolean;
   shouldShowIOSInstallHint: boolean;
   notificationPermission: NotificationPermission | "unsupported";
+  notificationStatus: PushStatus;
   isWorking: boolean;
   installApp: () => Promise<void>;
   dismissInstall: () => void;
@@ -85,6 +87,7 @@ export function PWAOnboardingProvider({ children }: { children: ReactNode }) {
     getNotificationPermissionState()
   );
   const [isWorking, setIsWorking] = useState(false);
+  const [notificationStatus, setNotificationStatus] = useState<PushStatus>("idle");
   const hasShownInstallLog = useRef(false);
   const hasShownNotificationLog = useRef(false);
   const isIOS = detectIOS();
@@ -260,6 +263,7 @@ export function PWAOnboardingProvider({ children }: { children: ReactNode }) {
     }
 
     setIsWorking(true);
+    setNotificationStatus("subscribing");
 
     try {
       // Handle both Promise-based and callback-based requestPermission (Safari compat)
@@ -323,8 +327,30 @@ export function PWAOnboardingProvider({ children }: { children: ReactNode }) {
       });
     } finally {
       setIsWorking(false);
+      setNotificationStatus("idle");
     }
   };
+
+  // Auto-ensure push subscription when permission is already granted
+  useEffect(() => {
+    if (!user || loading) return;
+    if (getNotificationPermissionState() !== "granted" || !isPushSupported()) return;
+
+    // Silently ensure subscription exists (e.g. after browser data clear)
+    (async () => {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const existing = await registration.pushManager.getSubscription();
+        if (!existing) {
+          await subscribeToPush();
+        }
+        setNotificationEnabled(true);
+        writeStoredFlag(NOTIFICATION_ENABLED_KEY, true);
+      } catch {
+        // Non-critical — don't surface to user
+      }
+    })();
+  }, [user, loading]);
 
   return (
     <PWAOnboardingContext.Provider
@@ -335,6 +361,7 @@ export function PWAOnboardingProvider({ children }: { children: ReactNode }) {
         shouldShowNotificationBanner,
         shouldShowIOSInstallHint,
         notificationPermission,
+        notificationStatus,
         isWorking,
         installApp,
         dismissInstall,
