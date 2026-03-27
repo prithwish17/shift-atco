@@ -2,8 +2,9 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { PWAOnboardingProvider } from "./contexts/PWAOnboardingContext";
@@ -87,6 +88,114 @@ const queryClient = new QueryClient({
   },
 });
 
+function GenericDashboardSkeleton() {
+  return (
+    <div className="flex min-h-screen w-full bg-gray-50 dark:bg-gray-950">
+      <aside className="hidden w-72 shrink-0 border-r border-gray-200 bg-white/80 px-4 py-5 dark:border-gray-800 dark:bg-gray-900/80 lg:block">
+        <Skeleton className="mb-8 h-9 w-32 rounded-xl" />
+        <div className="space-y-3">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <Skeleton key={index} className="h-10 w-full rounded-xl" />
+          ))}
+        </div>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center justify-between border-b border-gray-200 bg-white/80 px-4 py-3 dark:border-gray-800 dark:bg-gray-900/80 md:px-6">
+          <Skeleton className="h-10 w-10 rounded-lg lg:hidden" />
+          <div className="flex-1 lg:flex-none" />
+          <div className="flex items-center gap-3">
+            <Skeleton className="hidden h-9 w-24 rounded-lg sm:block" />
+            <Skeleton className="h-9 w-9 rounded-full" />
+            <Skeleton className="h-9 w-9 rounded-full" />
+            <Skeleton className="h-9 w-28 rounded-full" />
+          </div>
+        </header>
+
+        <main className="flex-1 space-y-6 p-4 md:p-6">
+          <div className="space-y-3">
+            <Skeleton className="h-8 w-64 rounded-xl" />
+            <Skeleton className="h-4 w-80 max-w-full rounded-lg" />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                <div className="flex items-center justify-between px-6 pb-2 pt-6">
+                  <Skeleton className="h-4 w-24 rounded-lg" />
+                  <Skeleton className="h-4 w-4 rounded-full" />
+                </div>
+                <div className="px-6 pb-6 pt-0">
+                  <Skeleton className="h-8 w-20 rounded-lg" />
+                  <Skeleton className="mt-2 h-3 w-32 rounded-lg" />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+            <section className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+              <div className="px-6 pb-0 pt-6">
+                <Skeleton className="h-6 w-48 rounded-lg" />
+                <Skeleton className="mt-2 h-4 w-64 max-w-full rounded-lg" />
+              </div>
+              <div className="space-y-3 px-6 pb-6 pt-6">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <Skeleton key={index} className="h-12 w-full rounded-xl" />
+                ))}
+              </div>
+            </section>
+
+            <section className="space-y-6">
+              <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                <div className="px-6 pb-0 pt-6">
+                  <Skeleton className="h-6 w-36 rounded-lg" />
+                </div>
+                <div className="space-y-4 px-6 pb-6 pt-5">
+                  <Skeleton className="h-28 w-full rounded-2xl" />
+                  <Skeleton className="h-28 w-full rounded-2xl" />
+                </div>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                <div className="px-6 pb-0 pt-6">
+                  <Skeleton className="h-6 w-32 rounded-lg" />
+                </div>
+                <div className="space-y-3 px-6 pb-6 pt-5">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <Skeleton key={index} className="h-10 w-full rounded-xl" />
+                  ))}
+                </div>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function RouteLoader() {
+  const { pathname } = useLocation();
+  const isDashboardRoute =
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/supervisor") ||
+    pathname.startsWith("/wso") ||
+    pathname.startsWith("/employee") ||
+    pathname.startsWith("/atc") ||
+    pathname === "/settings" ||
+    pathname === "/roster";
+
+  if (isDashboardRoute) {
+    return <GenericDashboardSkeleton />;
+  }
+
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center px-6 py-10">
+      <Skeleton className="h-10 w-40 rounded-full" />
+    </div>
+  );
+}
+
 function App() {
   const [showBootSplash, setShowBootSplash] = useState(true);
   const [bootSplashExiting, setBootSplashExiting] = useState(false);
@@ -113,7 +222,7 @@ function App() {
               <AuthProvider>
                 <PWAOnboardingProvider>
                   <PWAOnboardingBanner />
-                  <Suspense fallback={showBootSplash ? null : <AppSplash fullscreen={false} />}>
+                  <Suspense fallback={<RouteLoader />}>
                     <Routes>
                     <Route path="/" element={<Index />} />
                     <Route path="/login" element={<Login />} />
