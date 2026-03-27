@@ -22,9 +22,11 @@ export default defineConfig(({ mode }) => ({
       "@tanstack/react-virtual",
       "react-hook-form",
       "@hookform/resolvers",
+      "@supabase/supabase-js",
       // ── UI primitives (Radix) ──
       "@radix-ui/react-accordion",
       "@radix-ui/react-alert-dialog",
+      "@radix-ui/react-aspect-ratio",
       "@radix-ui/react-avatar",
       "@radix-ui/react-checkbox",
       "@radix-ui/react-collapsible",
@@ -58,13 +60,24 @@ export default defineConfig(({ mode }) => ({
       "input-otp",
       "next-themes",
       "lucide-react",
+      "lottie-react",
       "react-day-picker",
       "react-resizable-panels",
+      // ── Non-React but frequently imported (avoids re-optimization) ──
+      "date-fns",
+      "zod",
+      "class-variance-authority",
+      "clsx",
+      "tailwind-merge",
     ],
   },
   server: {
-    host: "::",
+    host: "localhost",
     port: 8080,
+    hmr: {
+      host: "localhost",
+      port: 8080,
+    },
   },
   plugins: [react()],
   resolve: {
