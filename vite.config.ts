@@ -60,6 +60,7 @@ export default defineConfig(({ mode }) => ({
       "lucide-react",
       "react-day-picker",
       "react-resizable-panels",
+      "@vercel/analytics/react",
     ],
   },
   server: {
