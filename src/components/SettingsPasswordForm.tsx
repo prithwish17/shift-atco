@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, KeyRound, Loader2, Mail } from "lucide-react
 
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { getAppUrl } from "@/lib/appConfig";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,7 +42,7 @@ export function SettingsPasswordForm({ onSuccess }: SettingsPasswordFormProps) {
         return;
       }
 
-      const redirectTo = `${window.location.origin}/reset-password`;
+      const redirectTo = getAppUrl("/reset-password");
       const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
       if (error) {
         setAuthError(error.message || "Failed to send confirmation email.");

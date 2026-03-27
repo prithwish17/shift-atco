@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Lock, CheckCircle2, AlertCircle, Mail, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { getAppUrl } from "@/lib/appConfig";
 
 export default function ChangePassword() {
   const { toast } = useToast();
@@ -27,7 +28,7 @@ export default function ChangePassword() {
         return;
       }
 
-      const redirectTo = `${window.location.origin}/reset-password`;
+      const redirectTo = getAppUrl("/reset-password");
       const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
       if (error) {
         setAuthError(error.message || "Failed to send confirmation email.");

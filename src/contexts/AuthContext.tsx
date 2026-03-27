@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { getHomeRouteForRole } from "@/lib/roleRoutes";
 import { useNavigate } from "react-router-dom";
 import { isPushSupported, unsubscribeFromPush } from "@/utils/pushSubscription";
+import { getAppUrl } from "@/lib/appConfig";
 
 interface AuthContextType {
   user: User | null;
@@ -98,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = async (email: string, password: string, userData: any) => {
     try {
-      const redirectUrl = `${window.location.origin}/`;
+      const redirectUrl = getAppUrl("/");
 
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -171,7 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resetPassword = async (email: string) => {
     try {
-      const redirectUrl = `${window.location.origin}/reset-password`;
+      const redirectUrl = getAppUrl("/reset-password");
 
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: redirectUrl,
