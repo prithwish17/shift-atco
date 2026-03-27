@@ -10,6 +10,7 @@ import { PWAOnboardingProvider } from "./contexts/PWAOnboardingContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PWAOnboardingBanner } from "./components/PWAOnboardingBanner";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 // --- Lazy-loaded page components (code splitting) ---
 const Index = lazy(() => import("./pages/Index"));
@@ -100,6 +101,7 @@ const App = () => (
         <TooltipProvider>
           <Toaster />
           <Sonner />
+          <SpeedInsights />
           <BrowserRouter>
             <AuthProvider>
               <PWAOnboardingProvider>
