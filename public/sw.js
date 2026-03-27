@@ -1,63 +1,100 @@
 /* eslint-disable no-restricted-globals */
 
-// Service Worker for ATCORA PWA — caching + push notifications
+// Service Worker for ATCORA PWA — caching, update lifecycle, and push notifications
+//
+// HOW UPDATES WORK:
+// 1. Vercel serves sw.js with Cache-Control: no-cache — browser always byte-checks.
+// 2. Any change to this file (including CACHE_VERSION bump from build) triggers
+//    the browser's "installing" → "waiting" lifecycle.
+// 3. The app (main.tsx) detects the waiting worker and sends SKIP_WAITING.
+// 4. This worker calls skipWaiting(), activates, purges old caches, claims clients.
+// 5. The app listens for controllerchange and reloads the page once.
 
-const CACHE_NAME = 'atcora-v2';
+const CACHE_VERSION = 'atcora-v3';
 const APP_SHELL = ['/', '/index.html'];
 
-// ──── Install: pre-cache app shell ────
+// ──── Install: pre-cache app shell, skip waiting immediately if told to ────
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting())
+    caches
+      .open(CACHE_VERSION)
+      .then((cache) => cache.addAll(APP_SHELL))
+      .then(() => self.skipWaiting())
   );
 });
 
-// ──── Activate: clean old caches ────
+// ──── Activate: purge ALL old caches, claim clients ────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))
+        )
+      )
+      .then(() => self.clients.claim())
   );
 });
 
-// ──── Fetch: network-first for navigation, cache-first for hashed assets ────
+// ──── Message: allow app to tell a waiting worker to take over ────
+self.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+});
+
+// ──── Fetch ────
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET, API, and Supabase requests
+  // Skip non-GET, API calls, and Supabase traffic
   if (request.method !== 'GET') return;
   if (url.pathname.startsWith('/api/') || url.origin.includes('supabase')) return;
 
-  // Hashed Vite assets — cache-first (immutable)
-  if (url.pathname.startsWith('/assets/')) {
-    event.respondWith(
-      caches.match(request).then((cached) => cached || fetch(request).then((res) => {
-        const clone = res.clone();
-        caches.open(CACHE_NAME).then((c) => c.put(request, clone));
-        return res;
-      }))
-    );
-    return;
-  }
-
-  // Navigation — network-first with offline fallback
+  // ── Navigation requests → ALWAYS network-first ──
+  // This guarantees the browser gets the latest index.html (with fresh asset hashes)
+  // after every deploy.  Offline fallback serves the last cached copy.
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match('/index.html'))
+      fetch(request)
+        .then((res) => {
+          const clone = res.clone();
+          caches.open(CACHE_VERSION).then((c) => c.put(request, clone));
+          return res;
+        })
+        .catch(() => caches.match('/index.html'))
     );
     return;
   }
 
-  // Other static assets — stale-while-revalidate
+  // ── Hashed Vite assets (/assets/*) → cache-first (immutable) ──
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(request).then(
+        (cached) =>
+          cached ||
+          fetch(request).then((res) => {
+            const clone = res.clone();
+            caches.open(CACHE_VERSION).then((c) => c.put(request, clone));
+            return res;
+          })
+      )
+    );
+    return;
+  }
+
+  // ── Everything else → stale-while-revalidate ──
   event.respondWith(
     caches.match(request).then((cached) => {
-      const fetched = fetch(request).then((res) => {
-        const clone = res.clone();
-        caches.open(CACHE_NAME).then((c) => c.put(request, clone));
-        return res;
-      }).catch(() => cached);
+      const fetched = fetch(request)
+        .then((res) => {
+          const clone = res.clone();
+          caches.open(CACHE_VERSION).then((c) => c.put(request, clone));
+          return res;
+        })
+        .catch(() => cached);
       return cached || fetched;
     })
   );
@@ -88,16 +125,16 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const url = event.notification.data?.url || '/';
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
-      // Focus existing window if one is open
-      for (const client of clients) {
-        if (client.url.includes(self.location.origin) && 'focus' in client) {
-          client.navigate(url);
-          return client.focus();
+    self.clients
+      .matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clients) => {
+        for (const client of clients) {
+          if (client.url.includes(self.location.origin) && 'focus' in client) {
+            client.navigate(url);
+            return client.focus();
+          }
         }
-      }
-      // Otherwise open a new window
-      return self.clients.openWindow(url);
-    })
+        return self.clients.openWindow(url);
+      })
   );
 });

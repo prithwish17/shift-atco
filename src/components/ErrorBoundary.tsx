@@ -25,6 +25,20 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Error caught by boundary:", error, errorInfo);
+
+    // Chunk-load failures happen when a new deploy removes old hashed assets.
+    // Auto-reload once so the browser fetches the fresh index.html + new chunks.
+    const isChunkError =
+      /loading.*(chunk|module)|dynamically imported module|failed to fetch/i.test(
+        error.message
+      );
+    if (isChunkError && !sessionStorage.getItem('chunk_reload')) {
+      sessionStorage.setItem('chunk_reload', '1');
+      window.location.reload();
+      return;
+    }
+    // Clear the guard after a successful render cycle (see componentDidUpdate)
+    sessionStorage.removeItem('chunk_reload');
   }
 
   handleReset = () => {
