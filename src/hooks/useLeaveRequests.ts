@@ -60,6 +60,9 @@ export type LeaveRequestFilters = {
     startDate?: string;
     endDate?: string;
 };
+export function isFinalLeaveApproved(request: Pick<LeaveRequest, 'status' | 'supervisor_approved_at'>): boolean {
+    return request.status === 'Approved' && Boolean(request.supervisor_approved_at);
+}
 
 type EmployeeScheduleRow = {
     id: string;
@@ -459,14 +462,12 @@ export function useCancelApprovedLeaveRequest() {
                 remarks: remarks || null,
             };
 
+            // Store cancellation info in remarks; do NOT overwrite original approval fields
+            // to preserve the audit trail of who originally approved.
             if (actor_role === 'wso') {
-                updateData.wso_approved_by = reviewed_by;
-                updateData.wso_approved_at = new Date().toISOString();
-                updateData.wso_comments = remarks || null;
+                updateData.wso_comments = remarks ? `[Cancelled] ${remarks}` : updateData.wso_comments;
             } else {
-                updateData.supervisor_approved_by = reviewed_by;
-                updateData.supervisor_approved_at = new Date().toISOString();
-                updateData.supervisor_comments = remarks || null;
+                updateData.supervisor_comments = remarks ? `[Cancelled] ${remarks}` : updateData.supervisor_comments;
             }
 
             const { data, error } = await supabase
@@ -643,13 +644,14 @@ export function useLeaveCountSummary(userId?: string) {
             if (!userId) return {};
             const { data, error } = await supabase
                 .from('leave_requests' as any)
-                .select('leave_type, status')
+                .select('leave_type, status, supervisor_approved_at')
                 .eq('employee_id', userId)
                 .eq('status', 'Approved');
             if (error) throw error;
 
             const summary: Record<string, number> = {};
             for (const row of (data || []) as any[]) {
+                if (!row.supervisor_approved_at) continue;
                 summary[row.leave_type] = (summary[row.leave_type] || 0) + 1;
             }
             return summary;

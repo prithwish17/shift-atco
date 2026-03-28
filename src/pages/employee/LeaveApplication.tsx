@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { useQuery } from '@tanstack/react-query';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,7 +17,7 @@ import { toast } from 'sonner';
 import { Calendar, Clock3, CheckCircle2, AlertCircle, Send, Ban, Sparkles, ArrowRight, ShieldCheck, CalendarRange, BriefcaseBusiness } from 'lucide-react';
 import { format, differenceInDays, isBefore, startOfDay } from 'date-fns';
 import { LEAVE_TYPES, getLeaveTypeLabel, getLeaveStatusInfo } from '@/lib/leaveConstants';
-import { useMyLeaveRequests, useCreateLeaveRequest, useCancelLeaveRequest } from '@/hooks/useLeaveRequests';
+import { useMyLeaveRequests, useCreateLeaveRequest, useCancelLeaveRequest, isFinalLeaveApproved } from '@/hooks/useLeaveRequests';
 import { useLeaveData } from '@/hooks/useLeaveData';
 import { useLeaveBalances } from '@/hooks/useLeaves';
 import { useHolidaysByYear } from '@/hooks/useHolidayDashboard';
@@ -155,18 +156,21 @@ export default function LeaveApplication() {
   const { user } = useAuth();
 
   // Profile data (fetched once)
-  const [profile, setProfile] = useState<{ full_name: string; current_shift: string; employee_id: string | null } | null>(null);
-  useEffect(() => {
-    if (!user?.id) return;
-    supabase
-      .from('profiles')
-      .select('full_name, current_shift, employee_id')
-      .eq('id', user.id)
-      .single()
-      .then(({ data }) => {
-        if (data) setProfile(data as any);
-      });
-  }, [user?.id]);
+  const { data: profile } = useQuery({
+    queryKey: ['my-profile-leave', user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('full_name, current_shift, employee_id')
+        .eq('id', user.id)
+        .single();
+      if (error) throw error;
+      return data as { full_name: string; current_shift: string; employee_id: string | null };
+    },
+    enabled: !!user?.id,
+    staleTime: 30 * 60 * 1000,
+  });
 
   const { data: myRequests = [], isLoading } = useMyLeaveRequests(user?.id);
   const { data: leaveBalances = [], isLoading: leaveBalancesLoading } = useLeaveBalances(user?.id);
@@ -197,17 +201,25 @@ export default function LeaveApplication() {
   // Check if it's a half-day leave type
   const isHalfDay = formData.leave_type.startsWith('CL_1ST') || formData.leave_type.startsWith('CL_2ND');
 
-  // Holiday validation
+  // Holiday validation (fetch next year too when the leave range spans Dec→Jan)
   const currentYear = new Date().getFullYear();
+  const endDateYear = formData.end_date ? new Date(formData.end_date).getFullYear() : currentYear;
+  const needsNextYear = endDateYear > currentYear;
   const { data: holidays = [] } = useHolidaysByYear(currentYear);
+  const { data: nextYearHolidays = [] } = useHolidaysByYear(needsNextYear ? endDateYear : currentYear + 1);
+  const allHolidays = useMemo(() => {
+    if (!needsNextYear) return holidays;
+    const ids = new Set(holidays.map(h => h.id));
+    return [...holidays, ...nextYearHolidays.filter(h => !ids.has(h.id))];
+  }, [holidays, nextYearHolidays, needsNextYear]);
   const holidayConflicts = useMemo<HolidayConflict[]>(() => {
     if (!formData.start_date || !formData.end_date) return [];
     return validateLeaveAgainstHolidays(
       new Date(formData.start_date),
       new Date(formData.end_date),
-      holidays
+      allHolidays
     );
-  }, [formData.start_date, formData.end_date, holidays]);
+  }, [formData.start_date, formData.end_date, allHolidays]);
   const requestedDays = isHalfDay ? 0.5 : totalDays;
   const balanceBucket = useMemo(() => getBalanceBucket(formData.leave_type), [formData.leave_type]);
   const employeeLeaveRecord = useMemo(() => {
@@ -333,26 +345,23 @@ export default function LeaveApplication() {
         ? `${balanceLabel} balance is insufficient. Total: ${availableBalance ?? 0}, already applied: ${alreadyAppliedDays}, remaining: ${effectiveBalance ?? 0}. You are requesting ${requestedDays} day${requestedDays === 1 ? '' : 's'}. Please correct your leave application.`
         : typeof effectiveBalance === 'number'
           ? `${balanceLabel} balance: ${availableBalance ?? 0}${balanceYear && balanceYear !== currentYear ? ` (from ${balanceYear})` : ''}, applied: ${alreadyAppliedDays}, remaining: ${effectiveBalance}. Requesting: ${requestedDays}.`
-          : null
-    : null;
+              : null
+            : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !profile) return;
-
     // Validate dates
     if (totalDays <= 0) {
       toast.error('End date must be after or equal to start date');
       return;
     }
 
-    const today = startOfDay(new Date());
     if (isBefore(new Date(formData.start_date), today)) {
       toast.error('Cannot apply leave for past dates');
       return;
     }
 
-    // Half-day leaves must be single day
     if (isHalfDay && formData.start_date !== formData.end_date) {
       toast.error('Half-day leave must be for a single date');
       return;
@@ -425,7 +434,7 @@ export default function LeaveApplication() {
   };
 
   // Summary counts
-  const approvedCount = myRequests.filter(r => r.status === 'Approved').length;
+  const approvedCount = myRequests.filter(r => isFinalLeaveApproved(r)).length;
   const pendingCount = myRequests.filter(r => r.status === 'Pending WSO' || r.status === 'Pending Supervisor').length;
   const rejectedCount = myRequests.filter(r => r.status === 'Rejected').length;
   const upcomingRequest = useMemo(() => {
@@ -1017,9 +1026,9 @@ export default function LeaveApplication() {
                       </div>
 
                       <div className="rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-[13px] leading-5 text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 sm:px-4 sm:text-sm sm:leading-6">
-                        {req.status === 'Pending Supervisor'
-                          ? 'Approved by WSO, awaiting supervisor final approval.'
-                          : req.remarks || req.reason || 'No remarks added for this request.'}
+                        {req.reason || req.remarks || (req.status === 'Pending Supervisor'
+                          ? 'In final approval review.'
+                          : 'No remarks added for this request.')}
                       </div>
                     </div>
                   </CardContent>

@@ -10,14 +10,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { History, Calendar, Filter, Search, Ban, AlertCircle, ChevronDown, ChevronUp, Clock, CheckCircle2, XCircle, FileText, ClipboardList } from 'lucide-react';
 import { format, parseISO, isAfter, startOfDay } from 'date-fns';
-import { useMyLeaveRequests, useCancelLeaveRequest } from '@/hooks/useLeaveRequests';
+import { useMyLeaveRequests, useCancelLeaveRequest, isFinalLeaveApproved } from '@/hooks/useLeaveRequests';
 import { LEAVE_TYPES, LEAVE_STATUS, getLeaveTypeLabel, getLeaveStatusInfo } from '@/lib/leaveConstants';
 import { useLeaveRecords, useLeaveRecordSummary, LEAVE_CATEGORIES, getLeaveCategoryLabel, getLeaveCategoryColor, type LeaveRecord } from '@/hooks/useLeaveRecords';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-// Color map for category cards
 const CATEGORY_COLORS: Record<string, { border: string; text: string }> = {
     indigo: { border: 'border-l-indigo-500', text: 'text-indigo-600' },
     blue: { border: 'border-l-blue-500', text: 'text-blue-600' },
@@ -33,7 +32,6 @@ export default function LeaveHistory() {
     const { data: requests = [], isLoading } = useMyLeaveRequests(user?.id);
     const cancelRequest = useCancelLeaveRequest();
 
-    // Resolve employee_id from profile for leave records
     const { data: profile } = useQuery({
         queryKey: ['my-profile-empid', user?.id],
         queryFn: async () => {
@@ -51,32 +49,24 @@ export default function LeaveHistory() {
     });
 
     const empId = profile?.employee_id || '';
-
-    // Leave Register data
     const currentYear = new Date().getFullYear();
     const [registerYear, setRegisterYear] = useState<number>(currentYear);
     const [registerCategoryFilter, setRegisterCategoryFilter] = useState<string>('all');
     const { data: leaveRecords = [], isLoading: recordsLoading } = useLeaveRecords(empId, registerYear);
     const { data: summary = {} } = useLeaveRecordSummary(empId, registerYear);
 
-    // Filters for Leave Requests tab
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [typeFilter, setTypeFilter] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
-
-    // Cancel dialog
     const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
     const [cancelTarget, setCancelTarget] = useState<string | null>(null);
-
-    // Detail drawer
-    const [detailRequest, setDetailRequest] = useState<any | null>(null);
+    const [detailRequest, setDetailRequest] = useState<(typeof requests)[number] | null>(null);
 
     const today = startOfDay(new Date());
 
-    // Filter & sort leave requests
     const filtered = useMemo(() => {
-        let list = [...requests];
+        let list = requests.filter((request) => request.status !== 'Approved' || isFinalLeaveApproved(request));
 
         if (statusFilter !== 'all') {
             list = list.filter((r) => r.status === statusFilter);
@@ -102,21 +92,19 @@ export default function LeaveHistory() {
         return list;
     }, [requests, statusFilter, typeFilter, searchQuery, sortOrder]);
 
-    // Filter leave records
     const filteredRecords = useMemo(() => {
         if (registerCategoryFilter === 'all') return leaveRecords;
         return leaveRecords.filter((r) => r.leave_category === registerCategoryFilter);
     }, [leaveRecords, registerCategoryFilter]);
 
-    // Summary stats for Leave Requests tab
     const stats = useMemo(() => {
         const total = requests.length;
-        const approved = requests.filter((r) => r.status === 'Approved').length;
+        const approved = requests.filter((request) => isFinalLeaveApproved(request)).length;
         const pending = requests.filter((r) => r.status === 'Pending WSO' || r.status === 'Pending Supervisor').length;
         const rejected = requests.filter((r) => r.status === 'Rejected').length;
         const cancelled = requests.filter((r) => r.status === 'Cancelled').length;
         const totalDaysApproved = requests
-            .filter((r) => r.status === 'Approved')
+            .filter((request) => isFinalLeaveApproved(request))
             .reduce((sum, r) => sum + (r.total_days || 0), 0);
         return { total, approved, pending, rejected, cancelled, totalDaysApproved };
     }, [requests]);
@@ -332,9 +320,9 @@ export default function LeaveHistory() {
 
                                                 {(req.reason || req.status === 'Pending Supervisor') && (
                                                     <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 text-xs leading-5 text-muted-foreground dark:border-neutral-800 dark:bg-neutral-900/60 sm:text-sm">
-                                                        {req.status === 'Pending Supervisor'
-                                                            ? 'Approved by WSO, awaiting supervisor final approval.'
-                                                            : req.reason}
+                                                        {req.reason || (req.status === 'Pending Supervisor'
+                                                            ? 'In final approval review.'
+                                                            : null)}
                                                     </div>
                                                 )}
                                             </div>
@@ -532,13 +520,13 @@ export default function LeaveHistory() {
                                             {detailRequest.wso_approved_at && (
                                                 <div className="flex items-center gap-2 text-xs bg-green-50 dark:bg-green-900/10 p-2 rounded-lg">
                                                     <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                                                    <span>WSO approved on {format(parseISO(detailRequest.wso_approved_at), 'dd MMM yyyy, hh:mm a')}</span>
+                                                    <span>Initial review completed on {format(parseISO(detailRequest.wso_approved_at), 'dd MMM yyyy, hh:mm a')}</span>
                                                 </div>
                                             )}
                                             {detailRequest.supervisor_approved_at && (
                                                 <div className="flex items-center gap-2 text-xs bg-green-50 dark:bg-green-900/10 p-2 rounded-lg">
                                                     <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                                                    <span>Supervisor approved on {format(parseISO(detailRequest.supervisor_approved_at), 'dd MMM yyyy, hh:mm a')}</span>
+                                                    <span>Final approval completed on {format(parseISO(detailRequest.supervisor_approved_at), 'dd MMM yyyy, hh:mm a')}</span>
                                                 </div>
                                             )}
                                             {detailRequest.status === 'Rejected' && detailRequest.reviewed_at && (
@@ -556,7 +544,7 @@ export default function LeaveHistory() {
                                             {detailRequest.status === 'Pending Supervisor' && (
                                                 <div className="flex items-center gap-2 text-xs bg-amber-50 dark:bg-amber-900/10 p-2 rounded-lg">
                                                     <Clock className="h-3.5 w-3.5 text-amber-600" />
-                                                    <span>WSO approved — awaiting Supervisor final approval</span>
+                                                    <span>Initial review completed — awaiting final approval</span>
                                                 </div>
                                             )}
                                         </div>

@@ -18,7 +18,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
 import { useElDetails } from "@/hooks/useElData";
 import { useLeaveData } from "@/hooks/useLeaveData";
-import { useMyLeaveRequests } from "@/hooks/useLeaveRequests";
+import { isFinalLeaveApproved, useMyLeaveRequests } from "@/hooks/useLeaveRequests";
 import { useMySchedule } from "@/hooks/useEmployeeSchedules";
 import type { CompOffHistoryEntry } from "@/utils/leaveCalculations";
 import { eachDayOfInterval, endOfMonth, format, isAfter, isBefore, parseISO, startOfMonth } from "date-fns";
@@ -406,7 +406,7 @@ export default function EmployeeLeavePage() {
 
     if (approvedCount === 0) {
       myLeaveRequests
-        .filter((request) => request.status === "Approved")
+        .filter((request) => isFinalLeaveApproved(request))
         .forEach((request) => {
           const requestStart = parseISO(request.start_date);
           const requestEnd = parseISO(request.end_date);

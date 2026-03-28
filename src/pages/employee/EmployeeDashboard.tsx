@@ -8,7 +8,7 @@ import { useLeaveBalances } from "@/hooks/useLeaves";
 import { useShifts } from "@/hooks/useShifts";
 import { useMyRoster } from "@/hooks/useRosters";
 import { useMySchedule, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
-import { useMyLeaveRequests } from "@/hooks/useLeaveRequests";
+import { isFinalLeaveApproved, useMyLeaveRequests } from "@/hooks/useLeaveRequests";
 import { useDutyExchanges } from "@/hooks/useDutyExchanges";
 import { buildEmployeeLicenseHealth, type LicenseWithExtras } from "@/hooks/useLicenseDashboard";
 import { format, addDays, isSameDay, parse, parseISO, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, isAfter, isBefore } from "date-fns";
@@ -222,7 +222,7 @@ export default function EmployeeDashboard() {
     const monthEndDate = parseISO(currentMonthEnd);
 
     myLeaveRequests
-      .filter((request) => request.status === "Approved")
+      .filter((request) => isFinalLeaveApproved(request))
       .forEach((request) => {
         const requestStart = parseISO(request.start_date);
         const requestEnd = parseISO(request.end_date);

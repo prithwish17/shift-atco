@@ -406,17 +406,15 @@ export default function LeaveApprovals() {
                                 <CheckCircle className="h-3 w-3 mr-1" />
                                 {isWSO ? 'Approve & Forward' : isDirectSupervisorCandidate ? 'Direct Approve' : 'Final Approve'}
                               </Button>
-                              {!isDirectSupervisorCandidate && (
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  className="h-7 text-xs px-2"
-                                  onClick={() => openReview(req, 'reject')}
-                                >
-                                  <XCircle className="h-3 w-3 mr-1" />
-                                  Reject
-                                </Button>
-                              )}
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="h-7 text-xs px-2"
+                                onClick={() => openReview(req, 'reject')}
+                              >
+                                <XCircle className="h-3 w-3 mr-1" />
+                                Reject
+                              </Button>
                             </div>
                           ) : req.status === 'Approved' ? (
                             <Button
