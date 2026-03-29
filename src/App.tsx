@@ -12,6 +12,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PWAOnboardingBanner } from "./components/PWAOnboardingBanner";
 import { AppSplash, APP_SPLASH_FADE_MS, APP_SPLASH_PLAY_MS } from "./components/AppSplash";
+import { Analytics } from "@vercel/analytics/react";
 
 // --- Lazy-loaded page components (code splitting) ---
 const Index = lazy(() => import("./pages/Index"));
@@ -217,6 +218,7 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <Sonner />
+            <Analytics />
             {showBootSplash ? <AppSplash isExiting={bootSplashExiting} /> : null}
             <BrowserRouter>
               <AuthProvider>
