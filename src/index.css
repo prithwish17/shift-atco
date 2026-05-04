@@ -1,0 +1,305 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 215 25% 27%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 25% 27%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 25% 27%;
+
+    --primary: 220 77% 39%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 215 16% 47%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 160 84% 39%;
+    --accent-foreground: 0 0% 100%;
+
+    --warning: 32 95% 44%;
+    --warning-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 220 77% 39%;
+
+    --radius: 0.5rem;
+
+    /* Fluid Typography Scale */
+    --text-xs: clamp(0.65rem, 0.6rem + 0.2vw, 0.75rem);
+    --text-sm: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
+    --text-base: clamp(0.875rem, 0.825rem + 0.3vw, 1rem);
+    --text-lg: clamp(1rem, 0.95rem + 0.4vw, 1.2rem);
+    --text-xl: clamp(1.15rem, 1.05rem + 0.5vw, 1.4rem);
+    --text-2xl: clamp(1.4rem, 1.25rem + 0.7vw, 1.75rem);
+
+    /* Semantic Typography Tokens */
+    --text-title: var(--text-base);
+    --text-label: var(--text-xs);
+    --text-body: var(--text-sm);
+    --text-meta: var(--text-xs);
+
+    /* Fluid Spacing Scale */
+    --space-1: clamp(2px, 0.25vw, 4px);
+    --space-2: clamp(4px, 0.4vw, 8px);
+    --space-3: clamp(8px, 0.75vw, 14px);
+    --space-4: clamp(12px, 1vw, 20px);
+    --space-5: clamp(16px, 1.4vw, 28px);
+    --space-6: clamp(20px, 1.8vw, 36px);
+
+    /* Schedule Calendar Tokens */
+    --cal-cell-gap: clamp(2px, 0.3vw, 6px);
+    --cal-cell-radius: clamp(6px, 0.5vw, 12px);
+    --cal-cell-pad: clamp(4px, 0.5vw, 10px);
+
+    --header-bg: 220 50% 18%;
+    --header-fg: 0 0% 100%;
+    --header-date-bg: 220 60% 22%;
+    --header-shift-bg: 210 30% 92%;
+    --header-shift-fg: 220 20% 30%;
+    --cell-occupied: 220 20% 15%;
+    --cell-empty: 220 10% 70%;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 215 25% 27%;
+    --sidebar-primary: 220 77% 39%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 40% 96%;
+    --sidebar-accent-foreground: 215 25% 27%;
+    --sidebar-border: 214 32% 91%;
+    --sidebar-ring: 220 77% 39%;
+
+    /* ===== CORPORATE SURFACES ===== */
+    --corp-bg-page: #F6F8FB;
+    --corp-bg-surface: #FFFFFF;
+    --corp-bg-elevated: #F1F4F9;
+    --corp-bg-soft: #F8FAFF;
+
+    /* ===== CORPORATE BRAND ===== */
+    --corp-primary-soft: #E8EEFF;
+    --corp-primary-hover: #2447C6;
+
+    /* ===== CORPORATE TEXT ===== */
+    --corp-text-main: #1F2937;
+    --corp-text-muted: #6B7280;
+    --corp-text-soft: #94A3B8;
+
+    /* ===== CORPORATE BORDERS ===== */
+    --corp-border-soft: #E4E9F0;
+    --corp-border-strong: #CBD5E1;
+
+    /* ===== CORPORATE SEMANTIC STATUS ===== */
+    --corp-success: #16A34A;
+    --corp-success-soft: #DCFCE7;
+    --corp-warning: #F59E0B;
+    --corp-warning-soft: #FEF3C7;
+    --corp-danger: #DC2626;
+    --corp-danger-soft: #FEE2E2;
+    --corp-neutral: #64748B;
+    --corp-neutral-soft: #F1F5F9;
+
+    /* ===== DUTY BADGE TOKENS ===== */
+    --duty-night: #2F5BEA;
+    --duty-night-bg: #E8EEFF;
+    --duty-morning: #10B981;
+    --duty-morning-bg: #D1FAE5;
+    --duty-afternoon: #6366F1;
+    --duty-afternoon-bg: #E0E7FF;
+    --duty-leave: #64748B;
+    --duty-leave-bg: #F1F5F9;
+    --duty-off: #475569;
+    --duty-off-bg: #E2E8F0;
+  }
+
+  .dark {
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+
+    --card: 217 33% 17%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 217 33% 17%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 220 77% 39%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 215 16% 47%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+
+    --accent: 160 84% 39%;
+    --accent-foreground: 0 0% 100%;
+
+    --warning: 32 95% 44%;
+    --warning-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 220 77% 39%;
+
+    --sidebar-background: 222 47% 11%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 220 77% 39%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 220 77% 39%;
+
+    /* ===== CORPORATE SURFACES (DARK) ===== */
+    --corp-bg-page: #0F172A;
+    --corp-bg-surface: #111827;
+    --corp-bg-elevated: #1E293B;
+    --corp-bg-soft: #1A2332;
+
+    /* ===== CORPORATE BRAND (DARK) ===== */
+    --corp-primary-soft: #1E2A4A;
+    --corp-primary-hover: #4B7BF5;
+
+    /* ===== CORPORATE TEXT (DARK) ===== */
+    --corp-text-main: #E5E7EB;
+    --corp-text-muted: #9CA3AF;
+    --corp-text-soft: #6B7280;
+
+    /* ===== CORPORATE BORDERS (DARK) ===== */
+    --corp-border-soft: #1E293B;
+    --corp-border-strong: #334155;
+
+    /* ===== CORPORATE SEMANTIC STATUS (DARK) ===== */
+    --corp-success: #22C55E;
+    --corp-success-soft: #14532D;
+    --corp-warning: #FBBF24;
+    --corp-warning-soft: #422006;
+    --corp-danger: #EF4444;
+    --corp-danger-soft: #450A0A;
+    --corp-neutral: #94A3B8;
+    --corp-neutral-soft: #1E293B;
+
+    /* ===== DUTY BADGE TOKENS (DARK) ===== */
+    --duty-night: #6B8EF5;
+    --duty-night-bg: #1E2A4A;
+    --duty-morning: #34D399;
+    --duty-morning-bg: #064E3B;
+    --duty-afternoon: #A5B4FC;
+    --duty-afternoon-bg: #1E1B4B;
+    --duty-leave: #94A3B8;
+    --duty-leave-bg: #1E293B;
+    --duty-off: #94A3B8;
+    --duty-off-bg: #1E293B;
+
+    --header-bg: 220 50% 18%;
+    --header-fg: 0 0% 100%;
+    --header-date-bg: 220 60% 22%;
+    --header-shift-bg: 210 30% 92%;
+    --header-shift-fg: 220 20% 30%;
+    --cell-occupied: 210 40% 98%;
+    --cell-empty: 215 20% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Custom Scrollbar Styles */
+.custom-scrollbar::-webkit-scrollbar {
+  height: 12px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #9ca3af;
+  border-radius: 6px;
+  border: 2px solid #f3f4f6;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Firefox */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #9ca3af #f3f4f6;
+}
+
+@keyframes splash-slide {
+  0% {
+    transform: translateX(0) scaleX(0.72);
+    opacity: 0;
+  }
+
+  18% {
+    opacity: 1;
+  }
+
+  65% {
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateX(240%) scaleX(1.05);
+    opacity: 0;
+  }
+}
+
+.schedule-grid-scrollbar::-webkit-scrollbar {
+  width: 18px;
+  height: 28px;
+}
+
+.schedule-grid-scrollbar::-webkit-scrollbar-track {
+  background: #dbe1ea;
+  border-radius: 9999px;
+}
+
+.schedule-grid-scrollbar::-webkit-scrollbar-thumb {
+  background: #6b7280;
+  border-radius: 9999px;
+  border: 4px solid #dbe1ea;
+  min-width: 72px;
+}
+
+.schedule-grid-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}
+
+.schedule-grid-scrollbar {
+  scrollbar-width: auto;
+  scrollbar-color: #6b7280 #dbe1ea;
+  scrollbar-gutter: stable;
+}

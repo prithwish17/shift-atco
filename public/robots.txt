@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /supervisor
+Disallow: /wso
+Disallow: /employee
+Disallow: /settings
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /setup-admin
+Disallow: /roster
+
+Sitemap: https://atcora.in/sitemap.xml

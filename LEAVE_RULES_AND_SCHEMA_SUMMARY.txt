@@ -1,0 +1,642 @@
+LEAVE RULES AND SCHEMA SUMMARY
+Workspace: shift-atco
+
+This file consolidates the current leave-related rules, schema, workflows, and supporting modules found in the app code and Supabase migrations.
+
+============================================================
+1. OVERALL LEAVE ARCHITECTURE
+============================================================
+
+The leave feature is split into three layers:
+
+1. Leave request workflow
+   Primary table: public.leave_requests
+   Purpose: employee applications, approval chain, rejection, cancellation, SAP flags, RH metadata, CH comp-off metadata.
+
+2. Leave register / leave details
+   Primary table: public.employee_leave_records
+   Purpose: normalized per-date leave and comp-off history used to show leave details, comp-off availability, yearly summaries, and leave register views.
+
+3. Leave balance / supporting data
+   Supporting tables: public.leave_balances_cache, public.leave_balances, public.comp_off_ledger, public.leave_schedule_snapshots
+   Purpose: imported leave payload cache, manual/yearly balance storage, CH comp-off credits, and schedule restoration after cancellation.
+
+Important identity note:
+- leave_requests.employee_id stores auth.users.id
+- employee_leave_records.emp_id stores the employee code from profiles.employee_id
+- The app bridges these identities through the profiles table when it needs to sync schedule data or comp-off allocations.
+
+
+============================================================
+2. PRIMARY REQUEST TABLE: public.leave_requests
+============================================================
+
+Base purpose:
+- Stores each leave application and the full approval history.
+
+Core columns from the base SQL:
+- id UUID primary key
+- employee_id UUID not null references auth.users(id)
+- employee_name TEXT not null
+- team TEXT
+- leave_type TEXT not null
+- start_date DATE not null
+- end_date DATE not null
+- total_days NUMERIC(4,1) not null default 1
+- reason TEXT
+- status TEXT not null default 'Pending WSO'
+- applied_at TIMESTAMPTZ not null default now()
+- reviewed_by UUID
+- reviewed_at TIMESTAMPTZ
+- remarks TEXT
+- wso_approved_by UUID
+- wso_approved_at TIMESTAMPTZ
+- wso_comments TEXT
+- supervisor_approved_by UUID
+- supervisor_approved_at TIMESTAMPTZ
+- supervisor_comments TEXT
+- created_at TIMESTAMPTZ not null default now()
+- updated_at TIMESTAMPTZ not null default now()
+
+Columns added later by migrations:
+- direct_supervisor_approved BOOLEAN default false
+- direct_supervisor_approved_by UUID
+- direct_supervisor_approved_at TIMESTAMPTZ
+- direct_supervisor_comments TEXT
+- actual_rh_date DATE
+- sap_applied BOOLEAN
+- sap_updated BOOLEAN default false
+- actual_rh_date_2 DATE
+- ch_comp_off_dates JSONB
+
+Meaning of the important added columns:
+- direct_supervisor_*: supports a direct supervisor approval path without a separate WSO approval step.
+- actual_rh_date: the original RH holiday date being claimed.
+- actual_rh_date_2: schema support for a second RH date in the same request.
+- sap_applied: employee confirmation that the leave has also been applied in SAP.
+- sap_updated: supervisor-side tracking that the approved leave has been updated in SAP.
+- ch_comp_off_dates: array of CH dates inside the leave range that should create comp-off credit instead of reducing leave balance.
+
+Status values:
+- Pending WSO
+- Pending Supervisor
+- Approved
+- Rejected
+- Cancelled
+
+Approval path rules:
+- Standard path: Pending WSO -> Pending Supervisor -> Approved
+- Direct path: Pending WSO -> Approved by supervisor
+
+Approval-path consistency constraint:
+- Standard Approved record requires both wso_approved_by and supervisor_approved_by when direct_supervisor_approved = false.
+- Direct Approved record requires supervisor_approved_by and direct_supervisor_approved_by when direct_supervisor_approved = true.
+
+Precision rule:
+- total_days was changed from integer to NUMERIC(4,1) so half-day requests can store 0.5.
+
+Overlap protection:
+- Client-side precheck exists before insert.
+- Database trigger check_leave_overlap() also prevents overlapping active requests for the same employee.
+- Overlap enforcement only applies to active states: Pending WSO, Pending Supervisor, Approved.
+
+Immutable field protection:
+- Trigger protect_leave_request_immutable_fields() blocks later modification of core business fields such as employee_id, leave_type, dates, total_days, applied_at, RH dates, and CH comp-off dates.
+- Practical mutable fields are status, review audit fields, and remarks/comments.
+
+Indexes on leave_requests:
+- idx_leave_requests_employee on employee_id
+- idx_leave_requests_status on status
+- idx_leave_requests_dates on start_date, end_date
+- idx_leave_requests_status_created on status, created_at desc
+- idx_leave_requests_overlap_check on employee_id, start_date, end_date for active statuses
+
+RLS policies on leave_requests:
+- Employees can view their own requests.
+- Employees can insert their own requests.
+- Employees can update their own pending requests.
+- Approved WSO/supervisor staff can view all requests.
+- Approved WSO/supervisor staff can update requests for review actions.
+
+Final approval rule used by the frontend:
+- A request is treated as finally approved only when status = Approved and supervisor_approved_at is present.
+- This is implemented by isFinalLeaveApproved().
+
+
+============================================================
+3. EMPLOYEE APPLY-FOR-LEAVE RULES
+============================================================
+
+Primary page:
+- src/pages/employee/LeaveApplication.tsx
+
+Leave types currently exposed in constants:
+- CL
+- NEE
+- EL
+- HPL
+- COMM
+- RH
+- COMP_OFF
+- CL_1ST
+- CL_2ND
+
+Annual/default policy constants:
+- Default Casual Leave balance: 12
+- Default Restricted Holiday balance: 2
+- Comp-off expiry window: 3 months
+- OPE comp-off minimum duties in a month: 3
+- OPE threshold month: 2026-04
+
+Application validation rules enforced in LeaveApplication.tsx:
+
+General rules:
+- End date must be on or after start date.
+- Half-day leave types must use a single date only.
+- Non-RH leave cannot be applied for a past date.
+- SAP confirmation is required before submit.
+
+Closed Holiday rule:
+- For CL-family and COMP_OFF leave, Closed Holiday dates inside the range are excluded from deducted days.
+- If all selected dates are CH and effective requested days become 0, submission is blocked.
+- Those CH dates are passed as ch_comp_off_dates in the request payload.
+
+Restricted Holiday rules:
+- RH requires a selected actual_rh_date.
+- The selected RH date must exist in the holiday calendar.
+- If the RH date is in the past, the employee must choose a future leave date (comp-off style use of a past RH).
+- Current employee submit flow sends actual_rh_date and sets actual_rh_date_2 to null.
+
+Balance enforcement rules:
+- CL-family leave types consume the CL balance bucket.
+- RH consumes the RH balance bucket.
+- COMP_OFF consumes available comp-off entries.
+- EL, NEE, HPL, and COMM are intentionally not balance-enforced in the current employee form because the code comments state those balances are not reliably updated yet.
+
+Comp-off request rules:
+- A COMP_OFF request is validated against earned comp-off entries reconstructed from employee_leave_records.
+- Pending COMP_OFF requests reserve entries before final approval, so the available count shown to the employee is reduced by reserved pending requests.
+- Candidate selection is ordered by earliest expiry, then earliest duty date.
+
+Holiday notice behavior:
+- NH, RH, and CH dates inside the selected range are surfaced to the employee as warnings/information.
+- The special automatic deduction change is only applied for CH inside CL-family and COMP_OFF requests.
+
+Request payload submitted by the employee form:
+- employee_id
+- employee_name
+- team
+- sap_applied
+- leave_type
+- start_date
+- end_date
+- total_days
+- reason
+- actual_rh_date
+- actual_rh_date_2 (currently null from this form)
+- ch_comp_off_dates
+
+Additional protection on create:
+- useCreateLeaveRequest() also checks for overlapping requests before insert and rejects overlaps even before the database trigger runs.
+
+
+============================================================
+4. APPROVAL, REJECTION, AND CANCELLATION WORKFLOW
+============================================================
+
+Primary hook:
+- src/hooks/useLeaveRequests.ts
+
+Reviewer actions:
+- WSO approve:
+  Pending WSO -> Pending Supervisor
+  Sets wso_approved_by, wso_approved_at, wso_comments
+
+- WSO reject:
+  Pending WSO -> Rejected
+  Clears WSO approval fields
+
+- Supervisor approve after WSO:
+  Pending Supervisor -> Approved
+  Sets supervisor_approved_by, supervisor_approved_at, supervisor_comments
+
+- Direct supervisor approve:
+  Pending WSO -> Approved
+  Sets supervisor approval fields plus direct_supervisor_approved = true and the direct_supervisor_* audit fields
+
+- Supervisor reject:
+  Pending Supervisor or direct review from Pending WSO -> Rejected
+
+Pending cancellation by employee:
+- Allowed only when status is Pending WSO or Pending Supervisor.
+- Implemented by useCancelLeaveRequest().
+- Updates status to Cancelled.
+
+Approved cancellation by staff:
+- Allowed only when status is Approved.
+- Implemented by useCancelApprovedLeaveRequest().
+- Preserves original approval audit fields.
+- Writes cancellation remarks into WSO or supervisor comment fields with a [Cancelled] prefix.
+- Clears approved comp-off usage when needed.
+- Restores employee schedule from snapshots.
+
+Notification side effects:
+- Approval, rejection, and approved-leave cancellation attempt to invoke the send-notification function.
+- These notification failures are treated as silent failures and do not stop the main leave mutation.
+
+
+============================================================
+5. SIDE EFFECTS WHEN A LEAVE IS APPROVED OR CANCELLED
+============================================================
+
+5.1 Comp-off usage allocation for approved COMP_OFF leave
+
+Relevant function:
+- syncApprovedCompOffUsage()
+
+Behavior:
+- Runs only for leave_type = COMP_OFF.
+- Resolves employee_code from profiles.employee_id.
+- Fetches eligible earned comp-off rows from employee_leave_records.
+- Selects entries using earliest-expiry allocation logic.
+- Calls RPC allocate_comp_off_for_leave() for atomic, all-or-nothing allocation.
+
+allocate_comp_off_for_leave() updates employee_leave_records by:
+- setting leave_used_on
+- setting raw_leave_used_value
+- writing metadata.leave_request_id
+- writing metadata.leave_used_on
+- writing metadata.leave_applied
+- writing request_start_date and request_end_date into metadata
+
+5.2 Clearing comp-off usage on approved cancellation
+
+Relevant function:
+- clearApprovedCompOffUsage()
+
+Behavior:
+- Runs only for leave_type = COMP_OFF.
+- Calls RPC clear_comp_off_for_leave().
+- That RPC clears leave_used_on, raw_leave_used_value, and the metadata fields written during allocation.
+
+5.3 CH comp-off credits created during approval
+
+Relevant function:
+- syncCHCompOffCredits()
+
+Behavior:
+- Runs only for CL-family or COMP_OFF approved requests that contain ch_comp_off_dates.
+- For each CH date, inserts or upserts a comp_off_ledger entry with:
+  employee_id
+  holiday_id
+  duty_date
+  days_granted = 1
+  expiry_date = date + 3 months
+  status = available
+
+5.4 Applying approved leave to the schedule
+
+Relevant function:
+- applyApprovedLeaveToSchedule()
+
+Behavior:
+- Calls RPC apply_leave_to_schedule().
+- For each day in the approved leave range:
+  captures the original schedule into leave_schedule_snapshots
+  upserts employee_schedules with duty_code = LEAVE
+  sets duty_description = Approved Leave (<leave type>)
+
+5.5 Restoring schedule after approved cancellation
+
+Relevant function:
+- restoreScheduleAfterLeaveCancellation()
+
+Behavior:
+- Calls RPC restore_schedule_after_cancellation().
+- Restores original schedule from leave_schedule_snapshots.
+- If another approved leave still covers a day, restoration for that day is skipped.
+- Marks snapshots as restored_at = now() after restoration.
+
+
+============================================================
+6. LEAVE REGISTER / LEAVE DETAILS TABLE: public.employee_leave_records
+============================================================
+
+Purpose:
+- Stores normalized leave events used for leave register pages, leave detail modals, comp-off availability, and yearly summaries.
+- One row represents one date-level leave or comp-off event.
+
+Current important columns:
+- id UUID primary key
+- emp_id TEXT not null
+- employee_name TEXT not null
+- sl_no INTEGER
+- status TEXT
+- leave_category TEXT not null
+- source_event_type TEXT not null default ''
+- event_kind TEXT not null default 'other'
+- leave_date DATE not null
+- leave_used_on DATE
+- duty_code TEXT not null default ''
+- raw_date_value TEXT
+- raw_shift_value TEXT
+- raw_leave_used_value TEXT
+- raw_event JSONB not null default '{}'
+- metadata JSONB default '{}'
+- source TEXT not null default 'google_sheets'
+- sync_batch_id TEXT
+- created_at TIMESTAMPTZ
+- updated_at TIMESTAMPTZ
+
+Important leave categories observed in code:
+- CL
+- RH
+- NH
+- CH
+- COMP_OFF
+- COMP_OFF_EARNED
+- COMP_OFF_USED
+- LAST_YEAR_CH_DUTY
+- LAST_YEAR_COMP_OFF
+- OPE_COMP_OFF
+- OPE
+
+Important event_kind values inferred by migration logic:
+- leave
+- comp_off_earned
+- comp_off_used
+- ope_duty
+- manual
+- other
+
+Unique constraint evolution:
+- Original unique key: (emp_id, leave_category, leave_date)
+- Current unique key: (emp_id, leave_category, source_event_type, leave_date, duty_code)
+
+Indexes on employee_leave_records include:
+- idx_elr_emp_id
+- idx_elr_category
+- idx_elr_date
+- idx_elr_emp_cat
+- idx_elr_event_type
+- idx_elr_event_kind
+- idx_elr_duty_code
+- idx_elr_leave_used_on
+- idx_elr_emp_id_leave_dates
+- idx_elr_sync_batch
+- idx_elr_metadata_leave_request (GIN on metadata)
+
+RLS on employee_leave_records:
+- Employees can view their own rows by matching emp_id to profiles.employee_id.
+- Approved WSO/supervisor/admin roles can view all rows.
+- Approved WSO/supervisor/admin roles can insert and update rows.
+
+What leave_used_on means:
+- Tracks the date on which an earned comp-off entry was consumed.
+- It is central to showing used versus available comp-off entries.
+
+How the app rebuilds leave details from employee_leave_records:
+- useLeaveData() fetches employee_leave_records, usually for the current year plus prior year when needed for expiry visibility.
+- reconstructRawRecords() converts flat rows into RawLeaveRecord groups per employee.
+- normalizeLeaveRecords() converts those raw groups into NormalizedLeaveRecord objects.
+
+The normalized leave detail model contains:
+- casualLeave
+- restrictedHolidays
+- nationalHolidays
+- closedHolidays
+- compOffEntries
+- compOffEarnedEntries
+- compOffUsedEntries
+- opeDuty
+- casualCount / casualRemaining
+- restrictedCount
+- compOffEarned / compOffUsed / compOffExpired / compOffRemaining
+
+LeaveDetailsModal currently displays:
+- Casual Leave
+- Restricted Holidays
+- Comp-Off Earned
+- Comp-Off Used
+- OPE Duty
+- National Holidays
+- Closed Holidays
+
+
+============================================================
+7. COMP-OFF RULES IN THE REGISTER AND ALLOCATION LOGIC
+============================================================
+
+Comp-off expiry:
+- Default expiry is 3 months from duty date, minus 1 day.
+
+Comp-off entry status model in the normalized layer:
+- available
+- used
+- expired
+- not_available
+
+An entry is considered earned when:
+- It comes from last-year carryover or OPE special sources, or
+- Its duty code is in the eligible duty-code set used by normalizeCompOffEntries().
+
+OPE-specific rule:
+- Starting from month 2026-04, only the 3rd OPE duty onward in a given month earns comp-off.
+- The first 2 OPE duties in those months are converted to not_available unless already used.
+
+Allocation order for COMP_OFF requests:
+- Earliest expiry first
+- Then earliest duty date
+- Then record id as tie-breaker
+
+Reservation rule for pending COMP_OFF requests:
+- The employee form subtracts pending COMP_OFF requests from available entries before allowing a new request.
+
+Important implementation detail:
+- Modern comp-off consumption is tracked in employee_leave_records metadata and leave_used_on.
+- The comp_off_ledger table is mainly used for credit entries such as CH-earned comp-off, not for the full request workflow state.
+
+
+============================================================
+8. SUPPORTING TABLE: public.comp_off_ledger
+============================================================
+
+Purpose:
+- Stores comp-off credits, especially credits granted from eligible holidays/CH duty processing.
+
+Important columns:
+- id UUID primary key
+- employee_id UUID references auth.users(id)
+- holiday_id UUID references holidays(id)
+- duty_date DATE
+- days_granted INTEGER default 1
+- expiry_date DATE
+- status TEXT check in (available, used, expired)
+- used_leave_id UUID references public.leaves(id)
+- created_at TIMESTAMPTZ
+
+RLS:
+- Employees can view their own comp-off rows.
+- WSO/supervisor/admin can view all and manage all.
+
+Important caveat:
+- comp_off_ledger.used_leave_id still references the legacy public.leaves table.
+- The current leave_requests workflow does not depend on used_leave_id for approved COMP_OFF allocation.
+
+
+============================================================
+9. SUPPORTING TABLE: public.leave_schedule_snapshots
+============================================================
+
+Purpose:
+- Stores the original duty state before approved leave overwrites the roster with LEAVE.
+
+Important columns:
+- id UUID primary key
+- leave_request_id UUID references leave_requests(id)
+- employee_id UUID references auth.users(id)
+- duty_date DATE
+- had_schedule BOOLEAN
+- original_employee_code TEXT
+- original_employee_name TEXT
+- original_duty_code TEXT
+- original_duty_description TEXT
+- created_at TIMESTAMPTZ
+- restored_at TIMESTAMPTZ
+
+Key rules:
+- Unique on (leave_request_id, duty_date)
+- Used by apply_leave_to_schedule() and restore_schedule_after_cancellation()
+- RLS was hardened so only the owner employee or approved staff roles can write snapshots
+
+
+============================================================
+10. SUPPORTING TABLE: public.leave_balances_cache
+============================================================
+
+Purpose:
+- Stores raw external leave payloads fetched from the leave data source.
+
+Columns:
+- id bigserial primary key
+- emp_id text unique
+- name text
+- status text
+- payload jsonb not null
+- updated_at timestamptz not null default now()
+
+How it is used:
+- fetchLeaveData() fetches the external payload.
+- persistLeaveData() upserts each employee payload into leave_balances_cache.
+- App setting key leave_data_webapp_url stores the source URL.
+
+
+============================================================
+11. LEGACY TABLES STILL REFERENCED BY SOME HOOKS
+============================================================
+
+Legacy table: public.leaves
+- Older leave workflow table with enum leave_type and leave_status columns.
+- Contains user_id, start_date, end_date, reason, status, WSO/supervisor approvals, and days_count.
+- Still referenced by src/hooks/useLeaves.ts.
+
+Legacy table: public.leave_balances
+- Older per-user yearly balance table with leave_type, balance, expiry_date, year.
+- Still used in the current employee leave form through useLeaveBalances().
+- CL and RH balance enforcement currently reads from this table when available, otherwise the form falls back to default balances.
+
+Practical summary of old vs new:
+- Primary active request workflow now uses leave_requests.
+- Primary leave-detail and comp-off-detail workflow uses employee_leave_records.
+- Some balance and comp-off credit plumbing still relies on older tables.
+
+
+============================================================
+12. FRONTEND ENTRY POINTS AND HOOKS
+============================================================
+
+Main routes registered in App.tsx:
+- /employee/leave -> LeaveApplication
+- /employee/leave-history -> LeaveHistory
+- /employee/leave-dashboard -> EmployeeLeavePage
+- /supervisor/leaves -> LeaveApprovals
+- /supervisor/approved-leaves -> ApprovedLeavesRegister
+- /supervisor/leave-dashboard -> SupervisorLeaveDashboard
+- /supervisor/leave-discrepancy -> LeaveDiscrepancyPage
+- /wso/leaves -> LeaveApprovals
+- /wso/approved-leaves -> ApprovedLeavesRegister
+
+Main hooks/modules involved:
+- src/hooks/useLeaveRequests.ts
+- src/hooks/useLeaveData.ts
+- src/hooks/useLeaveRecords.ts
+- src/hooks/useLeaves.ts
+- src/services/leaveApi.ts
+- src/utils/leaveCalculations.ts
+- src/lib/leaveConstants.ts
+- src/lib/holidayRules.ts
+- src/lib/compOffAllocation.ts
+- src/components/leave/LeaveDetailsModal.tsx
+
+What each major page is responsible for:
+- LeaveApplication: employee submission rules, balance checks, RH rules, CH handling, cancel pending requests
+- LeaveHistory: employee request history plus leave register tab backed by employee_leave_records
+- LeaveApprovals: WSO/supervisor review queue, approve/reject/direct-approve, cancel approved leave
+- ApprovedLeavesRegister: shows approved requests and lets staff toggle sap_updated
+
+
+============================================================
+13. IMPORTANT BEHAVIORAL NOTES
+============================================================
+
+- Approved status alone is not enough for frontend final approval reporting; supervisor_approved_at must also exist.
+- Approved leave cancellation is more complex than pending cancellation because it must reverse schedule and comp-off side effects.
+- CH inside CL-family or COMP_OFF leave is treated specially: those dates are not deducted and can create comp-off credit.
+- RH handling is special and supports claiming against an RH holiday date that may differ from the actual leave date.
+- actual_rh_date_2 exists in schema but is not actively populated by the current employee form.
+- EL, NEE, HPL, and COMM are present as leave types but not strongly balance-enforced in the current employee submission flow.
+- employee_leave_records is the authoritative source for leave-detail/register views and comp-off availability, not leave_requests alone.
+
+
+============================================================
+14. SOURCE FILES USED FOR THIS SUMMARY
+============================================================
+
+SQL and migrations:
+- sql/create_leave_requests.sql
+- supabase/migrations/20260220235500_leave_requests_two_stage_approval.sql
+- supabase/migrations/20260221001000_leave_requests_supervisor_direct_approval.sql
+- supabase/migrations/20260221013000_leave_schedule_snapshots.sql
+- supabase/migrations/20260308_holiday_module.sql
+- supabase/migrations/20260311_employee_leave_records.sql
+- supabase/migrations/20260311090000_add_leave_balances.sql
+- supabase/migrations/20260311_leave_data_settings.sql
+- supabase/migrations/20260314201956_leave_event_columns.sql
+- supabase/migrations/20260314234500_add_leave_used_on_to_employee_leave_records.sql
+- supabase/migrations/20260315093000_add_employee_leave_lookup_index.sql
+- supabase/migrations/20260325100000_add_actual_rh_date_to_leave_requests.sql
+- supabase/migrations/20260325103000_add_sap_applied_to_leave_requests.sql
+- supabase/migrations/20260325115000_add_sap_updated_to_leave_requests.sql
+- supabase/migrations/20260403120000_fix_leave_total_days_precision.sql
+- supabase/migrations/20260404000000_leave_production_hardening.sql
+- supabase/migrations/20260408100000_add_actual_rh_date_2_to_leave_requests.sql
+- supabase/migrations/20260408110000_add_ch_comp_off_dates_to_leave_requests.sql
+- supabase/migrations/20251110051010_4143a01f-26db-4fb6-8111-c9c20f4b64c2.sql
+
+Frontend and logic files:
+- src/pages/employee/LeaveApplication.tsx
+- src/pages/employee/LeaveHistory.tsx
+- src/pages/supervisor/LeaveApprovals.tsx
+- src/pages/supervisor/ApprovedLeavesRegister.tsx
+- src/hooks/useLeaveRequests.ts
+- src/hooks/useLeaveData.ts
+- src/hooks/useLeaveRecords.ts
+- src/hooks/useLeaves.ts
+- src/services/leaveApi.ts
+- src/utils/leaveCalculations.ts
+- src/lib/leaveConstants.ts
+- src/lib/holidayRules.ts
+- src/lib/compOffAllocation.ts
+- src/components/leave/LeaveDetailsModal.tsx
+
+End of summary.
