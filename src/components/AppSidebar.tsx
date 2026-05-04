@@ -86,15 +86,22 @@ const supervisorNav: SupervisorNav = {
         { title: "Ratings Management", url: "/supervisor/ratings", icon: Shield },
       ],
     },
+    {
+      id: "others",
+      label: "Others",
+      icon: Menu,
+      items: [
+        { title: "Shift Duty Grid", url: "/supervisor/atc-grid", icon: Radio },
+        { title: "Shift Roster Data", url: "/supervisor/roster", icon: ClipboardList },
+        { title: "Holidays", url: "/supervisor/holidays", icon: CalendarDays },
+        { title: "Email Logs", url: "/supervisor/email-logs", icon: Mail },
+      ],
+    },
   ],
   bottomItems: [
     { title: "Leave Review", url: "/supervisor/leaves", icon: FileText },
     { title: "Duty Exchange", url: "/supervisor/duty-exchange", icon: ArrowLeftRight },
     { title: "Trainee Details", url: "/supervisor/trainees", icon: GraduationCap },
-    { title: "Shift Duty Grid", url: "/supervisor/atc-grid", icon: Radio },
-    { title: "Shift Roster Data", url: "/supervisor/roster", icon: ClipboardList },
-    { title: "Holidays", url: "/supervisor/holidays", icon: CalendarDays },
-    { title: "Email Logs", url: "/supervisor/email-logs", icon: Mail },
     { title: "Working Hours", url: "/supervisor/working-hours", icon: Clock },
     { title: "Shift Details", url: "/supervisor/shift-details", icon: Table2 },
   ],
@@ -206,14 +213,14 @@ export function AppSidebar({ role }: SidebarProps) {
   const switchItem = showSwitchToRole ? switchDashboardItems[showSwitchToRole] : null;
 
   const navLinkClass = (url: string) =>
-    `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-300 ${
+    `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-300 ${
       isActive(url) 
         ? 'bg-[#EEF2FF] text-[#151A2D] font-medium' 
         : 'text-[#F1F4FF] hover:bg-[#EEF2FF] hover:text-[#151A2D]'
     } ${collapsed ? 'justify-center' : ''}`;
 
   const sectionHeaderClass = (hasActiveChild: boolean) =>
-    `flex w-full items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 ${
+    `flex w-full items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
       hasActiveChild
         ? 'bg-[#EEF2FF]/10 text-[#EEF2FF]'
         : 'text-[#94a3b8] hover:bg-[#EEF2FF]/10 hover:text-[#EEF2FF]'
@@ -241,13 +248,13 @@ export function AppSidebar({ role }: SidebarProps) {
       </div>
 
       {/* Collapsible sections */}
-      <div className="mt-2">
+      <div className="mt-1">
         {!collapsed && (
-          <div className="px-3 pb-2 pt-4 text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">
+          <div className="px-3 pb-1.5 pt-2.5 text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">
             Sections
           </div>
         )}
-        <div className="space-y-1">
+        <div className="space-y-0.5">
           {supervisorNav.sections.map(section => {
             const isOpen = !!openSections[section.id];
             const hasActiveChild = section.items.some(item => isActive(item.url));
@@ -279,13 +286,13 @@ export function AppSidebar({ role }: SidebarProps) {
 
                 {/* Expanded dropdown */}
                 {!collapsed && isOpen && (
-                  <div className="mt-1 space-y-1 pl-4 overflow-hidden transition-all duration-300">
+                  <div className="mt-1 space-y-0.5 pl-3 overflow-hidden transition-all duration-300">
                     {section.items.map(item => (
                       <NavLink
                         key={item.url}
                         to={item.url}
                         onClick={() => setMobileOpen(false)}
-                        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-300 ${
+                        className={`flex items-center gap-3 px-3 py-1.5 rounded-lg text-sm transition-all duration-300 ${
                           isActive(item.url) 
                             ? 'bg-[#EEF2FF] text-[#151A2D] font-medium' 
                             : 'text-[#94a3b8] hover:bg-[#EEF2FF]/10 hover:text-[#EEF2FF]'
@@ -327,28 +334,21 @@ export function AppSidebar({ role }: SidebarProps) {
         </div>
       </div>
 
-      {/* Standalone bottom items */}
-      <div className="mt-2">
-        {!collapsed && (
-          <div className="px-3 pb-2 pt-4 text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">
-            Other
-          </div>
-        )}
-        <div className="space-y-1">
-          {supervisorNav.bottomItems.map(item => (
-            <NavLink
-              key={item.url}
-              to={item.url}
-              onClick={() => setMobileOpen(false)}
-              className={navLinkClass(item.url)}
-              title={collapsed ? item.title : undefined}
-            >
-              <item.icon className="size-5 shrink-0" />
-              {!collapsed && <span className="truncate">{item.title}</span>}
-            </NavLink>
-          ))}
-        </div>
+      <div className="mt-1 space-y-0.5">
+        {supervisorNav.bottomItems.map(item => (
+          <NavLink
+            key={item.url}
+            to={item.url}
+            onClick={() => setMobileOpen(false)}
+            className={navLinkClass(item.url)}
+            title={collapsed ? item.title : undefined}
+          >
+            <item.icon className="size-5 shrink-0" />
+            {!collapsed && <span className="truncate">{item.title}</span>}
+          </NavLink>
+        ))}
       </div>
+
     </>
   );
 
@@ -471,7 +471,7 @@ export function AppSidebar({ role }: SidebarProps) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 min-h-0 px-3 py-4 overflow-y-auto scrollbar-thin scrollbar-thumb-[#2d3748] scrollbar-track-transparent">
+        <nav className="flex-1 min-h-0 px-3 py-3 overflow-y-auto scrollbar-thin scrollbar-thumb-[#2d3748] scrollbar-track-transparent">
           {role === "supervisor" ? renderSupervisorNav() : renderFlatNav()}
 
           {/* Switch Dashboard — supervisor only (flat nav handles it inline) */}

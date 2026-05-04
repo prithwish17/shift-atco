@@ -384,7 +384,6 @@ function DayGrid({ row, monthStart, monthEnd, daysInMonth }: DayGridProps) {
           { label: "Days Worked",  value: `${row.daysWorked}d` },
           { label: "Avg hrs/day",  value: `${row.avgPerDay}h` },
           { label: "Peak 7-day",   value: `${row.limits.peak7.hours}h`, alert: row.limits.peak7.breached },
-          { label: "Max Streak", value: `${row.consecutiveDuty.maxStreak}d`, alert: row.consecutiveDuty.streakViolation },
         ] as { label: string; value: string; alert?: boolean }[]).map(s => (
           <div
             key={s.label}
@@ -499,6 +498,136 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   return dir === "asc"
     ? <ChevronUp className="ml-1 h-3 w-3 text-primary" />
     : <ChevronDown className="ml-1 h-3 w-3 text-primary" />;
+}
+
+interface MobileEmployeeCardProps {
+  row: EmployeeRow;
+  isExpanded: boolean;
+  onToggle: () => void;
+  monthStart: string;
+  monthEnd: string;
+  daysInMonth: number;
+}
+
+function MobileEmployeeCard({ row, isExpanded, onToggle, monthStart, monthEnd, daysInMonth }: MobileEmployeeCardProps) {
+  const theoreticalMax = daysInMonth * 6;
+  const fillPct = theoreticalMax > 0 ? Math.min((row.totalHours / theoreticalMax) * 100, 100) : 0;
+  const anyBreach = row.limits.peak7.breached || row.limits.peak30.breached || row.consecutiveDuty.streakViolation;
+  const approachingLimit = row.limits.peak7.hours > ATCO_LIMITS.peak7.hours * 0.85 && !anyBreach;
+  const peak7Tone = row.limits.peak7.breached
+    ? "from-red-500 to-rose-500 text-white"
+    : row.limits.peak7.hours > ATCO_LIMITS.peak7.hours * 0.85
+      ? "from-amber-400 to-orange-500 text-white"
+      : "from-blue-500 to-cyan-500 text-white";
+
+  return (
+    <Card className={`overflow-hidden rounded-[24px] border shadow-[0_18px_60px_-42px_rgba(15,23,42,0.65)] ${
+      anyBreach
+        ? "border-red-200 bg-red-50/60 dark:border-red-800 dark:bg-red-950/20"
+        : "border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"
+    }`}>
+      <CardContent className="p-0">
+        <button type="button" onClick={onToggle} className="w-full p-4 text-left">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br ${peak7Tone} text-sm font-bold shadow-lg`}>
+                  {row.name.slice(0, 1).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="truncate text-sm font-semibold text-slate-950 dark:text-slate-50">{row.name}</h3>
+                    {anyBreach && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-500" />}
+                    {approachingLimit && <Flame className="h-3.5 w-3.5 shrink-0 text-amber-500" />}
+                  </div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-muted-foreground">{row.code}</span>
+                    {row.shift !== "—" && (
+                      <Badge variant="outline" className="h-5 rounded-full px-2 text-[10px]">
+                        Shift {row.shift}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className={`rounded-2xl bg-gradient-to-br px-3 py-2 ${peak7Tone} shadow-lg`}>
+                <p className="text-lg font-bold leading-none">{row.limits.peak7.hours}h</p>
+                <p className="mt-0.5 text-[10px] opacity-90">7-day peak</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/80">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Days</p>
+              <p className="mt-1 text-base font-bold">{row.daysWorked}d</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/80">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Avg/day</p>
+              <p className="mt-1 text-base font-bold">{row.avgPerDay}h</p>
+            </div>
+            <div className={`rounded-2xl border p-3 ${
+              row.limits.peak7.breached
+                ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30"
+                : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/80"
+            }`}>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Peak 7d</p>
+              <p className={`mt-1 text-base font-bold ${row.limits.peak7.breached ? "text-red-600 dark:text-red-400" : ""}`}>{row.limits.peak7.hours}h</p>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <div className="mb-1.5 flex justify-between text-[11px] text-muted-foreground">
+              <span>Monthly utilization</span>
+              <span>{Math.round(fillPct)}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+              <div
+                className={`h-full rounded-full ${fillPct > 80 ? "bg-red-500" : fillPct > 50 ? "bg-amber-500" : "bg-blue-500"}`}
+                style={{ width: `${fillPct}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-1.5">
+            {row.limits.peak7.breached && (
+              <Badge className="rounded-full bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300" variant="secondary">
+                7-day limit
+              </Badge>
+            )}
+            {row.limits.peak30.breached && (
+              <Badge className="rounded-full bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300" variant="secondary">
+                30-day limit
+              </Badge>
+            )}
+            {row.consecutiveDuty.streakViolation && (
+              <Badge className="rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300" variant="secondary">
+                Streak alert
+              </Badge>
+            )}
+            {!anyBreach && (
+              <Badge className="rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" variant="secondary">
+                Within limits
+              </Badge>
+            )}
+          </div>
+
+          <div className="mt-4 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-200">
+            <span>{isExpanded ? "Hide daily details" : "View daily details"}</span>
+            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </div>
+        </button>
+
+        {isExpanded && (
+          <div className="border-t border-slate-200 px-4 pb-4 dark:border-slate-800">
+            <DayGrid row={row} monthStart={monthStart} monthEnd={monthEnd} daysInMonth={daysInMonth} />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -889,69 +1018,77 @@ export default function WorkingHours() {
   ─────────────────────────────────────────────────────────── */
   return (
     <DashboardLayout role="supervisor">
-      <div className="space-y-5 max-w-[1400px]">
+      <div className="mx-auto max-w-[1400px] space-y-4 md:space-y-5">
 
         {/* ── Header ── */}
-        <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Clock className="h-6 w-6 text-primary" />
-              Working Hours Analysis
-            </h1>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              <p className="text-sm text-muted-foreground">
-                ATCO duty hours — checked against regulatory limits
-              </p>
-              {computedAt && (
-                <Badge variant="outline" className="text-[10px] h-5 px-1.5 gap-1 font-normal text-muted-foreground">
-                  <Clock className="h-2.5 w-2.5" />
-                  {formatDistanceToNow(new Date(computedAt), { addSuffix: true })}
-                </Badge>
-              )}
-              {dataSource && dataSource !== "cache" && (
-                <Badge variant="secondary" className="text-[10px] h-5 px-1.5 font-normal">
-                  {dataSource === "rpc" ? "live" : "computed"}
-                </Badge>
-              )}
+        <Card className="overflow-hidden rounded-[28px] border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_32%),linear-gradient(135deg,rgba(255,255,255,0.98),rgba(248,250,252,0.95))] shadow-[0_24px_90px_-56px_rgba(15,23,42,0.75)] dark:border-slate-800 dark:bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_30%),linear-gradient(135deg,rgba(2,6,23,0.98),rgba(15,23,42,0.96))]">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="min-w-0">
+                <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300">
+                  <Shield className="h-3.5 w-3.5" />
+                  HR Compliance
+                </div>
+                <h1 className="mt-3 flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-950 dark:text-slate-50 sm:text-3xl">
+                  <Clock className="h-6 w-6 text-primary" />
+                  Working Hours
+                </h1>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <p className="text-sm text-slate-600 dark:text-slate-300">
+                    ATCO duty hours checked against regulatory limits
+                  </p>
+                  {computedAt && (
+                    <Badge variant="outline" className="h-6 gap-1 rounded-full px-2 text-[10px] font-normal text-muted-foreground">
+                      <Clock className="h-2.5 w-2.5" />
+                      {formatDistanceToNow(new Date(computedAt), { addSuffix: true })}
+                    </Badge>
+                  )}
+                  {dataSource && dataSource !== "cache" && (
+                    <Badge variant="secondary" className="h-6 rounded-full px-2 text-[10px] font-normal">
+                      {dataSource === "rpc" ? "live" : "computed"}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              <div className="grid gap-2 sm:flex sm:items-center">
+                <Button
+                  variant="outline" size="sm"
+                  className="w-full justify-center gap-2 rounded-xl border-slate-200 bg-white/80 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/80 sm:w-auto"
+                  onClick={exportToSheet}
+                  disabled={isExporting || isLoading || displayRows.length === 0}
+                  title={!exportWebappUrl ? "Export URL not configured in admin settings" : "Export to Google Sheet"}
+                >
+                  {isExporting
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Upload className="h-3.5 w-3.5" />}
+                  Export
+                </Button>
+                <Button
+                  variant="outline" size="sm"
+                  className="w-full justify-center gap-2 rounded-xl border-slate-200 bg-white/80 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/80 sm:w-auto"
+                  onClick={forceRefresh}
+                  disabled={isForceRefreshing || isRefetching}
+                  title="Recompute working hours from latest schedule data"
+                >
+                  {isForceRefreshing
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Zap className="h-3.5 w-3.5" />}
+                  Force Refresh
+                </Button>
+                <Button
+                  variant="outline" size="sm"
+                  className="w-full justify-center gap-2 rounded-xl border-slate-200 bg-white/80 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/80 sm:w-auto"
+                  onClick={() => refetch()}
+                  disabled={isRefetching}
+                  title="Re-read from cache"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isRefetching ? "animate-spin" : ""}`} />
+                  Reload
+                </Button>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2 self-start sm:self-auto">
-            <Button
-              variant="outline" size="sm"
-              className="gap-2"
-              onClick={exportToSheet}
-              disabled={isExporting || isLoading || displayRows.length === 0}
-              title={!exportWebappUrl ? "Export URL not configured in admin settings" : "Export to Google Sheet"}
-            >
-              {isExporting
-                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                : <Upload className="h-3.5 w-3.5" />}
-              Export to Sheet
-            </Button>
-            <Button
-              variant="outline" size="sm"
-              className="gap-2"
-              onClick={forceRefresh}
-              disabled={isForceRefreshing || isRefetching}
-              title="Recompute working hours from latest schedule data"
-            >
-              {isForceRefreshing
-                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                : <Zap className="h-3.5 w-3.5" />}
-              Force Refresh
-            </Button>
-            <Button
-              variant="outline" size="sm"
-              className="gap-2"
-              onClick={() => refetch()}
-              disabled={isRefetching}
-              title="Re-read from cache"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${isRefetching ? "animate-spin" : ""}`} />
-              Reload
-            </Button>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* ── Duty Period Limits Banner ── */}
         <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-950/20">
@@ -1022,8 +1159,8 @@ export default function WorkingHours() {
         </Card>
 
         {/* ── Filters ── */}
-        <Card>
-          <CardContent className="pt-5 pb-4">
+        <Card className="rounded-[24px] border-slate-200 bg-white/95 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <CardContent className="p-4 sm:p-5">
             <div className="grid gap-4 sm:grid-cols-3">
 
               <div className="space-y-1.5">
@@ -1032,7 +1169,7 @@ export default function WorkingHours() {
                   type="month"
                   value={selectedMonth}
                   onChange={e => setSelectedMonth(e.target.value)}
-                  className="h-9"
+                  className="h-10 rounded-xl"
                 />
               </div>
 
@@ -1043,7 +1180,7 @@ export default function WorkingHours() {
                   value={selectedShift}
                   onValueChange={setSelectedShift}
                 >
-                  <SelectTrigger className="h-9">
+                  <SelectTrigger className="h-10 rounded-xl">
                     <SelectValue placeholder="All shifts" />
                   </SelectTrigger>
                   <SelectContent>
@@ -1064,7 +1201,7 @@ export default function WorkingHours() {
                     placeholder="Name or code…"
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
-                    className="pl-9 h-9"
+                    className="h-10 rounded-xl pl-9"
                   />
                 </div>
               </div>
@@ -1074,54 +1211,62 @@ export default function WorkingHours() {
         </Card>
 
         {/* ── Summary stat cards ── */}
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
           {([
             {
               label: "Employees",
-              value: isLoading ? "…" : stats.count,
+              value: stats.count,
               icon: <Users className="h-4 w-4 text-violet-500" />,
             },
             {
               label: "Total Hours",
-              value: isLoading ? "…" : `${stats.total}h`,
+              value: `${stats.total}h`,
               icon: <Clock className="h-4 w-4 text-blue-500" />,
             },
             {
               label: "Avg / Person",
-              value: isLoading ? "…" : `${stats.avg}h`,
+              value: `${stats.avg}h`,
               icon: <BarChart3 className="h-4 w-4 text-emerald-500" />,
             },
             {
               label: "Peak 7-day",
-              value: isLoading ? "…" : `${stats.peak7Max}h`,
+              value: `${stats.peak7Max}h`,
               icon: <Flame className={`h-4 w-4 ${stats.peak7Max > ATCO_LIMITS.peak7.hours ? "text-red-500" : "text-amber-500"}`} />,
               alert: !isLoading && stats.peak7Max > ATCO_LIMITS.peak7.hours,
             },
             {
               label: "Limit Violations",
-              value: isLoading ? "…" : stats.violations,
+              value: stats.violations,
               icon: <AlertTriangle className={`h-4 w-4 ${stats.violations > 0 ? "text-red-500" : "text-muted-foreground"}`} />,
               alert: !isLoading && stats.violations > 0,
             },
             {
               label: "Consecutive Violations",
-              value: isLoading ? "…" : stats.consecutiveViolations,
+              value: stats.consecutiveViolations,
               icon: <AlertTriangle className={`h-4 w-4 ${stats.consecutiveViolations > 0 ? "text-orange-500" : "text-muted-foreground"}`} />,
               alert: !isLoading && stats.consecutiveViolations > 0,
             },
           ] as { label: string; value: string | number; icon: React.ReactNode; alert?: boolean }[]).map(st => (
             <Card
               key={st.label}
-              className={`py-3 ${st.alert ? "border-red-300 dark:border-red-700 bg-red-50/50 dark:bg-red-950/20" : ""}`}
+              className={`rounded-[22px] border-slate-200 bg-white/95 py-3 shadow-sm dark:border-slate-800 dark:bg-slate-950 ${
+                st.alert ? "border-red-300 bg-red-50/70 dark:border-red-700 dark:bg-red-950/20" : ""
+              }`}
             >
-              <CardContent className="px-4 py-0 flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-xs text-muted-foreground">{st.label}</p>
-                  <p className={`text-xl font-bold leading-tight ${st.alert ? "text-red-600 dark:text-red-400" : ""}`}>
-                    {st.value}
-                  </p>
+              <CardContent className="flex items-center justify-between gap-2 px-4 py-0">
+                <div className="min-w-0">
+                  <p className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{st.label}</p>
+                  {isLoading ? (
+                    <Skeleton className="mt-1 h-6 w-16 bg-slate-200 dark:bg-slate-700" />
+                  ) : (
+                    <p className={`text-xl font-bold leading-tight ${st.alert ? "text-red-600 dark:text-red-400" : ""}`}>
+                      {st.value}
+                    </p>
+                  )}
                 </div>
-                {st.icon}
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-900">
+                  {st.icon}
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -1173,26 +1318,99 @@ export default function WorkingHours() {
         )}
 
         {/* ── Main table ── */}
-        <Card>
-          <CardHeader className="pb-3 pt-5 px-5">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Shield className="h-4 w-4 text-primary" />
-              Employee Duty Hours
-              {!isLoading && (
-                <Badge variant="secondary" className="ml-1 text-xs font-normal">
-                  {displayRows.length} employee{displayRows.length !== 1 ? "s" : ""}
-                </Badge>
-              )}
-            </CardTitle>
+        <Card className="overflow-hidden rounded-[24px] border-slate-200 bg-white/95 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <CardHeader className="px-4 pb-3 pt-5 sm:px-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Shield className="h-4 w-4 text-primary" />
+                Employee Duty Hours
+                {!isLoading && (
+                  <Badge variant="secondary" className="ml-1 text-xs font-normal">
+                    {displayRows.length} employee{displayRows.length !== 1 ? "s" : ""}
+                  </Badge>
+                )}
+              </CardTitle>
+              <div className="grid grid-cols-2 gap-2 md:hidden">
+                <Button
+                  type="button"
+                  variant={sortKey === "hours" ? "default" : "outline"}
+                  size="sm"
+                  className="h-9 rounded-xl text-xs"
+                  onClick={() => toggleSort("hours")}
+                >
+                  Hours <SortIcon active={sortKey === "hours"} dir={sortDir} />
+                </Button>
+                <Button
+                  type="button"
+                  variant={sortKey === "name" ? "default" : "outline"}
+                  size="sm"
+                  className="h-9 rounded-xl text-xs"
+                  onClick={() => toggleSort("name")}
+                >
+                  Name <SortIcon active={sortKey === "name"} dir={sortDir} />
+                </Button>
+              </div>
+            </div>
           </CardHeader>
 
           <CardContent className="px-0 pb-0">
             {isLoading ? (
-              <div className="space-y-2 px-5 pb-5">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <Skeleton key={i} className="h-11 w-full" />
-                ))}
-              </div>
+              <>
+                <div className="space-y-3 px-4 pb-4 md:hidden">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={`wh-mobile-loading-${i}`} className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                      <div className="mb-4 flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Skeleton className="h-10 w-10 rounded-2xl bg-slate-200 dark:bg-slate-700" />
+                          <div className="space-y-2">
+                            <Skeleton className="h-4 w-36 bg-slate-200 dark:bg-slate-700" />
+                            <Skeleton className="h-3 w-20 bg-slate-200 dark:bg-slate-700" />
+                          </div>
+                        </div>
+                        <Skeleton className="h-12 w-20 rounded-2xl bg-slate-200 dark:bg-slate-700" />
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {Array.from({ length: 3 }).map((_, j) => (
+                          <Skeleton key={`wh-mobile-stat-${i}-${j}`} className="h-16 rounded-2xl bg-slate-200 dark:bg-slate-700" />
+                        ))}
+                      </div>
+                      <Skeleton className="mt-4 h-2 w-full rounded-full bg-slate-200 dark:bg-slate-700" />
+                      <Skeleton className="mt-4 h-9 w-full rounded-2xl bg-slate-200 dark:bg-slate-700" />
+                    </div>
+                  ))}
+                </div>
+                <div className="hidden px-5 pb-5 md:block">
+                  <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+                  <div className="grid grid-cols-[minmax(180px,2fr)_repeat(4,minmax(90px,1fr))] gap-px bg-slate-200 dark:bg-slate-700">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={`wh-head-${i}`} className="bg-slate-100 p-3 dark:bg-slate-800">
+                        <Skeleton className="h-4 w-20 bg-slate-300 dark:bg-slate-600" />
+                      </div>
+                    ))}
+                    {Array.from({ length: 8 }).map((_, row) => (
+                      <div key={`wh-row-${row}`} className="contents">
+                        <div className="bg-white p-3 dark:bg-slate-900">
+                          <Skeleton className="h-4 w-36 bg-slate-200 dark:bg-slate-700" />
+                        </div>
+                        {Array.from({ length: 4 }).map((_, col) => (
+                          <div key={`wh-cell-${row}-${col}`} className="bg-white p-3 dark:bg-slate-900">
+                            <Skeleton className="ml-auto h-4 w-16 bg-slate-200 dark:bg-slate-700" />
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <div key={`wh-footer-${i}`} className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                        <Skeleton className="mb-3 h-4 w-28 bg-slate-200 dark:bg-slate-700" />
+                        <Skeleton className="h-2.5 w-full bg-slate-200 dark:bg-slate-700" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
             ) : displayRows.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center px-5">
                 <AlertCircle className="h-10 w-10 text-muted-foreground opacity-50" />
@@ -1203,8 +1421,25 @@ export default function WorkingHours() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
+              <>
+                <div className="space-y-3 px-4 pb-4 md:hidden">
+                  {displayRows.map(row => {
+                    const isExpanded = expandedCode === row.code;
+                    return (
+                      <MobileEmployeeCard
+                        key={row.code}
+                        row={row}
+                        isExpanded={isExpanded}
+                        onToggle={() => setExpandedCode(isExpanded ? null : row.code)}
+                        monthStart={monthStart}
+                        monthEnd={monthEnd}
+                        daysInMonth={numDays}
+                      />
+                    );
+                  })}
+                </div>
+                <div className="hidden overflow-x-auto md:block">
+                  <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/40 hover:bg-muted/40">
                       <TableHead className="w-[38%] pl-5">
@@ -1265,10 +1500,10 @@ export default function WorkingHours() {
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="font-medium text-sm">{row.name}</span>
                                 {anyBreach && (
-                                  <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" title="Regulatory limit breached" />
+                                  <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
                                 )}
                                 {row.limits.peak7.hours > ATCO_LIMITS.peak7.hours * 0.85 && !anyBreach && (
-                                  <Flame className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" title="Approaching 7-day limit" />
+                                  <Flame className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
                                 )}
                               </div>
                               <div className="flex items-center gap-2 mt-0.5">
@@ -1365,8 +1600,9 @@ export default function WorkingHours() {
                       return [mainRow, detailRow].filter(Boolean) as React.ReactElement[];
                     })}
                   </TableBody>
-                </Table>
-              </div>
+                  </Table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

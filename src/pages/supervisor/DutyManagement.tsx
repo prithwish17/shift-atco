@@ -10,6 +10,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -873,79 +874,52 @@ export default function DutyManagement() {
 
                 {/* ── SCROLLABLE: Table Grid ── */}
                 {isLoading ? (
-                    <>
-                        {/* Inject loader keyframes — scoped to this component */}
-                        <style>{`
-                            .dm-loader {
-                                width: 56px;
-                                height: 28px;
-                                --c: no-repeat radial-gradient(farthest-side, hsl(var(--primary)) 93%, transparent);
-                                background:
-                                    var(--c) 0%   0%,
-                                    var(--c) 50%  0%,
-                                    var(--c) 100% 0%;
-                                background-size: 11px 11px;
-                                position: relative;
-                                animation: dm-l4-0 1s linear infinite alternate;
-                            }
-                            .dm-loader::before {
-                                content: "";
-                                position: absolute;
-                                width: 11px;
-                                height: 16px;
-                                background: hsl(var(--primary));
-                                left: 0;
-                                top: 0;
-                                border-radius: 2px;
-                                animation:
-                                    dm-l4-1 1s  linear infinite alternate,
-                                    dm-l4-2 0.5s cubic-bezier(0,200,.8,200) infinite;
-                            }
-                            @keyframes dm-l4-0 {
-                                0%      { background-position: 0% 100%, 50% 0%,   100% 0%   }
-                                8%,42%  { background-position: 0% 0%,   50% 0%,   100% 0%   }
-                                50%     { background-position: 0% 0%,   50% 100%, 100% 0%   }
-                                58%,92% { background-position: 0% 0%,   50% 0%,   100% 0%   }
-                                100%    { background-position: 0% 0%,   50% 0%,   100% 100% }
-                            }
-                            @keyframes dm-l4-1 {
-                                100% { left: calc(100% - 11px) }
-                            }
-                            @keyframes dm-l4-2 {
-                                100% { top: -0.1px }
-                            }
-                        `}</style>
-
-                        <div className="flex-1 flex items-center justify-center">
-                            <div className="flex flex-col items-center gap-8 px-6 py-10 text-center">
-                                {/* New bouncing-dot loader */}
-                                <div className="dm-loader" />
-
-                                <div className="space-y-1.5">
-                                    <h2 className="text-base font-semibold text-foreground">Loading Schedule Management</h2>
-                                    <p className="text-sm text-muted-foreground max-w-xs">
-                                        Fetching employee profiles and duty schedules. Please wait…
-                                    </p>
-                                </div>
-
-                                {/* Step indicators */}
-                                <div className="flex flex-col gap-2 w-full max-w-xs">
-                                    <div className="flex items-center gap-3">
-                                        <div className={`h-2 w-2 rounded-full flex-shrink-0 ${profilesLoading ? "bg-primary animate-pulse" : "bg-green-500"}`} />
-                                        <span className="text-xs text-muted-foreground text-left">
-                                            {profilesLoading ? "Loading employee profiles…" : "Employee profiles loaded"}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <div className={`h-2 w-2 rounded-full flex-shrink-0 ${schedulesLoading ? "bg-primary animate-pulse" : profilesLoading ? "bg-muted" : "bg-green-500"}`} />
-                                        <span className="text-xs text-muted-foreground text-left">
-                                            {schedulesLoading ? "Loading duty schedules…" : profilesLoading ? "Waiting…" : "Duty schedules loaded"}
-                                        </span>
-                                    </div>
-                                </div>
+                    <div className="flex-1 overflow-hidden bg-background p-4 md:p-6">
+                        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div className="space-y-2">
+                                <Skeleton className="h-6 w-64 bg-slate-200 dark:bg-slate-700" />
+                                <Skeleton className="h-4 w-80 max-w-full bg-slate-200 dark:bg-slate-700" />
+                            </div>
+                            <div className="flex gap-2">
+                                <Skeleton className="h-9 w-28 bg-slate-200 dark:bg-slate-700" />
+                                <Skeleton className="h-9 w-28 bg-slate-200 dark:bg-slate-700" />
                             </div>
                         </div>
-                    </>
+                        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                            <div className="grid grid-cols-[220px_repeat(12,minmax(48px,1fr))] gap-px bg-slate-200 dark:bg-slate-700">
+                                <div className="bg-slate-100 p-3 dark:bg-slate-800">
+                                    <Skeleton className="h-4 w-32 bg-slate-300 dark:bg-slate-600" />
+                                </div>
+                                {Array.from({ length: 12 }).map((_, i) => (
+                                    <div key={`dm-head-${i}`} className="bg-slate-100 p-3 dark:bg-slate-800">
+                                        <Skeleton className="mx-auto h-4 w-8 bg-slate-300 dark:bg-slate-600" />
+                                    </div>
+                                ))}
+                                {Array.from({ length: 10 }).map((_, row) => (
+                                    <div key={`dm-row-${row}`} className="contents">
+                                        <div className="bg-white p-3 dark:bg-slate-900">
+                                            <Skeleton className="h-4 w-36 bg-slate-200 dark:bg-slate-700" />
+                                        </div>
+                                        {Array.from({ length: 12 }).map((_, col) => (
+                                            <div key={`dm-cell-${row}-${col}`} className="bg-white p-2 dark:bg-slate-900">
+                                                <Skeleton className="h-7 w-full bg-slate-200 dark:bg-slate-700" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                                <Skeleton className="mb-3 h-4 w-40 bg-slate-200 dark:bg-slate-700" />
+                                <Skeleton className="h-3 w-full bg-slate-200 dark:bg-slate-700" />
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                                <Skeleton className="mb-3 h-4 w-40 bg-slate-200 dark:bg-slate-700" />
+                                <Skeleton className="h-3 w-full bg-slate-200 dark:bg-slate-700" />
+                            </div>
+                        </div>
+                    </div>
 
                 ) : (
                     <div className="flex-1 flex flex-col overflow-hidden min-h-0">
