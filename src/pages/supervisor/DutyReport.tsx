@@ -44,6 +44,41 @@ interface DutyRow {
   duty_description: string | null;
 }
 
+// ── Supabase pagination helper ───────────────────────────────────────────────
+// PostgREST's server-side max_rows overrides .limit(); the only reliable way
+// to retrieve every row is to walk through pages with .range().
+
+const PAGE_SIZE = 1000;
+
+async function fetchAllPages(
+  startDate: string,
+  endDate: string,
+  allCodes: string[],
+): Promise<DutyRow[]> {
+  const all: DutyRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await (supabase as any)
+      .from("employee_schedules")
+      .select("employee_code, employee_name, duty_date, duty_code, duty_description")
+      .gte("duty_date", startDate)
+      .lte("duty_date", endDate)
+      .in("duty_code", allCodes)
+      .order("duty_date")
+      .order("employee_name")
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all.push(...(data as DutyRow[]));
+    if (data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  return all;
+}
+
 // ── Utilities ────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string) {
@@ -124,9 +159,20 @@ function sortRows(rows: DutyRow[], key: SortKey, dir: SortDir): DutyRow[] {
 
 // ── Sub-component: duty table ─────────────────────────────────────────────────
 
-function DutyTable({ rows }: { rows: DutyRow[] }) {
+const ROWS_PER_PAGE = 50;
+
+interface DutyTableProps {
+  rows: DutyRow[];
+  downloadTitle: string;
+  downloadFilename: string;
+  monthLabel: string;
+  monthDate: Date;
+}
+
+function DutyTable({ rows, downloadTitle, downloadFilename, monthLabel, monthDate }: DutyTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [page, setPage] = useState(0);
 
   const handleSort = (col: SortKey) => {
     if (col === sortKey) {
@@ -135,9 +181,20 @@ function DutyTable({ rows }: { rows: DutyRow[] }) {
       setSortKey(col);
       setSortDir("asc");
     }
+    setPage(0);
   };
 
+  // sorted = full dataset in current sort order — used for downloads
   const sorted = useMemo(() => sortRows(rows, sortKey, sortDir), [rows, sortKey, sortDir]);
+
+  // pageRows = slice shown in the table
+  const totalPages = Math.max(1, Math.ceil(sorted.length / ROWS_PER_PAGE));
+  const pageRows = useMemo(
+    () => sorted.slice(page * ROWS_PER_PAGE, (page + 1) * ROWS_PER_PAGE),
+    [sorted, page],
+  );
+
+  const sortLabel = sortKey === "name" ? "sorted by name" : "sorted by date";
 
   if (rows.length === 0) {
     return (
@@ -153,65 +210,163 @@ function DutyTable({ rows }: { rows: DutyRow[] }) {
     `${thBase} cursor-pointer select-none hover:text-white transition-colors`;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-slate-200 bg-slate-900 text-left dark:border-slate-700">
-            <th className={thBase}>Sr #</th>
-            <th
-              className={thSortable}
-              onClick={() => handleSort("name")}
-              aria-sort={sortKey === "name" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-            >
-              Employee Name
-              <SortIcon col="name" sortKey={sortKey} sortDir={sortDir} />
-            </th>
-            <th
-              className={thSortable}
-              onClick={() => handleSort("date")}
-              aria-sort={sortKey === "date" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-            >
-              Date
-              <SortIcon col="date" sortKey={sortKey} sortDir={sortDir} />
-            </th>
-            <th className={thBase}>Duty Code</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((row, idx) => (
-            <tr
-              key={`${row.employee_code}-${row.duty_date}-${row.duty_code}-${idx}`}
-              className={
-                idx % 2 === 0
-                  ? "bg-white dark:bg-slate-950"
-                  : "bg-slate-50 dark:bg-slate-900"
-              }
-            >
-              <td className="border-b border-slate-100 px-4 py-2.5 tabular-nums text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                {idx + 1}
-              </td>
-              <td className="border-b border-slate-100 px-4 py-2.5 font-medium text-slate-900 dark:border-slate-800 dark:text-slate-100">
-                {row.employee_name || row.employee_code}
-              </td>
-              <td className="border-b border-slate-100 px-4 py-2.5 tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-300">
-                {formatDate(row.duty_date)}
-              </td>
-              <td className="border-b border-slate-100 px-4 py-2.5 dark:border-slate-800">
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    {row.duty_code}
-                  </span>
-                  {row.duty_description && (
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                      {row.duty_description}
-                    </span>
-                  )}
-                </div>
-              </td>
+    <div className="space-y-2">
+      {/* Toolbar: record count + downloads (always use full sorted set) */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {sorted.length} record{sorted.length !== 1 ? "s" : ""}
+          <span className="ml-1 text-slate-400 dark:text-slate-500">({sortLabel})</span>
+        </p>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            disabled={sorted.length === 0}
+            onClick={() => downloadCsv(sorted, downloadFilename, format(monthDate, "MMM_yyyy"))}
+          >
+            <Download className="size-3.5" />
+            CSV
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            disabled={sorted.length === 0}
+            onClick={() => downloadPdf(sorted, downloadTitle, monthLabel)}
+          >
+            <FileText className="size-3.5" />
+            PDF
+          </Button>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-900 text-left dark:border-slate-700">
+              <th className={thBase}>Sr #</th>
+              <th
+                className={thSortable}
+                onClick={() => handleSort("name")}
+                aria-sort={sortKey === "name" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+              >
+                Employee Name
+                <SortIcon col="name" sortKey={sortKey} sortDir={sortDir} />
+              </th>
+              <th
+                className={thSortable}
+                onClick={() => handleSort("date")}
+                aria-sort={sortKey === "date" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+              >
+                Date
+                <SortIcon col="date" sortKey={sortKey} sortDir={sortDir} />
+              </th>
+              <th className={thBase}>Duty Code</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {pageRows.map((row, idx) => {
+              const globalIdx = page * ROWS_PER_PAGE + idx;
+              return (
+                <tr
+                  key={`${row.employee_code}-${row.duty_date}-${row.duty_code}-${globalIdx}`}
+                  className={
+                    globalIdx % 2 === 0
+                      ? "bg-white dark:bg-slate-950"
+                      : "bg-slate-50 dark:bg-slate-900"
+                  }
+                >
+                  <td className="border-b border-slate-100 px-4 py-2.5 tabular-nums text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                    {globalIdx + 1}
+                  </td>
+                  <td className="border-b border-slate-100 px-4 py-2.5 font-medium text-slate-900 dark:border-slate-800 dark:text-slate-100">
+                    {row.employee_name || row.employee_code}
+                  </td>
+                  <td className="border-b border-slate-100 px-4 py-2.5 tabular-nums text-slate-700 dark:border-slate-800 dark:text-slate-300">
+                    {formatDate(row.duty_date)}
+                  </td>
+                  <td className="border-b border-slate-100 px-4 py-2.5 dark:border-slate-800">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {row.duty_code}
+                      </span>
+                      {row.duty_description && (
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                          {row.duty_description}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Page {page + 1} of {totalPages}
+            <span className="ml-1 text-slate-400 dark:text-slate-500">
+              · showing {page * ROWS_PER_PAGE + 1}–{Math.min((page + 1) * ROWS_PER_PAGE, sorted.length)} of {sorted.length}
+            </span>
+          </p>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 w-7 p-0"
+              disabled={page === 0}
+              onClick={() => setPage(0)}
+              aria-label="First page"
+            >
+              <ChevronLeft className="size-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 w-7 p-0"
+              disabled={page === 0}
+              onClick={() => setPage(p => p - 1)}
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="size-3.5" />
+            </Button>
+            <span className="min-w-[2.5rem] text-center text-xs tabular-nums text-slate-600 dark:text-slate-300">
+              {page + 1} / {totalPages}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 w-7 p-0"
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage(p => p + 1)}
+              aria-label="Next page"
+            >
+              <ChevronRight className="size-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 w-7 p-0"
+              disabled={page >= totalPages - 1}
+              onClick={() => setPage(totalPages - 1)}
+              aria-label="Last page"
+            >
+              <ChevronRight className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -236,20 +391,7 @@ export default function DutyReport() {
 
   const { data: rawRows = [], isLoading } = useQuery<DutyRow[]>({
     queryKey: ["duty-report", startDate, endDate],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("employee_schedules")
-        .select("employee_code, employee_name, duty_date, duty_code, duty_description")
-        .gte("duty_date", startDate)
-        .lte("duty_date", endDate)
-        .in("duty_code", allCodes)
-        .order("duty_date")
-        .order("employee_name")
-        .limit(5000);
-
-      if (error) throw error;
-      return (data || []) as DutyRow[];
-    },
+    queryFn: () => fetchAllPages(startDate, endDate, allCodes),
     staleTime: 2 * 60_000,
   });
 
@@ -375,43 +517,6 @@ export default function DutyReport() {
               </span>
             </div>
 
-            {/* Download actions */}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {isLoading
-                  ? "Loading…"
-                  : `${nightRows.length} record${nightRows.length !== 1 ? "s" : ""}`}
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1.5 text-xs"
-                  disabled={isLoading || nightRows.length === 0}
-                  onClick={() =>
-                    downloadCsv(nightRows, "Night_Duty_Report", format(monthDate, "MMM_yyyy"))
-                  }
-                >
-                  <Download className="size-3.5" />
-                  CSV
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1.5 text-xs"
-                  disabled={isLoading || nightRows.length === 0}
-                  onClick={() =>
-                    downloadPdf(nightRows, "Night Duty Report", monthLabel)
-                  }
-                >
-                  <FileText className="size-3.5" />
-                  PDF
-                </Button>
-              </div>
-            </div>
-
             {isLoading ? (
               <div className="space-y-2">
                 {[...Array(6)].map((_, i) => (
@@ -422,48 +527,18 @@ export default function DutyReport() {
                 ))}
               </div>
             ) : (
-              <DutyTable rows={nightRows} />
+              <DutyTable
+                rows={nightRows}
+                downloadTitle="Night Duty Report"
+                downloadFilename="Night_Duty_Report"
+                monthLabel={monthLabel}
+                monthDate={monthDate}
+              />
             )}
           </TabsContent>
 
           {/* ── OPE Duty tab ── */}
           <TabsContent value="ope" className="mt-4 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {isLoading
-                  ? "Loading…"
-                  : `${opeRows.length} record${opeRows.length !== 1 ? "s" : ""}`}
-              </p>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1.5 text-xs"
-                  disabled={isLoading || opeRows.length === 0}
-                  onClick={() =>
-                    downloadCsv(opeRows, "OPE_Duty_Report", format(monthDate, "MMM_yyyy"))
-                  }
-                >
-                  <Download className="size-3.5" />
-                  CSV
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1.5 text-xs"
-                  disabled={isLoading || opeRows.length === 0}
-                  onClick={() =>
-                    downloadPdf(opeRows, "OPE Duty Report", monthLabel)
-                  }
-                >
-                  <FileText className="size-3.5" />
-                  PDF
-                </Button>
-              </div>
-            </div>
-
             {isLoading ? (
               <div className="space-y-2">
                 {[...Array(6)].map((_, i) => (
@@ -474,7 +549,13 @@ export default function DutyReport() {
                 ))}
               </div>
             ) : (
-              <DutyTable rows={opeRows} />
+              <DutyTable
+                rows={opeRows}
+                downloadTitle="OPE Duty Report"
+                downloadFilename="OPE_Duty_Report"
+                monthLabel={monthLabel}
+                monthDate={monthDate}
+              />
             )}
           </TabsContent>
         </Tabs>

@@ -213,17 +213,17 @@ export function AppSidebar({ role }: SidebarProps) {
   const switchItem = showSwitchToRole ? switchDashboardItems[showSwitchToRole] : null;
 
   const navLinkClass = (url: string) =>
-    `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-300 ${
+    `flex items-center gap-3 px-3 py-2 rounded-lg border-l-2 text-sm transition-all duration-300 ${
       isActive(url) 
-        ? 'bg-[#EEF2FF] text-[#151A2D] font-medium' 
-        : 'text-[#F1F4FF] hover:bg-[#EEF2FF] hover:text-[#151A2D]'
+        ? 'border-[#60a5fa] bg-[#EEF2FF] text-[#151A2D] font-medium' 
+        : 'border-[#60a5fa]/40 bg-[#1e2742]/45 text-[#F1F4FF] hover:border-[#60a5fa] hover:bg-[#EEF2FF] hover:text-[#151A2D]'
     } ${collapsed ? 'justify-center' : ''}`;
 
   const sectionHeaderClass = (hasActiveChild: boolean) =>
-    `flex w-full items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
+    `flex w-full items-center gap-3 px-3 py-2 rounded-lg border border-[#2d3748] text-sm font-medium transition-all duration-300 ${
       hasActiveChild
-        ? 'bg-[#EEF2FF]/10 text-[#EEF2FF]'
-        : 'text-[#94a3b8] hover:bg-[#EEF2FF]/10 hover:text-[#EEF2FF]'
+        ? 'bg-[#EEF2FF]/10 text-[#EEF2FF] border-[#60a5fa]/40'
+        : 'bg-[#111827]/40 text-[#94a3b8] hover:bg-[#EEF2FF]/10 hover:text-[#EEF2FF] hover:border-[#60a5fa]/30'
     } ${collapsed ? 'justify-center' : ''}`;
 
   // ── Supervisor-specific render ──────────────────────────────────────────
@@ -232,6 +232,11 @@ export function AppSidebar({ role }: SidebarProps) {
     <>
       {/* Top standalone: Dashboard */}
       <div className="space-y-1">
+        {!collapsed && (
+          <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-[#60a5fa]">
+            Standalone Pages
+          </div>
+        )}
         {supervisorNav.topItems.map(item => (
           <NavLink
             key={item.url}
@@ -251,7 +256,7 @@ export function AppSidebar({ role }: SidebarProps) {
       <div className="mt-1">
         {!collapsed && (
           <div className="px-3 pb-1.5 pt-2.5 text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">
-            Sections
+            Dropdown Menus
           </div>
         )}
         <div className="space-y-0.5">
@@ -277,6 +282,9 @@ export function AppSidebar({ role }: SidebarProps) {
                   {!collapsed && (
                     <>
                       <span className="flex-1 text-left truncate">{section.label}</span>
+                      <span className="rounded-full bg-[#60a5fa]/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#93c5fd]">
+                        Menu
+                      </span>
                       <ChevronDown
                         className={`size-4 shrink-0 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
                       />
@@ -286,7 +294,7 @@ export function AppSidebar({ role }: SidebarProps) {
 
                 {/* Expanded dropdown */}
                 {!collapsed && isOpen && (
-                  <div className="mt-1 space-y-0.5 pl-3 overflow-hidden transition-all duration-300">
+                  <div className="ml-4 mt-1 space-y-0.5 border-l border-dashed border-[#60a5fa]/30 pl-3 overflow-hidden transition-all duration-300">
                     {section.items.map(item => (
                       <NavLink
                         key={item.url}
@@ -298,6 +306,7 @@ export function AppSidebar({ role }: SidebarProps) {
                             : 'text-[#94a3b8] hover:bg-[#EEF2FF]/10 hover:text-[#EEF2FF]'
                         }`}
                       >
+                        <span className={`size-1.5 rounded-full ${isActive(item.url) ? 'bg-[#151A2D]' : 'bg-[#60a5fa]/60'}`} />
                         <item.icon className="size-4 shrink-0" />
                         <span className="truncate">{item.title}</span>
                       </NavLink>
@@ -309,7 +318,8 @@ export function AppSidebar({ role }: SidebarProps) {
                 {collapsed && (isHovered || isOpen) && (
                   <div className="absolute left-full top-0 ml-2 z-50 min-w-[200px] bg-[#151A2D] rounded-lg shadow-xl border border-[#2d3748] py-2">
                     <div className="px-3 py-2 text-sm font-semibold text-[#EEF2FF] border-b border-[#2d3748] mb-1">
-                      {section.label}
+                      <div>{section.label}</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#60a5fa]">Dropdown Menu</div>
                     </div>
                     {section.items.map(item => (
                       <NavLink
@@ -334,7 +344,12 @@ export function AppSidebar({ role }: SidebarProps) {
         </div>
       </div>
 
-      <div className="mt-1 space-y-0.5">
+      <div className="mt-2 space-y-0.5">
+        {!collapsed && (
+          <div className="px-3 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-widest text-[#60a5fa]">
+            More Standalone Pages
+          </div>
+        )}
         {supervisorNav.bottomItems.map(item => (
           <NavLink
             key={item.url}

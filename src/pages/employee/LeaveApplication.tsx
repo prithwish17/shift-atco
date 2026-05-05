@@ -1077,7 +1077,7 @@ export default function LeaveApplication() {
                       className="h-10 rounded-full border-slate-300 px-5 text-[12px] font-semibold text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
                       onClick={() => { setFormData({ leave_type: '', start_date: '', end_date: '', reason: '', actual_rh_date: '', actual_rh_date_2: '', rh_leave_date: '', sap_applied: '' }); setAttachmentFile(null); }}
                     >
-                      Clear
+                      Reset
                     </Button>
                     <Button type="submit" className="h-10 rounded-full bg-gradient-to-r from-sky-600 via-cyan-500 to-teal-500 px-5 text-[12px] font-semibold text-white shadow-[0_20px_42px_-28px_rgba(14,165,233,0.7)] hover:opacity-95" disabled={submitDisabled || isUploadingAttachment}>
                       {isUploadingAttachment ? 'Uploading document...' : createRequest.isPending ? 'Submitting...' : 'Submit request'}
