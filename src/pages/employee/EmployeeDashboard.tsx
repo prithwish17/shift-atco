@@ -214,6 +214,7 @@ export default function EmployeeDashboard() {
     if (shift.includes("MORNING")) cutoffMinutes = 7 * 60 + 30; // 07:30
     else if (shift.includes("AFTERNOON")) cutoffMinutes = 13 * 60 + 30; // 13:30
     else if (shift.includes("NIGHT")) cutoffMinutes = 19 * 60 + 30; // 19:30
+    else if (shift.includes("GENERAL")) cutoffMinutes = 10 * 60 + 45; // 10:45
     else return match; // Unknown shift - always show
 
     // Hide banner after cutoff

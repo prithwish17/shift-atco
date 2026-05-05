@@ -244,7 +244,8 @@ export default function DutyReport() {
         .lte("duty_date", endDate)
         .in("duty_code", allCodes)
         .order("duty_date")
-        .order("employee_name");
+        .order("employee_name")
+        .limit(5000);
 
       if (error) throw error;
       return (data || []) as DutyRow[];

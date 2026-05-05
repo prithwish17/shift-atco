@@ -8,6 +8,7 @@ const corsHeaders = {
 
 // ── Shift expiry helpers (IST = UTC + 5:30) ───────────────────────────────────
 // Morning shift list visible until 07:30 IST → 02:00 UTC
+// General shift list visible until 10:45 IST → 05:15 UTC
 // Afternoon shift list visible until 13:30 IST → 08:00 UTC
 // Night shift list visible until 19:30 IST → 14:00 UTC
 
@@ -19,6 +20,7 @@ function shiftExpiresAt(shift: string, istDateStr: string): string {
     if (s.includes("MORNING")) { cutoffHourIST = 7;  cutoffMinIST = 30; }
     else if (s.includes("AFTERNOON")) { cutoffHourIST = 13; cutoffMinIST = 30; }
     else if (s.includes("NIGHT")) { cutoffHourIST = 19; cutoffMinIST = 30; }
+    else if (s.includes("GENERAL")) { cutoffHourIST = 10; cutoffMinIST = 45; }
     else {
         // Unknown shift — expire in 2 days
         return new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
