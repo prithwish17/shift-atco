@@ -59,6 +59,21 @@ function normaliseCode(val: string | null | undefined): string {
   return (val ?? "").trim().toLowerCase();
 }
 
+/** Higher number = later shift. */
+function shiftPriority(shift: string | null): number {
+  const s = (shift ?? "").trim().toLowerCase();
+  if (s === "night")     return 4;
+  if (s === "evening")   return 3;
+  if (s === "afternoon") return 2;
+  if (s === "morning")   return 1;
+  if (s === "general")   return 0;
+  return 0;
+}
+
+function getRowShift(row: BATestRow): string {
+  return (row.shift ?? "").trim() || guessShift(row.test_time);
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function EmployeeBATestList() {
@@ -84,23 +99,39 @@ export default function EmployeeBATestList() {
     refetchInterval: 5 * 60 * 1000,
   });
 
-  // Group by date and show each employee name only once per date.
+  // Group by date — show only the latest shift per date.
   const byDate = useMemo(() => {
+    // First pass: determine latest shift for each date
+    const dateToLatestShift = new Map<string, string>();
+    for (const r of rows) {
+      const dateKey = r.test_date;
+      const shift = getRowShift(r);
+      const existing = dateToLatestShift.get(dateKey);
+      if (!existing || shiftPriority(shift) > shiftPriority(existing)) {
+        dateToLatestShift.set(dateKey, shift);
+      }
+    }
+
+    // Second pass: keep only rows from the latest shift, deduplicate employees
     const map = new Map<string, BATestRow[]>();
     const seenByDate = new Map<string, Set<string>>();
 
     for (const r of rows) {
-      const key = r.test_date;
+      const dateKey = r.test_date;
+      const shift = getRowShift(r);
+      const latestShift = dateToLatestShift.get(dateKey);
+      if (!latestShift || shift !== latestShift) continue;
+
       const employeeKey = normaliseCode(r.employee_name);
       if (!employeeKey) continue;
 
-      if (!seenByDate.has(key)) seenByDate.set(key, new Set());
-      const seenNames = seenByDate.get(key)!;
+      if (!seenByDate.has(dateKey)) seenByDate.set(dateKey, new Set());
+      const seenNames = seenByDate.get(dateKey)!;
       if (seenNames.has(employeeKey)) continue;
       seenNames.add(employeeKey);
 
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(r);
+      if (!map.has(dateKey)) map.set(dateKey, []);
+      map.get(dateKey)!.push(r);
     }
 
     return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));

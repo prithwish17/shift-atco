@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { addMonths, endOfMonth, format, startOfMonth } from "date-fns";
-import { ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, ChevronDown as ChevronDownIcon, Download, FileText } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsUpDown, ChevronUp, ChevronDown as ChevronDownIcon, Download, FileText, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -378,6 +378,8 @@ export default function DutyReport() {
   const [activeCodes, setActiveCodes] = useState<Set<NightCode>>(
     () => new Set(NIGHT_CODES),
   );
+  const [excludedOpeDates, setExcludedOpeDates] = useState<Set<string>>(new Set());
+  const [excludeDateInput, setExcludeDateInput] = useState("");
 
   const monthDate = useMemo(() => addMonths(new Date(), monthOffset), [monthOffset]);
   const monthLabel = useMemo(() => format(monthDate, "MMMM yyyy"), [monthDate]);
@@ -416,6 +418,25 @@ export default function DutyReport() {
         }),
     [rawRows],
   );
+
+  const filteredOpeRows = useMemo(
+    () => opeRows.filter(r => !excludedOpeDates.has(r.duty_date)),
+    [opeRows, excludedOpeDates],
+  );
+
+  const addExcludeDate = () => {
+    if (!excludeDateInput) return;
+    setExcludedOpeDates(prev => new Set([...prev, excludeDateInput]));
+    setExcludeDateInput("");
+  };
+
+  const removeExcludeDate = (date: string) => {
+    setExcludedOpeDates(prev => {
+      const next = new Set(prev);
+      next.delete(date);
+      return next;
+    });
+  };
 
   const toggleCode = (code: NightCode) => {
     setActiveCodes(prev => {
@@ -484,7 +505,7 @@ export default function DutyReport() {
               OPE Duty
               {!isLoading && (
                 <Badge className="ml-1.5 rounded-full border-0 bg-slate-200 px-1.5 py-0 text-[10px] font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
-                  {opeRows.length}
+                  {filteredOpeRows.length}
                 </Badge>
               )}
             </TabsTrigger>
@@ -539,6 +560,61 @@ export default function DutyReport() {
 
           {/* ── OPE Duty tab ── */}
           <TabsContent value="ope" className="mt-4 space-y-4">
+            {/* Exclude dates UI */}
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-500 dark:text-slate-400">Exclude dates:</span>
+                <input
+                  type="date"
+                  value={excludeDateInput}
+                  min={startDate}
+                  max={endDate}
+                  onChange={e => setExcludeDateInput(e.target.value)}
+                  className="h-7 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-3 text-xs"
+                  disabled={!excludeDateInput}
+                  onClick={addExcludeDate}
+                >
+                  Exclude
+                </Button>
+                {excludedOpeDates.size > 0 && (
+                  <button
+                    type="button"
+                    className="ml-1 text-[11px] text-slate-400 underline hover:text-slate-600 dark:hover:text-slate-200"
+                    onClick={() => setExcludedOpeDates(new Set())}
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
+              {excludedOpeDates.size > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">Excluded:</span>
+                  {[...excludedOpeDates].sort().map(date => (
+                    <span
+                      key={date}
+                      className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[11px] font-medium text-orange-700 dark:border-orange-800 dark:bg-orange-900/20 dark:text-orange-300"
+                    >
+                      {formatDate(date)}
+                      <button
+                        type="button"
+                        onClick={() => removeExcludeDate(date)}
+                        className="ml-0.5 text-orange-400 hover:text-orange-600 dark:hover:text-orange-200"
+                        aria-label={`Remove ${date}`}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {isLoading ? (
               <div className="space-y-2">
                 {[...Array(6)].map((_, i) => (
@@ -550,7 +626,7 @@ export default function DutyReport() {
               </div>
             ) : (
               <DutyTable
-                rows={opeRows}
+                rows={filteredOpeRows}
                 downloadTitle="OPE Duty Report"
                 downloadFilename="OPE_Duty_Report"
                 monthLabel={monthLabel}

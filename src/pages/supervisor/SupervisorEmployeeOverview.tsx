@@ -109,7 +109,8 @@ export default function SupervisorEmployeeOverview() {
         .from("leave_requests" as any)
         .select("*")
         .eq("employee_id", profile.id)
-        .order("applied_at", { ascending: false });
+        .order("applied_at", { ascending: false })
+        .limit(100);
       if (error) throw error;
       return (data || []) as LeaveRequest[];
     },
@@ -142,10 +143,8 @@ export default function SupervisorEmployeeOverview() {
 
   const leaveBalances = useMemo(() => {
     const rows = (leaveBalancesRaw || []) as LeaveBalanceRow[];
-    const latestYear = rows.reduce((current, row) => Math.max(current, row.year), 0);
     return rows
-      .filter((row) => row.year === latestYear)
-      .sort((left, right) => left.leave_type.localeCompare(right.leave_type));
+      .sort((left, right) => right.year - left.year || left.leave_type.localeCompare(right.leave_type));
   }, [leaveBalancesRaw]);
 
   const leaveSummary = useMemo(() => ({
@@ -374,9 +373,16 @@ export default function SupervisorEmployeeOverview() {
               </div>
 
               <div>
-                <p className="text-sm font-semibold text-slate-950 dark:text-white">Recent Leave Requests</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-slate-950 dark:text-white">Leave Requests</p>
+                  {leaveRequests.length > 0 && (
+                    <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                      {leaveRequests.length}{leaveRequests.length === 100 ? "+" : ""} total
+                    </span>
+                  )}
+                </div>
                 <div className="mt-3 space-y-2 sm:space-y-3">
-                  {leaveRequests.slice(0, 4).map((request) => (
+                  {leaveRequests.slice(0, 10).map((request) => (
                     <div key={request.id} className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-3 dark:border-slate-800 dark:bg-slate-900/60 sm:p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -393,6 +399,11 @@ export default function SupervisorEmployeeOverview() {
                     <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 px-4 py-8 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
                       No leave requests are available for this employee.
                     </div>
+                  ) : null}
+                  {leaveRequests.length > 10 ? (
+                    <p className="text-center text-[11px] text-slate-400 dark:text-slate-500">
+                      Showing 10 of {leaveRequests.length}{leaveRequests.length === 100 ? "+" : ""} requests
+                    </p>
                   ) : null}
                 </div>
               </div>
@@ -437,7 +448,9 @@ export default function SupervisorEmployeeOverview() {
                         <Badge variant="outline" className="rounded-full px-1.5 py-0.5 text-xs sm:px-2 sm:py-1 sm:text-sm">{getHealthStatusLabel(rating)}</Badge>
                       </div>
                       <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 sm:mt-3">
-                        Proficiency valid upto {formatDisplayDate(rating.expiryDate)}
+                        {rating.exemptByAccS
+                          ? 'Validity covered by active ACC(S) rating'
+                          : `Proficiency valid upto ${formatDisplayDate(rating.expiryDate)}`}
                       </p>
                     </div>
                   ))}

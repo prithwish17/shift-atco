@@ -575,6 +575,10 @@ export default function AppSettingsPage() {
             </SectionFrame>
           </div>
         </div>
+
+        <p className="pb-2 text-center text-xs text-slate-400 dark:text-slate-600">
+          Created and maintained by Prithwish Das
+        </p>
       </div>
     </DashboardLayout>
   );

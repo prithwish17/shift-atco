@@ -245,31 +245,15 @@ Deno.serve(async (req) => {
             });
         }
 
-        // ── Determine the shift of this fetch to replace only that shift's rows ─
+        // ── Determine the shift of this fetch ─────────────────────────────────
         const fetchedShift = rows[0]?.shift?.toUpperCase() ?? null;
 
         // Cleanup expired rows
         await adminClient.from("ba_test_list").delete().lt("expires_at", new Date().toISOString());
 
-        // Replace today's rows for this shift (so each cron run is idempotent)
-        if (fetchedShift) {
-            await adminClient
-                .from("ba_test_list")
-                .delete()
-                .eq("test_date", todayIST)
-                .ilike("shift", fetchedShift);
-        } else {
-            await adminClient.from("ba_test_list").delete().eq("test_date", todayIST);
-        }
-
-        const incomingNames = [...new Set(rows.map((row) => row.employee_name).filter(Boolean))];
-        for (let i = 0; i < incomingNames.length; i += 100) {
-            await adminClient
-                .from("ba_test_list")
-                .delete()
-                .eq("test_date", todayIST)
-                .in("employee_name", incomingNames.slice(i, i + 100));
-        }
+        // Delete ALL of today's rows so that only the latest shift list is kept.
+        // Each new fetch completely replaces the previous list for today.
+        await adminClient.from("ba_test_list").delete().eq("test_date", todayIST);
 
         // Insert fresh rows
         let inserted = 0;

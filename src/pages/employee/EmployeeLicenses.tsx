@@ -242,7 +242,9 @@ export default function EmployeeLicenses() {
                                             <div className="mt-3 grid grid-cols-2 gap-2 text-[13px] sm:mt-4 sm:gap-3 sm:text-sm">
                                                 <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-900 sm:rounded-2xl sm:p-3">
                                                     <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 sm:text-[11px] sm:tracking-[0.18em] dark:text-slate-400">Prof Valid Upto</p>
-                                                    <p className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">{formatDisplayDate(rating.expiryDate)}</p>
+                                                    <p className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">
+                                                        {rating.exemptByAccS ? 'Covered by ACC(S)' : formatDisplayDate(rating.expiryDate)}
+                                                    </p>
                                                 </div>
                                                 <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-900 sm:rounded-2xl sm:p-3">
                                                     <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500 sm:text-[11px] sm:tracking-[0.18em] dark:text-slate-400">Endorsement</p>

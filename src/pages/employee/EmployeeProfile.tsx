@@ -1062,7 +1062,9 @@ export default function EmployeeProfile() {
                                 </div>
                                 <div className="mt-2 space-y-1 text-xs text-slate-500 dark:text-slate-400">
                                   {rating.issueDate ? <p>Issued {formatProfileDate(rating.issueDate)}</p> : null}
-                                  {rating.expiryDate ? <p>Prof valid upto {formatProfileDate(rating.expiryDate)}</p> : null}
+                                  {rating.exemptByAccS
+                                    ? <p className="text-sky-600 dark:text-sky-400">Validity covered by active ACC(S) rating</p>
+                                    : rating.expiryDate ? <p>Prof valid upto {formatProfileDate(rating.expiryDate)}</p> : null}
                                   {rating.lastProficiencyDate ? <p>Last proficiency {formatProfileDate(rating.lastProficiencyDate)}</p> : null}
                                 </div>
                               </div>

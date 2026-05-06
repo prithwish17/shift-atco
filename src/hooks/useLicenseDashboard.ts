@@ -79,6 +79,7 @@ export interface RatingHealthItem extends LicenseHealthItem {
     lastProficiencyDate: string | null;
     lastInstructor: string | null;
     endorsementDate: string | null;
+    exemptByAccS: boolean;
 }
 
 export interface EmployeeLicenseHealth {
@@ -217,8 +218,14 @@ function isActiveRatingEntry(entry?: RatingDataEntry | null) {
     return String(entry?.status || '') === '1';
 }
 
+/** Normalises a rating key to lowercase-underscore form so lookups work
+ *  regardless of whether the backend stores "ACC(S)", "acc_s", "ACC_S", etc. */
+function normalizeRatingKey(key: string): string {
+    return key.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
 function hasValidAccSRating(ratingData: Record<string, RatingDataEntry>) {
-    const accsEntry = ratingData.acc_s;
+    const accsEntry = Object.entries(ratingData).find(([k]) => normalizeRatingKey(k) === 'acc_s')?.[1];
     if (!isActiveRatingEntry(accsEntry)) return false;
 
     const latestProficiency = getLatestProficiencyFromHistory(accsEntry);
@@ -231,7 +238,7 @@ function getRatingValidityWindowForEntry(
     entry: RatingDataEntry,
     ratingData: Record<string, RatingDataEntry>,
 ): RatingValidityWindow | null {
-    if (ratingKey === 'plr' && hasValidAccSRating(ratingData)) {
+    if (normalizeRatingKey(ratingKey) === 'plr' && hasValidAccSRating(ratingData)) {
         return {
             anchorDate: null,
             validUpto: null,
@@ -350,6 +357,7 @@ export function buildEmployeeLicenseHealth(profile: any, licensesInput: LicenseW
                 lastProficiencyDate: latestProficiency.date || null,
                 lastInstructor: latestProficiency.instructor || null,
                 endorsementDate: entry.endorsement_date || null,
+                exemptByAccS: validityWindow?.exemptByAccS ?? false,
             };
         })
         .sort(compareByUrgency);
