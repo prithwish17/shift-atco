@@ -334,7 +334,9 @@ export default function LeaveApplication() {
   const balanceYear = matchingBalanceEntries?.[0]?.year ?? null;
   const balanceLabel = getBalanceBucketLabel(balanceBucket);
 
-  // Tally already-applied days (pending + approved) for the same leave-type bucket in current year
+  // Tally pending days for the same leave-type bucket in current year.
+  // Approved leaves are excluded because their balance is already deducted
+  // server-side via the deduct_leave_balance RPC on approval.
   const alreadyAppliedDays = useMemo(() => {
     if (!balanceBucket) return 0;
     if (balanceBucket === 'comp_off') return pendingCompOffDays;
@@ -344,7 +346,7 @@ export default function LeaveApplication() {
       .filter((req) => {
         if (!bucketLeaveTypes.includes(req.leave_type)) return false;
         const status = req.status;
-        if (status !== 'Pending WSO' && status !== 'Pending Supervisor' && status !== 'Approved') return false;
+        if (status !== 'Pending WSO' && status !== 'Pending Supervisor') return false;
         const reqYear = new Date(req.start_date).getFullYear();
         return reqYear === currentYear;
       })

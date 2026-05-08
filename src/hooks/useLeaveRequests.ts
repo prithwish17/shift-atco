@@ -244,6 +244,81 @@ async function restoreScheduleAfterLeaveCancellation(request: LeaveRequest) {
 // If schedule sync fails, the approval mutation will also fail,
 // preventing the leave from being marked as Approved with no schedule update.
 
+/**
+ * Maps a leave_request leave_type to the leave_balances enum bucket.
+ * Returns null for types that don't use balance-based enforcement.
+ */
+function getBalanceBucketForDeduction(leaveType: string): 'cl' | 'rh' | null {
+    if (['CL', 'CL_CON', 'CL_1ST', 'CL_1ST_CON', 'CL_2ND', 'CL_2ND_CON'].includes(leaveType)) {
+        return 'cl';
+    }
+    if (leaveType === 'RH') return 'rh';
+    // COMP_OFF uses its own allocation system (employee_leave_records).
+    // EL, NEE, HPL, COMM are not balance-enforced yet.
+    return null;
+}
+
+/**
+ * Deduct leave balance from the leave_balances table when a leave is approved.
+ * Calls the deduct_leave_balance RPC for atomic, transactional decrement.
+ */
+async function deductLeaveBalance(request: LeaveRequest) {
+    const bucket = getBalanceBucketForDeduction(request.leave_type);
+    if (!bucket) return; // Not a balance-tracked type
+
+    const year = new Date(request.start_date).getFullYear();
+    try {
+        const { error } = await supabase.rpc('deduct_leave_balance', {
+            p_user_id: request.employee_id,
+            p_leave_type: bucket,
+            p_year: year,
+            p_days: request.total_days,
+        });
+        if (error) throw error;
+    } catch (err) {
+        logCriticalEvent('leave_balance_deduction_error', {
+            leave_request_id: request.id,
+            leave_type: request.leave_type,
+            bucket,
+            employee_id: request.employee_id,
+            total_days: request.total_days,
+            error: err instanceof Error ? err.message : String(err),
+        });
+        // Non-blocking: log but don't fail the approval
+        captureError(err, { tags: { flow: 'leave_balance_deduction' } });
+    }
+}
+
+/**
+ * Restore leave balance to the leave_balances table when an approved leave is cancelled.
+ * Calls the restore_leave_balance RPC for atomic, transactional increment.
+ */
+async function restoreLeaveBalance(request: LeaveRequest) {
+    const bucket = getBalanceBucketForDeduction(request.leave_type);
+    if (!bucket) return;
+
+    const year = new Date(request.start_date).getFullYear();
+    try {
+        const { error } = await supabase.rpc('restore_leave_balance', {
+            p_user_id: request.employee_id,
+            p_leave_type: bucket,
+            p_year: year,
+            p_days: request.total_days,
+        });
+        if (error) throw error;
+    } catch (err) {
+        logCriticalEvent('leave_balance_restore_error', {
+            leave_request_id: request.id,
+            leave_type: request.leave_type,
+            bucket,
+            employee_id: request.employee_id,
+            total_days: request.total_days,
+            error: err instanceof Error ? err.message : String(err),
+        });
+        captureError(err, { tags: { flow: 'leave_balance_restore' } });
+    }
+}
+
 // ---------- Hooks ----------
 
 /** Fetch leave requests for a single employee (personal history) */
@@ -423,6 +498,7 @@ export function useCancelApprovedLeaveRequest() {
             if (error) throw error;
             await clearApprovedCompOffUsage(data as LeaveRequest);
             await restoreScheduleAfterLeaveCancellation(data as LeaveRequest);
+            await restoreLeaveBalance(data as LeaveRequest);
 
             // Fire-and-forget push notification for cancellation
             const cancelled = data as LeaveRequest;
@@ -538,6 +614,7 @@ export function useReviewLeaveRequest() {
                 await syncApprovedCompOffUsage(data as LeaveRequest);
                 await syncCHCompOffCredits(data as LeaveRequest);
                 await applyApprovedLeaveToSchedule(data as LeaveRequest);
+                await deductLeaveBalance(data as LeaveRequest);
             }
 
             // Fire-and-forget push notification
