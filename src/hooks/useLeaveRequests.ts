@@ -110,7 +110,7 @@ async function syncCHCompOffCredits(request: LeaveRequest) {
             days_granted: 1,
             expiry_date: (() => {
                 const d = new Date(ch.date);
-                d.setMonth(d.getMonth() + 3);
+                d.setDate(d.getDate() + 89);
                 return format(d, 'yyyy-MM-dd');
             })(),
             status: 'available',

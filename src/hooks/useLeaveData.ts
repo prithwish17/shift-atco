@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
 import { normalizeLeaveRecords } from "@/utils/leaveCalculations";
-import { COMP_OFF_EXPIRY_MONTHS } from "@/lib/leaveConstants";
+import { COMP_OFF_EXPIRY_DAYS } from "@/lib/leaveConstants";
 import type { RawLeaveRecord } from "@/services/leaveApi";
 
 export function useLeaveApiUrl() {
@@ -97,7 +97,7 @@ function matchesYear(value: unknown, year: number): boolean {
   return Number(normalized.slice(0, 4)) === year;
 }
 
-function addMonthsToNormalizedDate(value: unknown, months: number): string | null {
+function addDaysToNormalizedDate(value: unknown, days: number): string | null {
   const normalized = normalizeDateString(value);
   if (!normalized) return null;
 
@@ -105,8 +105,7 @@ function addMonthsToNormalizedDate(value: unknown, months: number): string | nul
   const date = new Date(Date.UTC(year, month - 1, day));
   if (Number.isNaN(date.getTime())) return null;
 
-  date.setUTCMonth(date.getUTCMonth() + months);
-  date.setUTCDate(date.getUTCDate() - 1);
+  date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().split("T")[0];
 }
 
@@ -119,7 +118,7 @@ function resolveCompOffExpiryForFilter(row: any, meta: Record<string, any>): str
       : null),
   );
 
-  if (dutyDate) return addMonthsToNormalizedDate(dutyDate, COMP_OFF_EXPIRY_MONTHS);
+  if (dutyDate) return addDaysToNormalizedDate(dutyDate, COMP_OFF_EXPIRY_DAYS);
 
   const explicitExpiry = normalizeDateString(meta.expiry_date);
   if (explicitExpiry) return explicitExpiry;

@@ -144,7 +144,7 @@ Leave types currently exposed in constants:
 Annual/default policy constants:
 - Default Casual Leave balance: 12
 - Default Restricted Holiday balance: 2
-- Comp-off expiry window: 3 months
+- Comp-off expiry window: 89 days
 - OPE comp-off minimum duties in a month: 3
 - OPE threshold month: 2026-04
 
@@ -291,7 +291,7 @@ Behavior:
   holiday_id
   duty_date
   days_granted = 1
-  expiry_date = date + 3 months
+  expiry_date = date + 89 days
   status = available
 
 5.4 Applying approved leave to the schedule
@@ -428,7 +428,7 @@ LeaveDetailsModal currently displays:
 ============================================================
 
 Comp-off expiry:
-- Default expiry is 3 months from duty date, minus 1 day.
+- Default expiry is 89 days from duty date.
 
 Comp-off entry status model in the normalized layer:
 - available

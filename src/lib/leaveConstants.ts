@@ -5,8 +5,8 @@
 export const DEFAULT_CL_BALANCE = 12;
 /** Default annual Restricted Holiday allowance */
 export const DEFAULT_RH_BALANCE = 2;
-/** Number of months after duty date before comp-off expires */
-export const COMP_OFF_EXPIRY_MONTHS = 3;
+/** Number of days after duty date before comp-off expires */
+export const COMP_OFF_EXPIRY_DAYS = 89;
 /** Minimum OPE duties in a month before comp-off is earned (comp-off from Nth duty onwards) */
 export const OPE_COMP_OFF_MIN_DUTIES = 3;
 /** Year-month (YYYY-MM) from which the OPE threshold rule takes effect */

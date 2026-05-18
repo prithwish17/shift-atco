@@ -1,5 +1,5 @@
-import { addMonths, differenceInCalendarDays, format, parseISO, startOfDay, subDays } from "date-fns";
-import { COMP_OFF_EXPIRY_MONTHS, OPE_COMP_OFF_MIN_DUTIES, OPE_COMP_OFF_THRESHOLD_MONTH } from "@/lib/leaveConstants";
+import { addDays, differenceInCalendarDays, format, parseISO, startOfDay } from "date-fns";
+import { COMP_OFF_EXPIRY_DAYS, OPE_COMP_OFF_MIN_DUTIES, OPE_COMP_OFF_THRESHOLD_MONTH } from "@/lib/leaveConstants";
 import type { RawLeaveRecord } from "@/services/leaveApi";
 
 export type NormalizedLeaveRecord = {
@@ -132,7 +132,7 @@ function resolveCompOffExpiryDate(dutyDate: string | null, explicitExpiryDate: s
   if (!eligible) return null;
   if (dutyDate) {
     try {
-      return formatIsoDate(subDays(addMonths(parseISO(dutyDate), COMP_OFF_EXPIRY_MONTHS), 1));
+      return formatIsoDate(addDays(parseISO(dutyDate), COMP_OFF_EXPIRY_DAYS));
     } catch {
       return explicitExpiryDate;
     }
@@ -140,7 +140,7 @@ function resolveCompOffExpiryDate(dutyDate: string | null, explicitExpiryDate: s
   if (explicitExpiryDate) return explicitExpiryDate;
   if (!dutyDate) return null;
   try {
-    return formatIsoDate(subDays(addMonths(parseISO(dutyDate), COMP_OFF_EXPIRY_MONTHS), 1));
+    return formatIsoDate(addDays(parseISO(dutyDate), COMP_OFF_EXPIRY_DAYS));
   } catch {
     return null;
   }
@@ -389,7 +389,7 @@ export function deriveCHDutyCompOffs(
     let daysRemaining: number | null = null;
     try {
       const parsed = parseISO(holidayDate);
-      const expiry = subDays(addMonths(parsed, COMP_OFF_EXPIRY_MONTHS), 1);
+      const expiry = addDays(parsed, COMP_OFF_EXPIRY_DAYS);
       expiryDate = format(expiry, "yyyy-MM-dd");
       daysRemaining = differenceInCalendarDays(expiry, today);
     } catch {
