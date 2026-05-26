@@ -730,15 +730,38 @@ export default function SupervisorRosterView() {
     // cache entry — previously all months shared the same stale cache.
     queryKey: ["supervisor-roster-view", monthOffset],
     queryFn: async () => {
-      // Fix 2: Reduced limit from 10K → 5K.
-      // A single month's roster entries are typically 300-500 rows.
-      const { data: rosterRows, error } = await (supabase.from("rosters" as any)
-        .select("id, date, shift, team, unit, employee_name, position, created_at")
-        .order("created_at", { ascending: false })
-        .limit(5000));
+      // Fix 4: The old .limit(5000) with no date filter silently dropped
+      // E team data when the rosters table exceeded 5000 rows (easy at scale:
+      // 5 teams × 3 shifts × 30 days × ~30 employees = ~13,500 rows/month).
+      //
+      // The rosters.date column stores dates as text in "d-MMM-yyyy" format,
+      // so we cannot do server-side date-range filtering with .gte()/.lte().
+      // Instead, fetch all 5 teams' roster entries (no arbitrary limit) and
+      // let buildRosterMatrix() handle month-based filtering client-side.
+      // A single month rarely exceeds 15K rows; the limit is kept as a safety net.
+      const PAGE_SIZE = 5000;
+      let allRows: RosterEntry[] = [];
+      let from = 0;
+      let hasMore = true;
 
-      if (error) throw error;
-      return ((rosterRows || []) as unknown) as RosterEntry[];
+      while (hasMore) {
+        const { data, error } = await (supabase.from("rosters" as any)
+          .select("id, date, shift, team, unit, employee_name, position, created_at")
+          .order("created_at", { ascending: false })
+          .range(from, from + PAGE_SIZE - 1));
+
+        if (error) throw error;
+
+        const rows = ((data || []) as unknown) as RosterEntry[];
+        allRows = allRows.concat(rows);
+        hasMore = rows.length === PAGE_SIZE;
+        from += PAGE_SIZE;
+
+        // Safety cap: stop after 30K rows to prevent runaway memory usage
+        if (allRows.length >= 30_000) break;
+      }
+
+      return allRows;
     },
     staleTime: 60_000,
   });

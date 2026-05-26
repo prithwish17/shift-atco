@@ -158,52 +158,67 @@ export function useRosters(filters?: {
       // when the rosters table exceeds 5000 rows (easy at scale: teams × shifts
       // × dates × employees), the oldest-inserted shift gets silently dropped
       // and appears missing on every date.
-      let query = (supabase.from("rosters" as any) as any)
-        .select("*")
-        .order("created_at", { ascending: false });
+      //
+      // Fix: When both team and shift filters are applied, a single slice
+      // rarely exceeds 5000 rows so a simple .limit(5000) suffices.
+      // When either filter is "all" (unset), paginate to avoid truncation
+      // that silently drops E team data.
+      const hasNarrowFilter = Boolean(teamFilter && shiftFilter);
 
-      if (teamFilter) {
-        query = query.ilike("team", teamFilter);
+      if (hasNarrowFilter) {
+        // Narrowly filtered — single page is safe
+        const { data, error } = await (supabase.from("rosters" as any) as any)
+          .select("*")
+          .order("created_at", { ascending: false })
+          .ilike("team", teamFilter!)
+          .ilike("shift", shiftFilter!)
+          .limit(5000);
+
+        if (error) throw error;
+
+        return ((data || []) as unknown as RosterEntry[]).filter((entry) => {
+          if (teamFilter && normalizeRosterTeam(entry.team) !== normalizeRosterTeam(teamFilter)) return false;
+          if (shiftFilter && normalizeRosterShift(entry.shift) !== normalizeRosterShift(shiftFilter)) return false;
+          if (!matchesRosterDate(entry.date, dateFilter)) return false;
+          if (!matchesRosterSearch(entry, searchFilter)) return false;
+          if (excludeSpecialEntries && isSpecialRosterEntry(entry)) return false;
+          return true;
+        });
       }
-      if (shiftFilter) {
-        query = query.ilike("shift", shiftFilter);
+
+      // Broad query (all teams or all shifts) — paginate to avoid truncation
+      const PAGE_SIZE = 5000;
+      let allRows: RosterEntry[] = [];
+      let from = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        let query = (supabase.from("rosters" as any) as any)
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (teamFilter) query = query.ilike("team", teamFilter);
+        if (shiftFilter) query = query.ilike("shift", shiftFilter);
+
+        const { data, error } = await query.range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+
+        const rows = (data || []) as unknown as RosterEntry[];
+        allRows = allRows.concat(rows);
+        hasMore = rows.length === PAGE_SIZE;
+        from += PAGE_SIZE;
+
+        if (allRows.length >= 30_000) break;
       }
 
-      // 5000 limit is intentionally kept but now applies after server-side
-      // pre-filtering; a single team+shift slice rarely has > 5000 rows.
-      query = query.limit(5000);
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-
-      const rows = ((data || []) as unknown as RosterEntry[]).filter((entry) => {
-        // team and shift are already filtered server-side; keep client-side
-        // checks as a safety net for case/whitespace variations.
-        if (teamFilter && normalizeRosterTeam(entry.team) !== normalizeRosterTeam(teamFilter)) {
-          return false;
-        }
-
-        if (shiftFilter && normalizeRosterShift(entry.shift) !== normalizeRosterShift(shiftFilter)) {
-          return false;
-        }
-
-        if (!matchesRosterDate(entry.date, dateFilter)) {
-          return false;
-        }
-
-        if (!matchesRosterSearch(entry, searchFilter)) {
-          return false;
-        }
-
-        if (excludeSpecialEntries && isSpecialRosterEntry(entry)) {
-          return false;
-        }
-
+      return allRows.filter((entry) => {
+        if (teamFilter && normalizeRosterTeam(entry.team) !== normalizeRosterTeam(teamFilter)) return false;
+        if (shiftFilter && normalizeRosterShift(entry.shift) !== normalizeRosterShift(shiftFilter)) return false;
+        if (!matchesRosterDate(entry.date, dateFilter)) return false;
+        if (!matchesRosterSearch(entry, searchFilter)) return false;
+        if (excludeSpecialEntries && isSpecialRosterEntry(entry)) return false;
         return true;
       });
-
-      return rows;
     },
     staleTime: 60_000,
   });
