@@ -7,7 +7,11 @@ type CriticalEventType =
   | 'duty_exchange_conflict'
   | 'roster_generation_failure'
   | 'license_expiry_error'
-  | 'notification_delivery_failure';
+  | 'notification_delivery_failure'
+  | 'leave_balance_deduction_error'
+  | 'leave_balance_restore_error'
+  | 'ch_comp_off_credit_failure'
+  | 'schedule_restore_failure';
 
 /**
  * Set user context for Sentry. Only sends id + role (no PII).

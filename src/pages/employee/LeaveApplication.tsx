@@ -176,7 +176,8 @@ export default function LeaveApplication() {
   const { data: myRequests = [], isLoading } = useMyLeaveRequests(user?.id);
   const { data: leaveBalances = [], isLoading: leaveBalancesLoading } = useLeaveBalances(user?.id);
   const employeeEmpId = profile?.employee_id ? String(profile.employee_id) : null;
-  const { data: leaveLedgerData, leaveQuery: leaveLedgerQuery } = useLeaveData(undefined, employeeEmpId);
+  const currentYear = new Date().getFullYear();
+  const { data: leaveLedgerData, leaveQuery: leaveLedgerQuery } = useLeaveData(currentYear, employeeEmpId);
   const createRequest = useCreateLeaveRequest();
   const cancelRequest = useCancelLeaveRequest();
 
@@ -210,7 +211,6 @@ export default function LeaveApplication() {
   const isHalfDay = formData.leave_type.startsWith('CL_1ST') || formData.leave_type.startsWith('CL_2ND');
 
   // Holiday validation (fetch next year too when the leave range spans Dec→Jan)
-  const currentYear = new Date().getFullYear();
   const endDateYear = formData.end_date ? new Date(formData.end_date).getFullYear() : currentYear;
   const needsNextYear = endDateYear > currentYear;
   const needsNextYearForRH = formData.leave_type === 'RH';
@@ -317,26 +317,62 @@ export default function LeaveApplication() {
     const latestYear = Math.max(...normalizedMatches.map((balance) => balance.year));
     return normalizedMatches.filter((balance) => balance.year === latestYear);
   }, [balanceBucket, currentYear, leaveBalances]);
+  // Calculate approved days for current year as fallback when balance table is empty
+  const approvedDaysForCurrentYear = useMemo(() => {
+    if (!balanceBucket || balanceBucket === 'comp_off') return 0;
+    
+    const bucketLeaveTypes = getLeaveTypesForBucket(balanceBucket);
+    return myRequests
+      .filter((req) => {
+        if (!bucketLeaveTypes.includes(req.leave_type)) return false;
+        if (req.status !== 'Approved') return false;
+        const reqYear = new Date(req.start_date).getFullYear();
+        return reqYear === currentYear;
+      })
+      .reduce((sum, req) => {
+        const isHalfDayReq = req.leave_type === 'CL_1ST' || req.leave_type === 'CL_2ND';
+        return sum + (isHalfDayReq ? 0.5 : (req.total_days || 0));
+      }, 0);
+  }, [balanceBucket, currentYear, myRequests]);
+
   const availableBalance = useMemo(() => {
     if (balanceBucket === 'comp_off') {
       return compOffAllocation?.availableCount ?? 0;
     }
 
-    if (!matchingBalanceEntries || matchingBalanceEntries.length === 0) {
-      if (balanceBucket === 'cl') return DEFAULT_CL_BALANCE;
-      if (balanceBucket === 'rh') return DEFAULT_RH_BALANCE;
-      if (balanceBucket === 'comp_off') return 0;
-      return null;
+    // Prefer employee leave record (from Google Sheets) for CL/RH
+    if (employeeLeaveRecord) {
+      if (balanceBucket === 'cl') {
+        return employeeLeaveRecord.casualRemaining;
+      }
+      if (balanceBucket === 'rh') {
+        return DEFAULT_RH_BALANCE - employeeLeaveRecord.restrictedCount;
+      }
     }
 
-    return matchingBalanceEntries.reduce((total, balance) => total + Number(balance.balance || 0), 0);
-  }, [balanceBucket, compOffAllocation?.availableCount, matchingBalanceEntries]);
+    // Fallback to leave_balances table
+    if (matchingBalanceEntries && matchingBalanceEntries.length > 0) {
+      return matchingBalanceEntries.reduce((total, balance) => total + Number(balance.balance || 0), 0);
+    }
+
+    // Final fallback: use default balance minus approved leaves for current year
+    if (balanceBucket === 'cl') return DEFAULT_CL_BALANCE - approvedDaysForCurrentYear;
+    if (balanceBucket === 'rh') return DEFAULT_RH_BALANCE - approvedDaysForCurrentYear;
+    return null;
+  }, [
+    balanceBucket,
+    compOffAllocation?.availableCount,
+    employeeLeaveRecord,
+    matchingBalanceEntries,
+    approvedDaysForCurrentYear,
+  ]);
   const balanceYear = matchingBalanceEntries?.[0]?.year ?? null;
   const balanceLabel = getBalanceBucketLabel(balanceBucket);
 
   // Tally pending days for the same leave-type bucket in current year.
   // Approved leaves are excluded because their balance is already deducted
   // server-side via the deduct_leave_balance RPC on approval.
+  // Half-day leaves (CL_1ST, CL_2ND) count as 0.5 days instead of 1.
   const alreadyAppliedDays = useMemo(() => {
     if (!balanceBucket) return 0;
     if (balanceBucket === 'comp_off') return pendingCompOffDays;
@@ -350,7 +386,11 @@ export default function LeaveApplication() {
         const reqYear = new Date(req.start_date).getFullYear();
         return reqYear === currentYear;
       })
-      .reduce((sum, req) => sum + (req.total_days || 0), 0);
+      .reduce((sum, req) => {
+        // Half-day leaves count as 0.5 days
+        const isHalfDayReq = req.leave_type === 'CL_1ST' || req.leave_type === 'CL_2ND';
+        return sum + (isHalfDayReq ? 0.5 : (req.total_days || 0));
+      }, 0);
   }, [balanceBucket, currentYear, myRequests, pendingCompOffDays]);
 
   const effectiveBalance = useMemo(() => {

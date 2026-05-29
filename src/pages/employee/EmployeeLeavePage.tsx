@@ -171,7 +171,7 @@ function getLeaveTypeHighlightClass(type: string): string {
       return "border-l-blue-500 bg-blue-50/80 text-blue-900 dark:bg-blue-950/30 dark:text-blue-100";
     case "Compensatory Off":
       return "border-l-rose-500 bg-rose-50/80 text-rose-900 dark:bg-rose-950/30 dark:text-rose-100";
-    case "Reserved Holiday":
+    case "Restricted Holiday":
       return "border-l-amber-500 bg-amber-50/80 text-amber-900 dark:bg-amber-950/30 dark:text-amber-100";
     default:
       return "border-l-slate-400 bg-slate-50 text-slate-900 dark:bg-slate-900/60 dark:text-slate-100";
@@ -315,6 +315,39 @@ export default function EmployeeLeavePage() {
     return compOffLedgerRows.filter((row) => row.status === "available");
   }, [compOffLedgerRows, compOffView]);
 
+  // Calculate comp-off stats from visible entries only (matching the ledger)
+  const compOffStats = useMemo(() => {
+    const visible = compOffLedgerRows;
+    const remaining = visible.filter((e) => e.status === "available").length;
+    const used = visible.filter((e) => e.status === "used").length;
+    const expired = visible.filter((e) => e.status === "expired").length;
+    const earned = remaining + used + expired;
+    return { earned, used, expired, remaining };
+  }, [compOffLedgerRows]);
+
+  // Filter CL/RH dates by selected year
+  const yearFilteredCounts = useMemo(() => {
+    if (!employeeRecord) return { casualCount: 0, restrictedCount: 0 };
+
+    const yearPrefix = String(selectedYear);
+
+    const casualCount = (employeeRecord.casualLeave || []).filter((date) => {
+      if (typeof date !== "string") return false;
+      return date.startsWith(yearPrefix);
+    }).length;
+
+    const restrictedCount = (employeeRecord.restrictedHolidays || []).filter((entry) => {
+      if (typeof entry === "string") return entry.startsWith(yearPrefix);
+      if (typeof entry === "object" && entry !== null) {
+        const date = (entry as any).date || (entry as any).leaveApplied;
+        return typeof date === "string" && date.startsWith(yearPrefix);
+      }
+      return false;
+    }).length;
+
+    return { casualCount, restrictedCount };
+  }, [employeeRecord, selectedYear]);
+
   const cards = useMemo(() => {
     if (!employeeRecord) {
       return [];
@@ -323,10 +356,10 @@ export default function EmployeeLeavePage() {
     return [
       {
         label: "Casual Leave",
-        remaining: employeeRecord.casualRemaining,
+        remaining: Math.max(DEFAULT_CL_BALANCE - yearFilteredCounts.casualCount, 0),
         total: DEFAULT_CL_BALANCE,
         color: "#4FD1C5",
-        helper: `${employeeRecord.casualCount} used`,
+        helper: `${yearFilteredCounts.casualCount} used`,
       },
       {
         label: "Earned Leave",
@@ -342,26 +375,35 @@ export default function EmployeeLeavePage() {
       },
       {
         label: "Compensatory Off",
-        remaining: employeeRecord.compOffRemaining,
-        total: employeeRecord.compOffEarned,
+        remaining: compOffStats.remaining,
+        total: compOffStats.earned,
         color: "#F87171",
-        helper: `${employeeRecord.compOffUsed} used${employeeRecord.compOffExpired ? ` · ${employeeRecord.compOffExpired} expired` : ""}`,
+        helper: `${compOffStats.used} used${compOffStats.expired ? ` · ${compOffStats.expired} expired` : ""}`,
       },
       {
-        label: "Reserved Holiday",
-        remaining: Math.max(DEFAULT_RH_BALANCE - employeeRecord.restrictedCount, 0),
+        label: "Restricted Holiday",
+        remaining: Math.max(DEFAULT_RH_BALANCE - yearFilteredCounts.restrictedCount, 0),
         total: DEFAULT_RH_BALANCE,
         color: "#F6AD55",
-        helper: `${employeeRecord.restrictedCount} used`,
+        helper: `${yearFilteredCounts.restrictedCount} used`,
       },
     ].filter((card) => card.label === "Earned Leave" || card.remaining > 0);
-  }, [earnedLeaveSummary.details.length, earnedLeaveSummary.totalDays, employeeRecord]);
+  }, [earnedLeaveSummary.details.length, earnedLeaveSummary.totalDays, employeeRecord, compOffStats, yearFilteredCounts]);
 
   const leaveSummary = useMemo(() => {
     if (!employeeRecord) return [];
-    const casualDates = extractDates(employeeRecord.casualLeave, []);
-    const reservedDates = extractDates(employeeRecord.restrictedHolidays, ["date", "leaveApplied"]);
-    const compOffDates = extractDates(employeeRecord.compOffUsedEntries, ["leaveApplied"]);
+    
+    const yearPrefix = String(selectedYear);
+    
+    // Extract dates and filter by year (formatted dates contain the year, e.g., "Jan 15 2026")
+    const casualDates = extractDates(employeeRecord.casualLeave, [])
+      .filter(date => date.includes(yearPrefix));
+    
+    const reservedDates = extractDates(employeeRecord.restrictedHolidays, ["date", "leaveApplied"])
+      .filter(date => date.includes(yearPrefix));
+    
+    const compOffDates = extractDates(employeeRecord.compOffUsedEntries, ["leaveApplied"])
+      .filter(date => date.includes(yearPrefix));
 
     return [
       { type: "Casual Leave", dates: casualDates },
@@ -371,9 +413,9 @@ export default function EmployeeLeavePage() {
         count: earnedLeaveSummary.totalDays,
       },
       { type: "Compensatory Off", dates: compOffDates },
-      { type: "Reserved Holiday", dates: reservedDates },
+      { type: "Restricted Holiday", dates: reservedDates },
     ];
-  }, [earnedLeaveSummary.ranges, earnedLeaveSummary.totalDays, employeeRecord]);
+  }, [earnedLeaveSummary.ranges, earnedLeaveSummary.totalDays, employeeRecord, selectedYear]);
 
   // Calendar data: map of ISO date -> leave style
   const calendarLeaves = useMemo(() => {
