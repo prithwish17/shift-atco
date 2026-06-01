@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,10 +16,10 @@ function formatDisplayDate(value?: string | null) {
 }
 
 function getStatusBadgeClasses(status: HealthStatus) {
-    if (status === 'expired') return 'border-red-200 bg-red-50 text-red-700';
-    if (status === 'warning') return 'border-amber-200 bg-amber-50 text-amber-700';
-    if (status === 'valid') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-    return 'border-slate-200 bg-slate-50 text-slate-600';
+    if (status === 'expired') return 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300';
+    if (status === 'warning') return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300';
+    if (status === 'valid') return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300';
+    return 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400';
 }
 
 function getStatusPillClasses(status: HealthStatus) {
@@ -68,6 +69,7 @@ function WatchItem({ item }: { item: LicenseHealthItem }) {
 export default function EmployeeLicenses() {
     const { user } = useAuth();
     const { profile, isLoading } = useUserProfile(user?.id);
+    const [showAllRatings, setShowAllRatings] = useState(false);
 
     if (isLoading) {
         return (
@@ -214,15 +216,30 @@ export default function EmployeeLicenses() {
                 <div className="grid gap-6 xl:grid-cols-[1.4fr_0.9fr]">
                     <Card className="overflow-hidden rounded-[22px] border-slate-200 shadow-lg shadow-slate-200/50 sm:rounded-[28px] dark:border-slate-800 dark:shadow-black/20">
                         <CardHeader className="border-b border-slate-200 bg-[linear-gradient(135deg,#eff6ff_0%,#f8fafc_65%,#f0fdfa_100%)] dark:border-slate-800 dark:bg-[linear-gradient(135deg,rgba(30,41,59,0.92)_0%,rgba(15,23,42,0.96)_100%)]">
-                            <CardTitle className="flex items-center gap-2 text-base text-slate-900 sm:text-lg dark:text-slate-100">
-                                <Radar className="h-4 w-4 text-sky-700 sm:h-5 sm:w-5 dark:text-sky-300" />
-                                Operational Ratings
-                            </CardTitle>
+                            <div className="flex items-center justify-between gap-3">
+                                <CardTitle className="flex items-center gap-2 text-base text-slate-900 sm:text-lg dark:text-slate-100">
+                                    <Radar className="h-4 w-4 text-sky-700 sm:h-5 sm:w-5 dark:text-sky-300" />
+                                    Operational Ratings
+                                </CardTitle>
+                                {health.ratings.some((r) => !r.isActive) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAllRatings((v) => !v)}
+                                        className={`rounded-lg border px-2.5 py-1 text-[10px] font-semibold transition-colors sm:rounded-xl sm:px-3 sm:py-1.5 sm:text-xs ${
+                                            showAllRatings
+                                                ? 'border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-950'
+                                                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                                        }`}
+                                    >
+                                        {showAllRatings ? 'Active Only' : 'View All'}
+                                    </button>
+                                )}
+                            </div>
                         </CardHeader>
                         <CardContent className="p-3 sm:p-4 md:p-5">
                             {health.ratings.length > 0 ? (
                                 <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
-                                    {health.ratings.map((rating) => (
+                                    {health.ratings.filter((rating) => showAllRatings || rating.isActive).map((rating) => (
                                         <div key={rating.id} className="rounded-[20px] border border-slate-200 bg-white p-3 shadow-sm shadow-slate-200/60 sm:rounded-3xl sm:p-4 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20">
                                             <div className="flex flex-wrap items-start justify-between gap-3">
                                                 <div className="min-w-0 flex-1">
@@ -233,7 +250,7 @@ export default function EmployeeLicenses() {
                                                     <Badge variant="outline" className={`${getStatusBadgeClasses(rating.status)} text-[10px] sm:text-[11px]`}>
                                                         {getHealthStatusLabel(rating)}
                                                     </Badge>
-                                                    <Badge variant="secondary" className={`${rating.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'} text-[10px] sm:text-[11px]`}>
+                                                    <Badge variant="secondary" className={`${rating.isActive ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'} text-[10px] sm:text-[11px]`}>
                                                         {rating.isActive ? 'Active' : 'Inactive'}
                                                     </Badge>
                                                 </div>
@@ -272,7 +289,7 @@ export default function EmployeeLicenses() {
 
                     <div className="space-y-4 sm:space-y-6">
                         <Card className="overflow-hidden rounded-[22px] border-slate-200 shadow-lg shadow-slate-200/40 sm:rounded-[28px] dark:border-slate-800 dark:shadow-black/20">
-                            <CardHeader className="border-b border-slate-200 bg-[linear-gradient(135deg,#ecfeff_0%,#f8fafc_100%)] dark:border-slate-800 dark:bg-slate-950">
+                            <CardHeader className="border-b border-slate-200 bg-[linear-gradient(135deg,#ecfeff_0%,#f8fafc_100%)] dark:border-slate-800 dark:[background:linear-gradient(135deg,rgba(15,23,42,0.95)_0%,rgba(2,6,23,0.98)_100%)]">
                                 <CardTitle className="flex items-center gap-2 text-base text-slate-900 sm:text-lg dark:text-slate-100">
                                     <HeartPulse className="h-4 w-4 text-rose-600 sm:h-5 sm:w-5" />
                                     Compliance
@@ -300,7 +317,7 @@ export default function EmployeeLicenses() {
                         </Card>
 
                         <Card className="overflow-hidden rounded-[22px] border-slate-200 shadow-lg shadow-slate-200/40 sm:rounded-[28px] dark:border-slate-800 dark:shadow-black/20">
-                            <CardHeader className="border-b border-slate-200 bg-[linear-gradient(135deg,#fff7ed_0%,#f8fafc_100%)] dark:border-slate-800 dark:bg-slate-950">
+                            <CardHeader className="border-b border-slate-200 bg-[linear-gradient(135deg,#fff7ed_0%,#f8fafc_100%)] dark:border-slate-800 dark:[background:linear-gradient(135deg,rgba(15,23,42,0.95)_0%,rgba(2,6,23,0.98)_100%)]">
                                 <CardTitle className="flex items-center gap-2 text-base text-slate-900 sm:text-lg dark:text-slate-100">
                                     <UserRoundCheck className="h-4 w-4 text-amber-600 sm:h-5 sm:w-5" />
                                     Instructor And Examiner Privileges
@@ -328,7 +345,7 @@ export default function EmployeeLicenses() {
                 </div>
 
                 <Card className="overflow-hidden rounded-[22px] border-slate-200 shadow-lg shadow-slate-200/40 sm:rounded-[28px] dark:border-slate-800 dark:shadow-black/20">
-                    <CardHeader className="border-b border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#f0fdf4_100%)] dark:border-slate-800 dark:bg-slate-950">
+                    <CardHeader className="border-b border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#f0fdf4_100%)] dark:border-slate-800 dark:[background:linear-gradient(135deg,rgba(15,23,42,0.95)_0%,rgba(2,6,23,0.98)_100%)]">
                         <CardTitle className="flex items-center gap-2 text-base text-slate-900 sm:text-lg dark:text-slate-100">
                             <FileStack className="h-4 w-4 text-emerald-600 sm:h-5 sm:w-5" />
                             License Register

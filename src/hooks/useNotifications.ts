@@ -98,3 +98,43 @@ export function useMarkAllRead() {
     },
   });
 }
+
+export function useClearNotification() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: async (notificationId: string) => {
+      const { error } = await supabase
+        .from("notifications" as any)
+        .delete()
+        .eq("id", notificationId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      if (user?.id) {
+        qc.invalidateQueries({ queryKey: NOTIFICATION_KEYS.list(user.id) });
+        qc.invalidateQueries({ queryKey: NOTIFICATION_KEYS.unread(user.id) });
+      }
+    },
+  });
+}
+
+export function useClearAllNotifications() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  return useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("notifications" as any)
+        .delete()
+        .eq("user_id", user!.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      if (user?.id) {
+        qc.invalidateQueries({ queryKey: NOTIFICATION_KEYS.list(user.id) });
+        qc.invalidateQueries({ queryKey: NOTIFICATION_KEYS.unread(user.id) });
+      }
+    },
+  });
+}

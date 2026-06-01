@@ -509,10 +509,9 @@ export default function EmployeeLeavePage() {
               View your leave balances and usage from the official register
             </p>
           </div>
-          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="grid w-full grid-cols-2 gap-3 sm:flex sm:w-auto sm:items-center">
+          <div className="mt-3 flex items-center gap-3">
               <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
-                <SelectTrigger className="h-9 w-full sm:w-[120px]">
+                <SelectTrigger className="h-9 w-[120px]">
                   <CalendarDays className="mr-1.5 h-4 w-4 text-muted-foreground" />
                   <SelectValue placeholder="Year" />
                 </SelectTrigger>
@@ -522,18 +521,7 @@ export default function EmployeeLeavePage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => refresh.mutate()}
-                disabled={refresh.isPending}
-                className="w-full sm:w-auto"
-              >
-                <RefreshCw className={`mr-2 h-4 w-4 ${refresh.isPending ? "animate-spin" : ""}`} />
-                {refresh.isPending ? "Syncing…" : "Sync Data"}
-              </Button>
-            </div>
-            <Button asChild size="sm" className="w-full sm:w-auto">
+            <Button asChild size="sm">
               <Link to="/employee/leave">Apply Leave</Link>
             </Button>
           </div>
