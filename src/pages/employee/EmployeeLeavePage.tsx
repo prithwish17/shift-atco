@@ -315,7 +315,7 @@ export default function EmployeeLeavePage() {
     return compOffLedgerRows.filter((row) => row.status === "available");
   }, [compOffLedgerRows, compOffView]);
 
-  // Calculate comp-off stats from visible entries only (matching the ledger)
+  // Calculate comp-off stats from the visible ledger entries (excludes hideDates rows)
   const compOffStats = useMemo(() => {
     const visible = compOffLedgerRows;
     const remaining = visible.filter((e) => e.status === "available").length;
@@ -637,10 +637,10 @@ export default function EmployeeLeavePage() {
             <CardContent>
               <div className="mb-4 flex items-center justify-between text-[11px] text-muted-foreground sm:text-sm">
                 <div className="flex flex-wrap items-center gap-2 text-[10px] sm:gap-3 sm:text-xs">
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Earned: {employeeRecord?.compOffEarned ?? 0}</span>
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Used: {employeeRecord?.compOffUsed ?? 0}</span>
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500" /> Expired: {employeeRecord?.compOffExpired ?? 0}</span>
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Remaining: {employeeRecord?.compOffRemaining ?? 0}</span>
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Earned: {compOffStats.earned}</span>
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> Used: {compOffStats.used}</span>
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500" /> Expired: {compOffStats.expired}</span>
+                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" /> Remaining: {compOffStats.remaining}</span>
                 </div>
               </div>
               <div className="space-y-2 mb-4 sm:hidden">

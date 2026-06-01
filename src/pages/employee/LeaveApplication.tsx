@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
@@ -411,6 +411,20 @@ export default function LeaveApplication() {
       ? !compOffAllocation?.canCoverRequest
       : effectiveBalance < requestedDays)
   );
+  useEffect(() => {
+    if (!formData.leave_type || !balanceBucket) return;
+    const balanceSource = balanceBucket === 'comp_off'
+      ? 'comp_off_allocation'
+      : employeeLeaveRecord
+        ? 'ledger_record'
+        : matchingBalanceEntries?.length
+          ? 'leave_balances_table'
+          : 'default_minus_approved';
+    // #region agent log
+    fetch('http://127.0.0.1:7366/ingest/cec5e719-b092-499e-b7f6-47f8a73a026c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'037720'},body:JSON.stringify({sessionId:'037720',location:'LeaveApplication.tsx:balance',message:'Apply leave balance computation',data:{leaveType:formData.leave_type,balanceBucket,balanceSource,ledgerCasualRemaining:employeeLeaveRecord?.casualRemaining??null,ledgerRestrictedCount:employeeLeaveRecord?.restrictedCount??null,dbBalanceTotal:matchingBalanceEntries?.reduce((t,b)=>t+Number(b.balance||0),0)??null,approvedDaysForCurrentYear,availableBalance,alreadyAppliedDays,effectiveBalance,requestedDays,hasInsufficientBalance,leaveBalancesLoading,ledgerLoading:leaveLedgerQuery.isLoading},timestamp:Date.now(),hypothesisId:'H3-H4'})}).catch(()=>{});
+    // #endregion
+  }, [alreadyAppliedDays, approvedDaysForCurrentYear, availableBalance, balanceBucket, effectiveBalance, employeeLeaveRecord, formData.leave_type, hasInsufficientBalance, leaveBalancesLoading, leaveLedgerQuery.isLoading, matchingBalanceEntries, requestedDays]);
+
   const balanceMessage = hasApplicableBalanceCheck
     ? balanceBucket === 'comp_off' && !employeeEmpId
       ? 'Comp-off allocation is unavailable because your employee ID is missing from the profile.'
@@ -488,6 +502,9 @@ export default function LeaveApplication() {
     }
 
     if (hasInsufficientBalance) {
+      // #region agent log
+      fetch('http://127.0.0.1:7366/ingest/cec5e719-b092-499e-b7f6-47f8a73a026c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'037720'},body:JSON.stringify({sessionId:'037720',location:'LeaveApplication.tsx:submit-blocked',message:'Submit blocked by insufficient balance',data:{leaveType:formData.leave_type,balanceBucket,availableBalance,alreadyAppliedDays,effectiveBalance,requestedDays,balanceMessage},timestamp:Date.now(),hypothesisId:'H3-H4'})}).catch(()=>{});
+      // #endregion
       toast.error(balanceMessage || 'Insufficient leave balance for this request.');
       return;
     }

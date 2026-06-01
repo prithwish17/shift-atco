@@ -7,6 +7,8 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
 import { useLeaveBalances } from "@/hooks/useLeaves";
+import { useLeaveData } from "@/hooks/useLeaveData";
+import { DEFAULT_CL_BALANCE, DEFAULT_RH_BALANCE } from "@/lib/leaveConstants";
 import { useShifts } from "@/hooks/useShifts";
 import { useMyRoster } from "@/hooks/useRosters";
 import { useMySchedule, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
@@ -151,6 +153,7 @@ export default function EmployeeDashboard() {
   const employeeEmpId = profile?.employee_id ? String(profile.employee_id) : null;
 
   const { data: balances, isLoading: balancesLoading } = useLeaveBalances(user?.id);
+  const { data: leaveLedgerData = [] } = useLeaveData(currentYear, employeeEmpId);
   const { shifts, isLoading: shiftsLoading } = useShifts(user?.id, today, weekEnd);
   const { data: myRoster, isLoading: rosterLoading } = useMyRoster(profile?.full_name);
   const { data: mySchedule = [], isLoading: scheduleLoading } = useMySchedule(
@@ -227,6 +230,17 @@ export default function EmployeeDashboard() {
   const rhBalance = yearBalances.find(b => b.leave_type === "rh");
   const elBalance = yearBalances.find(b => b.leave_type === "el");
   const compOff = yearBalances.find(b => b.leave_type === "comp_off");
+  const ledgerRecord = useMemo(
+    () => (employeeEmpId ? leaveLedgerData.find((r) => r.empId === employeeEmpId) ?? null : null),
+    [employeeEmpId, leaveLedgerData],
+  );
+
+  useEffect(() => {
+    if (balancesLoading) return;
+    // #region agent log
+    fetch('http://127.0.0.1:7366/ingest/cec5e719-b092-499e-b7f6-47f8a73a026c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'037720'},body:JSON.stringify({sessionId:'037720',location:'EmployeeDashboard.tsx:balances',message:'Dashboard quick-action balance sources',data:{currentYear,employeeEmpId,dbCl:clBalance?.balance??null,dbRh:rhBalance?.balance??null,dbCompOff:compOff?.balance??null,ledgerClRemaining:ledgerRecord?.casualRemaining??null,ledgerRhRemaining:ledgerRecord?Math.max(DEFAULT_RH_BALANCE-ledgerRecord.restrictedCount,0):null,ledgerCompOffRemaining:ledgerRecord?.compOffRemaining??null,dutyExchangeTileShowsRhBalance:rhBalance?.balance??null,pendingExchangesCount:pendingExchanges.length},timestamp:Date.now(),hypothesisId:'H1-H2'})}).catch(()=>{});
+    // #endregion
+  }, [balancesLoading, clBalance?.balance, compOff?.balance, currentYear, employeeEmpId, ledgerRecord, pendingExchanges.length, rhBalance?.balance]);
 
   // 2-day roster + schedule lookup
   const now = new Date();
@@ -593,7 +607,7 @@ export default function EmployeeDashboard() {
                   <FileText className="size-3 md:size-4 text-blue-600 dark:text-blue-400" />
                 </div>
               </div>
-              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{clBalance ? clBalance.balance : ""}</div>
+
             </div>
             </Link>
 
@@ -882,34 +896,35 @@ export default function EmployeeDashboard() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-900 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <div>
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-3 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700">
+          {/* Header: stacked on mobile, side-by-side on desktop */}
+          <div className="flex flex-col gap-3 mb-4 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0">
               <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm md:text-base">Leave Calendar</h3>
-              <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400">Applied requests vs approved leave from schedule for {format(currentMonthDate, "MMMM yyyy")}</p>
+              <p className="text-[11px] md:text-sm text-gray-600 dark:text-gray-400 leading-snug">Applied requests vs approved leave from schedule</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between gap-1.5 md:gap-2">
               <button
                 type="button"
                 onClick={() => setCurrentMonthDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                className="inline-flex h-7 w-7 md:h-8 md:w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
                 aria-label="Previous month"
               >
-                <ChevronLeft className="h-4 w-4" />
+                <ChevronLeft className="h-3.5 w-3.5 md:h-4 md:w-4" />
               </button>
-              <div className="min-w-[110px] text-center text-xs font-semibold text-slate-700 dark:text-slate-200 md:min-w-[130px] md:text-sm">
-                {format(currentMonthDate, "MMMM yyyy")}
+              <div className="min-w-[90px] md:min-w-[130px] text-center text-xs font-semibold text-slate-700 dark:text-slate-200 md:text-sm">
+                {format(currentMonthDate, "MMM yyyy")}
               </div>
               <button
                 type="button"
                 onClick={() => setCurrentMonthDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+                className="inline-flex h-7 w-7 md:h-8 md:w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
                 aria-label="Next month"
               >
-                <ChevronRight className="h-4 w-4" />
+                <ChevronRight className="h-3.5 w-3.5 md:h-4 md:w-4" />
               </button>
-              <Link to="/employee/leave-dashboard" className="text-xs md:text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline">
-                View full leave summary
+              <Link to="/employee/leave-dashboard" className="ml-auto md:ml-2 text-[11px] md:text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap">
+                View all →
               </Link>
             </div>
           </div>
@@ -919,23 +934,32 @@ export default function EmployeeDashboard() {
               Your profile does not have an employee ID yet, so approved leave cannot be matched from schedule.
             </div>
           ) : (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600 dark:text-slate-300 md:text-xs">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 font-medium text-amber-800 ring-1 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/50">
-                  <span className="inline-flex rounded-sm bg-amber-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-900 dark:bg-amber-900/70 dark:text-amber-100">REQ</span>
-                  Applied requests: {appliedLeaveDates.size}
+            <div className="space-y-3 md:space-y-4">
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 text-[10px] md:text-xs text-slate-600 dark:text-slate-300">
+                <span className="inline-flex items-center gap-1 md:gap-1.5 rounded-full bg-amber-50 px-2 md:px-3 py-0.5 md:py-1 font-medium text-amber-800 ring-1 ring-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/50">
+                  <span className="inline-flex rounded-sm bg-amber-200 px-1 md:px-1.5 py-0.5 text-[8px] md:text-[9px] font-bold uppercase tracking-wide text-amber-900 dark:bg-amber-900/70 dark:text-amber-100">REQ</span>
+                  <span className="hidden sm:inline">Applied requests:</span><span className="sm:hidden">Applied:</span> {appliedLeaveDates.size}
                 </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 font-medium text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/50">
-                  <span className="inline-flex rounded-sm bg-emerald-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-900 dark:bg-emerald-900/70 dark:text-emerald-100">APR</span>
-                  Approved in schedule: {approvedLeaveDates.size}
+                <span className="inline-flex items-center gap-1 md:gap-1.5 rounded-full bg-emerald-50 px-2 md:px-3 py-0.5 md:py-1 font-medium text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/50">
+                  <span className="inline-flex rounded-sm bg-emerald-200 px-1 md:px-1.5 py-0.5 text-[8px] md:text-[9px] font-bold uppercase tracking-wide text-emerald-900 dark:bg-emerald-900/70 dark:text-emerald-100">APR</span>
+                  <span className="hidden sm:inline">Approved in schedule:</span><span className="sm:hidden">Approved:</span> {approvedLeaveDates.size}
                 </span>
               </div>
 
               <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
-                <div className="grid grid-cols-7 gap-px bg-slate-200/70 dark:bg-slate-800/80 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-700 dark:text-slate-300 md:text-xs">
-                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                    <div key={day} className="bg-slate-100/90 px-1 py-2 text-center dark:bg-slate-900/80">
-                      {day}
+                <div className="grid grid-cols-7 gap-px bg-slate-200/70 dark:bg-slate-800/80 text-[9px] md:text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                  {[
+                    { short: "S", full: "Sun" },
+                    { short: "M", full: "Mon" },
+                    { short: "T", full: "Tue" },
+                    { short: "W", full: "Wed" },
+                    { short: "T", full: "Thu" },
+                    { short: "F", full: "Fri" },
+                    { short: "S", full: "Sat" },
+                  ].map((day, i) => (
+                    <div key={i} className="bg-slate-100/90 px-0.5 md:px-1 py-1.5 md:py-2 text-center dark:bg-slate-900/80">
+                      <span className="sm:hidden">{day.short}</span>
+                      <span className="hidden sm:inline">{day.full}</span>
                     </div>
                   ))}
                 </div>
@@ -948,18 +972,28 @@ export default function EmployeeDashboard() {
                     return (
                       <div
                         key={`${cell.iso || 'pad'}-${idx}`}
-                        className={`min-h-[64px] bg-white p-1.5 dark:bg-gray-900 md:min-h-[88px] md:p-2 ${!cell.day ? 'bg-slate-50/80 dark:bg-slate-950/60' : ''}`}
+                        className={`min-h-[40px] md:min-h-[88px] bg-white p-1 md:p-2 dark:bg-gray-900 ${!cell.day ? 'bg-slate-50/80 dark:bg-slate-950/60' : ''}`}
                       >
                         {cell.day ? (
                           <div className="flex h-full flex-col">
-                            <div className={`text-[11px] font-semibold md:text-xs ${isTodayCell ? 'text-blue-600 dark:text-blue-400' : 'text-slate-600 dark:text-slate-300'}`}>
-                              {cell.day}
+                            <div className={`text-[10px] md:text-xs font-semibold ${isTodayCell ? 'text-blue-600 dark:text-blue-400' : 'text-slate-600 dark:text-slate-300'}`}>
+                              {isTodayCell ? (
+                                <span className="inline-flex h-4 w-4 md:h-5 md:w-5 items-center justify-center rounded-full bg-blue-600 text-[9px] md:text-[11px] font-bold text-white dark:bg-blue-500">
+                                  {cell.day}
+                                </span>
+                              ) : (
+                                cell.day
+                              )}
                             </div>
                             {leaveStyle && (
-                              <div className={`mt-1 flex flex-1 items-end rounded-md px-1 py-1 md:px-1.5 ${leaveStyle.cellClass}`}>
-                                <span className={`inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${leaveStyle.badgeClass}`}>
+                              <div className={`mt-0.5 md:mt-1 flex flex-1 items-end rounded-md px-0.5 md:px-1.5 py-0.5 md:py-1 ${leaveStyle.cellClass}`}>
+                                {/* Mobile: compact dot indicator; Desktop: full badge */}
+                                <span className={`hidden md:inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${leaveStyle.badgeClass}`}>
                                   {leaveStyle.label}
                                   {leaveStyle.label === "LEAVE" ? <CheckCircle className="h-3 w-3" /> : null}
+                                </span>
+                                <span className={`md:hidden inline-flex items-center justify-center rounded-sm px-1 py-px text-[7px] font-bold uppercase leading-none ${leaveStyle.badgeClass}`}>
+                                  {leaveStyle.label === "LEAVE" ? "✓" : leaveStyle.label.charAt(0)}
                                 </span>
                               </div>
                             )}
