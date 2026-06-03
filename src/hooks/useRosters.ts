@@ -82,8 +82,8 @@ export function useFetchRoster() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ team, shift }: { team: string; shift: string }) => {
-      const payload = { team, shift };
+    mutationFn: async ({ team, shift, date }: { team: string; shift: string; date?: string }) => {
+      const payload = { team, shift, date };
 
       const { data, error } = await supabase.functions.invoke("fetch-roster", {
         body: payload,

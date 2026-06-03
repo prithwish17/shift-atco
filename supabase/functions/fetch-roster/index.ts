@@ -60,6 +60,7 @@ Deno.serve(async (req) => {
 
     const team = String(url.searchParams.get("team") || requestBody.team || "");
     const shift = String(url.searchParams.get("shift") || requestBody.shift || "");
+    const date = String(url.searchParams.get("date") || requestBody.date || "");
 
     // Try to read the webapp URL from app_settings table (admin-configurable)
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
@@ -81,6 +82,7 @@ Deno.serve(async (req) => {
     const scriptUrl = new URL(appsScriptUrl);
     if (team) scriptUrl.searchParams.set("team", team);
     if (shift) scriptUrl.searchParams.set("shift", shift);
+    if (date) scriptUrl.searchParams.set("date", date); // ← forward selected date
 
     console.log(`Fetching roster from: ${scriptUrl.toString()}`);
 

@@ -2,7 +2,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { POSITION_ROWS, NIGHT_SPAN_POSITIONS, NIGHT_FULL_SPAN_POSITIONS, NIGHT_TRIPLE_FULL_POSITIONS, NIGHT_FULL_DEPARTMENTS } from '@/lib/atcConstants';
 import { buildNameIndex, findUniqueNameMatch } from '@/lib/nameMatching';
 import { format, parse, addDays } from 'date-fns';
-
+const TEAM_UNIT_ALIAS: Record<string, string> = {
+  A: 'WSO',
+  B: 'WSO',
+  C: 'WSO',
+  D: 'WSO',
+  E: 'WSO',
+};
 function normalizeRosterShift(value: string) {
     const normalized = String(value || '').trim();
     if (!normalized) return normalized;
@@ -143,13 +149,15 @@ export async function syncRosterToGrid(
         for (const row of rosterRows as any[]) {
             let rawUnit = (row.unit || '').toUpperCase().trim();
             if (rawUnit === 'HQ') rawUnit = 'WSO';
+            // Apply team alias mapping (A‑E) to correct position key
+            const lookupUnit = TEAM_UNIT_ALIAS[rawUnit] ?? rawUnit;
             const rawEmpName = parseName(row.employee_name || '');
-            if (!rawUnit || !rawEmpName) continue;
+            if (!lookupUnit || !rawEmpName) continue;
 
             const posRow = POSITION_ROWS.find(
-                (p) => p.key.toUpperCase() === rawUnit || p.label.toUpperCase() === rawUnit
+                (p) => p.key.toUpperCase() === lookupUnit || p.label.toUpperCase() === lookupUnit
             );
-            const positionName = posRow?.key || rawUnit;
+            const positionName = posRow?.key || lookupUnit;
             const sectionType = posRow?.sectionType || 'sector';
 
             // Full-span and triple-full positions have no half division
@@ -282,15 +290,18 @@ export async function syncRosterToGrid(
         for (const row of rosterRows as any[]) {
             let rawUnit = (row.unit || '').toUpperCase().trim();
             if (rawUnit === 'HQ') rawUnit = 'WSO';
+            // Apply team alias mapping (A‑E) to correct position key
+            const lookupUnit = TEAM_UNIT_ALIAS[rawUnit] ?? rawUnit;
             const rawEmpName = parseName(row.employee_name || '');
-            if (!rawUnit || !rawEmpName) continue;
+            if (!lookupUnit || !rawEmpName) continue;
 
             const dept = posToDept(row.position || '');
-            if (!grid.has(rawUnit)) grid.set(rawUnit, new Map());
-            const deptMap = grid.get(rawUnit)!;
+            if (!grid.has(lookupUnit)) grid.set(lookupUnit, new Map());
+            const deptMap = grid.get(lookupUnit)!;
             if (!deptMap.has(dept)) deptMap.set(dept, []);
             deptMap.get(dept)!.push(rawEmpName);
         }
+
 
 
         for (const [unitKey, deptMap] of grid) {

@@ -66,6 +66,7 @@ export default function SupervisorDailyRoster() {
       await fetchRoster.mutateAsync({
         team: selectedTeam === "all" ? "" : selectedTeam,
         shift: selectedShift === "all" ? "" : selectedShift,
+        date: selectedDate, // ← pass selected date so the correct day is fetched
       });
       setLastFetched(new Date());
       toast.success("Roster data synced successfully");

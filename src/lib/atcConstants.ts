@@ -5,7 +5,7 @@ export const DEPARTMENTS = ['RSR', 'ACC-PLR', 'ACC-A'] as const;
 
 export const ATC_DESIGNATIONS = ['SM', 'DGM', 'MGR', 'JE', 'AM', 'AGM'] as const;
 
-export const ATC_SHIFTS = ['Morning', 'AFTERNOON', 'Night'] as const;
+export const ATC_SHIFTS = ['Morning', 'Afternoon', 'Night'] as const;
 
 export const ATC_RATING_OPTIONS = [
     'RSR+UBN', 'RSR+UKN', 'RSR+UKW', 'RSR+URP', 'RSR+UBS', 'RSR+UKE', 'RSR+UGT',
@@ -100,7 +100,7 @@ export const NIGHT_DEPT_LABELS: Record<string, string> = {
 /** Positions that show a single dropdown spanning all 3 cols per half in the night grid */
 export const NIGHT_SPAN_POSITIONS = new Set([
     'CORR_APP-A', 'SMC-N_SMC-S', 'FMP', 'AIS', 'TSO', 'TWR', 'CLD', 'ARO', 'MCD',
-    'WSO-ALPHA', 'TWR-A/ AIMS'
+    'WSO-ALPHA', 'TWR-A/ AIMS', 'SAR'
 ]);
 
 /** Positions that span ALL 6 columns with a single dropdown (no N1/N2 split) */
