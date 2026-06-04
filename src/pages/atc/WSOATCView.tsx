@@ -28,7 +28,7 @@ import type { GridEmployee } from '@/hooks/useDutyGrid';
 import { supabase } from '@/integrations/supabase/client';
 import { SCHEDULE_QUERY_OPTIONS } from '@/lib/scheduleQueryConfig';
 import { buildNameIndex, findUniqueNameMatch, namesMatch } from '@/lib/nameMatching';
-import { getDutyShiftMatches, type TeamDutyCode } from '@/lib/teamDutyRotation';
+import { getDutyShiftMatches, normalizeTeamKey, type TeamDutyCode } from '@/lib/teamDutyRotation';
 import { getLeaveTypeLabel } from '@/lib/leaveConstants';
 import { safeStorage } from '@/lib/safeStorage';
 import { useAuth } from '@/contexts/AuthContext';
@@ -86,9 +86,7 @@ const AVAILABILITY_CATEGORIES = [
 const WSO_ATC_GRID_CACHE_KEY = 'wso-atc-grid-filters';
 
 const normalizeTeam = (value: string | null | undefined) => {
-  const normalized = String(value || '').trim().toUpperCase();
-  if (!normalized || normalized === 'GENERAL') return 'G';
-  return normalized;
+  return normalizeTeamKey(value);
 };
 
 const normalizeUpper = (value: string | null | undefined) => String(value || '').trim().toUpperCase();

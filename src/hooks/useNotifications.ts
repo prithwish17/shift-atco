@@ -107,7 +107,8 @@ export function useClearNotification() {
       const { error } = await supabase
         .from("notifications" as any)
         .delete()
-        .eq("id", notificationId);
+        .eq("id", notificationId)
+        .eq("user_id", user!.id);
       if (error) throw error;
     },
     onSuccess: () => {

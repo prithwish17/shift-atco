@@ -19,10 +19,21 @@ CREATE TABLE IF NOT EXISTS public.push_subscriptions (
 
 ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users manage own push subscriptions"
-  ON public.push_subscriptions FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'push_subscriptions'
+      AND policyname = 'Users manage own push subscriptions'
+  ) THEN
+    CREATE POLICY "Users manage own push subscriptions"
+      ON public.push_subscriptions FOR ALL
+      USING (auth.uid() = user_id)
+      WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user
   ON public.push_subscriptions(user_id);
@@ -43,19 +54,67 @@ CREATE TABLE IF NOT EXISTS public.notifications (
 
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users read own notifications"
-  ON public.notifications FOR SELECT
-  USING (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'notifications'
+      AND policyname = 'Users read own notifications'
+  ) THEN
+    CREATE POLICY "Users read own notifications"
+      ON public.notifications FOR SELECT
+      USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
-CREATE POLICY "Users update own notifications"
-  ON public.notifications FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'notifications'
+      AND policyname = 'Users update own notifications'
+  ) THEN
+    CREATE POLICY "Users update own notifications"
+      ON public.notifications FOR UPDATE
+      USING (auth.uid() = user_id)
+      WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'notifications'
+      AND policyname = 'Users delete own notifications'
+  ) THEN
+    CREATE POLICY "Users delete own notifications"
+      ON public.notifications FOR DELETE
+      USING (auth.uid() = user_id);
+  END IF;
+END $$;
 
 -- Service role can insert notifications from edge functions
-CREATE POLICY "Service role insert notifications"
-  ON public.notifications FOR INSERT
-  WITH CHECK (true);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'notifications'
+      AND policyname = 'Service role insert notifications'
+  ) THEN
+    CREATE POLICY "Service role insert notifications"
+      ON public.notifications FOR INSERT
+      WITH CHECK (true);
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_notifications_user_unread
   ON public.notifications(user_id, read, created_at DESC);

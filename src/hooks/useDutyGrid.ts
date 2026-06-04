@@ -2,6 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { logSupervisorEdit } from '@/lib/supervisorAuditLog';
+import { getRosterDateQueryValues } from '@/lib/rosterDate';
+import { getRosterTeamQueryValues, normalizeRosterTeamKey } from '@/lib/rosterTeam';
 
 // ---------- Types ----------
 
@@ -57,20 +59,21 @@ export interface GridEmployee {
 
 export function useDutyRoster(date: Date, shift: string, team: string) {
     const dateStr = format(date, 'yyyy-MM-dd');
+    const normalizedTeam = normalizeRosterTeamKey(team);
     return useQuery({
-        queryKey: ['duty-roster', dateStr, shift, team],
+        queryKey: ['duty-roster', dateStr, shift, normalizedTeam],
         queryFn: async () => {
             const { data, error } = await supabase
                 .from('duty_rosters' as any)
                 .select('*')
                 .eq('roster_date', dateStr)
                 .eq('shift', shift)
-                .eq('team', team)
+                .eq('team', normalizedTeam)
                 .maybeSingle();
             if (error) throw error;
             return data as DutyRoster | null;
         },
-        enabled: !!team,
+        enabled: !!normalizedTeam,
         staleTime: 2 * 60 * 1000,
         gcTime: 5 * 60 * 1000,
     });
@@ -80,13 +83,14 @@ export function useCreateOrGetRoster() {
     const qc = useQueryClient();
     return useMutation({
         mutationFn: async ({ date, shift, team }: { date: string; shift: string; team?: string }) => {
+            const normalizedTeam = normalizeRosterTeamKey(team);
             // Try to find existing
             const { data: existing } = await supabase
                 .from('duty_rosters' as any)
                 .select('*')
                 .eq('roster_date', date)
                 .eq('shift', shift)
-                .eq('team', team || '')
+                .eq('team', normalizedTeam)
                 .maybeSingle();
             if (existing) return existing as DutyRoster;
 
@@ -95,7 +99,7 @@ export function useCreateOrGetRoster() {
                 const { data, error } = await supabase
                     .from('duty_rosters' as any)
                     .upsert(
-                        { roster_date: date, shift, team } as any,
+                        { roster_date: date, shift, team: normalizedTeam } as any,
                         { onConflict: 'roster_date,shift,team' }
                     )
                     .select()
@@ -106,7 +110,7 @@ export function useCreateOrGetRoster() {
             // Fallback: plain insert, catch conflict and re-fetch
             const { data, error } = await supabase
                 .from('duty_rosters' as any)
-                .insert({ roster_date: date, shift, team } as any)
+                .insert({ roster_date: date, shift, team: normalizedTeam } as any)
                 .select()
                 .single();
             if (error) {
@@ -117,7 +121,7 @@ export function useCreateOrGetRoster() {
                         .select('*')
                         .eq('roster_date', date)
                         .eq('shift', shift)
-                        .eq('team', team || '')
+                        .eq('team', normalizedTeam)
                         .maybeSingle();
                     if (refetched) return refetched as DutyRoster;
                 }
@@ -484,17 +488,19 @@ export function useRosterStatusEntries(date: Date, shift: string, team: string) 
     // Convert to the format stored in rosters table (d-MMM-yyyy)
     const rosterDateStr = format(date, 'd-MMM-yyyy');
     const rosterShift = normalizeRosterShift(shift);
+    const teamQueryValues = getRosterTeamQueryValues(team);
+    const dateQueryValues = getRosterDateQueryValues(dateStr);
 
     return useQuery({
-        queryKey: ['roster-status-entries', dateStr, shift, team],
+        queryKey: ['roster-status-entries', dateStr, shift, normalizeRosterTeamKey(team)],
         queryFn: async () => {
             // Query rosters for DUTY CHANGE and EXTRA DUTY entries
             const { data, error } = await supabase
                 .from('rosters' as any)
                 .select('*')
-                .eq('date', rosterDateStr)
+                .in('date', dateQueryValues.length > 0 ? dateQueryValues : [rosterDateStr])
                 .eq('shift', rosterShift)
-                .eq('team', team)
+                .in('team', teamQueryValues)
                 .or('unit.ilike.duty change,unit.ilike.extra duty');
 
             if (error) throw error;

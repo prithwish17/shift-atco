@@ -37,8 +37,14 @@ const SPECIAL_DUTY_MATCH: Record<string, TeamDutyCode[]> = {
 
 export function normalizeTeamKey(value?: string | null) {
   if (!value) return "G";
-  const normalized = value.toUpperCase().trim();
-  return normalized === "GENERAL" ? "G" : normalized || "G";
+  const normalized = value.toUpperCase().trim().replace(/^TEAM\s+/, "");
+  if (normalized === "GENERAL") return "G";
+  if (normalized === "ALPHA") return "A";
+  if (normalized === "BRAVO") return "B";
+  if (normalized === "CHARLIE") return "C";
+  if (normalized === "DELTA") return "D";
+  if (normalized === "ECHO") return "E";
+  return normalized || "G";
 }
 
 export function getTeamDutyForDateKey(teamKey: string, dateKey: string): TeamDutyCode {

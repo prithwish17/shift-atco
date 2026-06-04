@@ -1,8 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { format, parse } from "date-fns";
+import { format } from "date-fns";
 import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
 import { logCriticalEvent } from "@/lib/sentryHelpers";
+import { getRosterDateQueryValues, parseRosterDate } from "@/lib/rosterDate";
+import { getRosterTeamQueryValues, normalizeRosterTeamKey } from "@/lib/rosterTeam";
+
+export { parseRosterDate } from "@/lib/rosterDate";
 
 export interface RosterEntry {
   id?: string;
@@ -17,17 +21,6 @@ export interface RosterEntry {
 
 const SPECIAL_ROSTER_LABELS = ["EXTRA DUTY", "DUTY CHANGE", "DUTY EXCHANGE"];
 
-const ROSTER_DATE_FORMATS = [
-  "dd-MMM-yyyy",
-  "d-MMM-yyyy",
-  "yyyy-MM-dd",
-  "dd/MM/yyyy",
-  "d/M/yyyy",
-  "dd-MM-yyyy",
-  "M/d/yyyy",
-  "MM/dd/yyyy",
-] as const;
-
 function sanitizeFilterValue(value?: string) {
   const normalized = String(value || "").trim();
   if (!normalized || normalized.toLowerCase() === "all") return undefined;
@@ -35,25 +28,11 @@ function sanitizeFilterValue(value?: string) {
 }
 
 function normalizeRosterTeam(value?: string | null) {
-  return String(value || "").trim().toUpperCase();
+  return normalizeRosterTeamKey(value);
 }
 
 function normalizeRosterShift(value?: string | null) {
   return String(value || "").trim().toUpperCase();
-}
-
-export function parseRosterDate(value?: string | null) {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-
-  for (const formatString of ROSTER_DATE_FORMATS) {
-    const parsed = parse(raw, formatString, new Date());
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed;
-    }
-  }
-
-  return null;
 }
 
 function matchesRosterDate(value: string | undefined, targetIsoDate?: string) {
@@ -148,6 +127,8 @@ export function useRosters(filters?: {
   const shiftFilter = sanitizeFilterValue(filters?.shift);
   const searchFilter = sanitizeFilterValue(filters?.search);
   const dateFilter = sanitizeFilterValue(filters?.date);
+  const dateQueryValues = getRosterDateQueryValues(dateFilter);
+  const teamQueryValues = teamFilter ? getRosterTeamQueryValues(teamFilter) : [];
   const excludeSpecialEntries = !!filters?.excludeSpecialEntries;
 
   return useQuery({
@@ -167,12 +148,15 @@ export function useRosters(filters?: {
 
       if (hasNarrowFilter) {
         // Narrowly filtered — single page is safe
-        const { data, error } = await (supabase.from("rosters" as any) as any)
+        let query = (supabase.from("rosters" as any) as any)
           .select("*")
           .order("created_at", { ascending: false })
-          .ilike("team", teamFilter!)
-          .ilike("shift", shiftFilter!)
-          .limit(5000);
+          .in("team", teamQueryValues)
+          .ilike("shift", shiftFilter!);
+
+        if (dateQueryValues.length > 0) query = query.in("date", dateQueryValues);
+
+        const { data, error } = await query.limit(5000);
 
         if (error) throw error;
 
@@ -197,7 +181,8 @@ export function useRosters(filters?: {
           .select("*")
           .order("created_at", { ascending: false });
 
-        if (teamFilter) query = query.ilike("team", teamFilter);
+        if (dateQueryValues.length > 0) query = query.in("date", dateQueryValues);
+        if (teamFilter) query = query.in("team", teamQueryValues);
         if (shiftFilter) query = query.ilike("shift", shiftFilter);
 
         const { data, error } = await query.range(from, from + PAGE_SIZE - 1);

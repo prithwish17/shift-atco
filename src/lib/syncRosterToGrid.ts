@@ -1,13 +1,21 @@
 import { supabase } from '@/integrations/supabase/client';
 import { POSITION_ROWS, NIGHT_SPAN_POSITIONS, NIGHT_FULL_SPAN_POSITIONS, NIGHT_TRIPLE_FULL_POSITIONS, NIGHT_FULL_DEPARTMENTS } from '@/lib/atcConstants';
 import { buildNameIndex, findUniqueNameMatch } from '@/lib/nameMatching';
+import { getRosterDateQueryValues } from '@/lib/rosterDate';
+import { getRosterTeamQueryValues, normalizeRosterTeamKey } from '@/lib/rosterTeam';
 import { format, parse, addDays } from 'date-fns';
-const TEAM_UNIT_ALIAS: Record<string, string> = {
+const ROSTER_UNIT_ALIAS: Record<string, string> = {
   A: 'WSO',
+  ALPHA: 'WSO',
   B: 'WSO',
+  BRAVO: 'WSO',
   C: 'WSO',
+  CHARLIE: 'WSO',
   D: 'WSO',
+  DELTA: 'WSO',
   E: 'WSO',
+  ECHO: 'WSO',
+  HQ: 'WSO',
 };
 function normalizeRosterShift(value: string) {
     const normalized = String(value || '').trim();
@@ -33,18 +41,21 @@ export async function syncRosterToGrid(
 
     // Roster rows are persisted in title case by fetch-roster/sync-roster.
     const rosterShift = normalizeRosterShift(shift);
+    const normalizedTeam = normalizeRosterTeamKey(team);
+    const teamQueryValues = getRosterTeamQueryValues(normalizedTeam);
+    const dateQueryValues = getRosterDateQueryValues(date);
 
     // 1. Fetch flat roster rows for this date/shift/team
     const { data: rosterRows, error: rosterErr } = await supabase
         .from('rosters' as any)
         .select('*')
-        .eq('date', rosterDateStr)
+        .in('date', dateQueryValues)
         .eq('shift', rosterShift)
-        .eq('team', team);
+        .in('team', teamQueryValues);
 
     if (rosterErr) throw rosterErr;
     if (!rosterRows || rosterRows.length === 0) {
-        throw new Error(`No roster data found for ${rosterDateStr} / ${rosterShift} / Team ${team}. Sync from Roster Management first.`);
+        throw new Error(`No roster data found for ${rosterDateStr} / ${rosterShift} / Team ${normalizedTeam}. Sync from Roster Management first.`);
     }
 
     // 2. Fetch all employee profiles for name→ID mapping
@@ -68,7 +79,7 @@ export async function syncRosterToGrid(
         .select('*')
         .eq('roster_date', date)
         .eq('shift', shift)
-        .eq('team', team)
+        .eq('team', normalizedTeam)
         .maybeSingle();
 
     let rosterId: string;
@@ -77,12 +88,12 @@ export async function syncRosterToGrid(
         // Update team if needed
         await supabase
             .from('duty_rosters' as any)
-            .update({ team } as any)
+            .update({ team: normalizedTeam } as any)
             .eq('id', rosterId);
     } else {
         const { data: newRoster, error: createErr } = await supabase
             .from('duty_rosters' as any)
-            .insert({ roster_date: date, shift, team } as any)
+            .insert({ roster_date: date, shift, team: normalizedTeam } as any)
             .select()
             .single();
         if (createErr) throw createErr;
@@ -148,9 +159,7 @@ export async function syncRosterToGrid(
 
         for (const row of rosterRows as any[]) {
             let rawUnit = (row.unit || '').toUpperCase().trim();
-            if (rawUnit === 'HQ') rawUnit = 'WSO';
-            // Apply team alias mapping (A‑E) to correct position key
-            const lookupUnit = TEAM_UNIT_ALIAS[rawUnit] ?? rawUnit;
+            const lookupUnit = ROSTER_UNIT_ALIAS[rawUnit] ?? rawUnit;
             const rawEmpName = parseName(row.employee_name || '');
             if (!lookupUnit || !rawEmpName) continue;
 
@@ -289,9 +298,7 @@ export async function syncRosterToGrid(
         const grid = new Map<string, Map<string, string[]>>();
         for (const row of rosterRows as any[]) {
             let rawUnit = (row.unit || '').toUpperCase().trim();
-            if (rawUnit === 'HQ') rawUnit = 'WSO';
-            // Apply team alias mapping (A‑E) to correct position key
-            const lookupUnit = TEAM_UNIT_ALIAS[rawUnit] ?? rawUnit;
+            const lookupUnit = ROSTER_UNIT_ALIAS[rawUnit] ?? rawUnit;
             const rawEmpName = parseName(row.employee_name || '');
             if (!lookupUnit || !rawEmpName) continue;
 

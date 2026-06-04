@@ -22,6 +22,17 @@ type RosterRecord = {
 const normaliseShift = (s: string) =>
   s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s
 
+const normaliseTeam = (value: string) => {
+  const normalized = String(value || '').trim().toUpperCase().replace(/^TEAM\s+/, '')
+  if (normalized === 'ALPHA') return 'A'
+  if (normalized === 'BRAVO') return 'B'
+  if (normalized === 'CHARLIE') return 'C'
+  if (normalized === 'DELTA') return 'D'
+  if (normalized === 'ECHO') return 'E'
+  if (normalized === 'GENERAL') return 'G'
+  return normalized
+}
+
 // ── Date helpers (IST = UTC + 5:30) ──────────────────────────────────────────
 
 function getISTDateString(offsetDays = 0): string {
@@ -85,7 +96,7 @@ async function fetchTeamRoster(
     return {
       date:          row.date || date,
       shift:         normaliseShift(row.shift || shift),
-      team:          row.team || team,
+      team:          normaliseTeam(row.team || team),
       unit,
       employee_name: empName,
       position:      row.position ?? row.mark ?? row.remark ?? row.half ?? '',
@@ -148,7 +159,7 @@ Deno.serve(async (req) => {
       // to avoid duplicate key violations within the same batch.
       const seen = new Set<string>()
       const dedupedRecords = allRecords.filter(r => {
-        const key = `${r.date}|${r.shift}|${r.employee_name}|${r.unit}|${r.position}`
+        const key = `${r.date}|${r.shift}|${r.team}|${r.employee_name}|${r.unit}|${r.position}`
         if (seen.has(key)) return false
         seen.add(key)
         return true
@@ -175,7 +186,7 @@ Deno.serve(async (req) => {
         .from('rosters')
         .upsert(dedupedRecords, {
           count: 'exact',
-          onConflict: 'date,shift,employee_name,unit,position',
+          onConflict: 'date,shift,team,employee_name,unit,position',
         })
 
       if (insErr) throw insErr

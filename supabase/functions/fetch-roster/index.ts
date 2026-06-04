@@ -97,13 +97,24 @@ Deno.serve(async (req) => {
 
     const data = await response.json();
 
-    // Ensure data is an array
-    const rows = Array.isArray(data) ? data : [];
+    // Ensure data is an array. Some Apps Script deployments return { data: [...] }.
+    const rows = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
 
     // Normalise shift values to title-case ("NIGHT" → "Night") so queries
     // and the frontend work consistently regardless of the API's casing.
     const normaliseShift = (s: string) =>
       s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
+
+    const normaliseTeam = (value: string) => {
+      const normalized = String(value || "").trim().toUpperCase().replace(/^TEAM\s+/, "");
+      if (normalized === "ALPHA") return "A";
+      if (normalized === "BRAVO") return "B";
+      if (normalized === "CHARLIE") return "C";
+      if (normalized === "DELTA") return "D";
+      if (normalized === "ECHO") return "E";
+      if (normalized === "GENERAL") return "G";
+      return normalized;
+    };
 
     // Delete old entries + insert fresh data using service role
     if (rows.length > 0) {
@@ -129,7 +140,7 @@ Deno.serve(async (req) => {
         return {
           date: row.date || "",
           shift: normaliseShift(row.shift || ""),
-          team: row.team || "",
+          team: normaliseTeam(row.team || team),
           unit: (row.unit || "").toUpperCase().trim() === "HQ" ? "WSO" : (row.unit || ""),
           employee_name: empName,
           position: positionValue,
@@ -139,7 +150,7 @@ Deno.serve(async (req) => {
       // Deduplicate by unique constraint columns (date, shift, employee_name, unit, position)
       const seen = new Set<string>();
       const dedupedInsert = toInsert.filter((r: any) => {
-        const key = `${r.date}|${r.shift}|${r.employee_name}|${r.unit}|${r.position}`;
+        const key = `${r.date}|${r.shift}|${r.team}|${r.employee_name}|${r.unit}|${r.position}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -167,7 +178,7 @@ Deno.serve(async (req) => {
       const { error: insertError } = await adminClient
         .from("rosters")
         .upsert(dedupedInsert, {
-          onConflict: "date,shift,employee_name,unit,position",
+          onConflict: "date,shift,team,employee_name,unit,position",
         });
 
       if (insertError) {
