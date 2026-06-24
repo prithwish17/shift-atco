@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { eachDayOfInterval, format, isAfter, isBefore, parseISO } from 'date-fns';
+import { eachDayOfInterval, format, isAfter, isBefore, parseISO, startOfMonth, subDays, subMonths } from 'date-fns';
 import { getFunctionsProxyBaseUrl } from '@/lib/appConfig';
 import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from '@/lib/scheduleQueryConfig';
 import { logSupervisorEdit } from '@/lib/supervisorAuditLog';
@@ -65,6 +65,68 @@ type ApprovedLeaveRange = {
     leave_type: string;
 };
 
+// Schedules older than this many calendar months live in the audit-log Google
+// Sheet, not the database (see archive-schedules edge fn). MUST match the
+// monthsToKeep used by the archiver (default 2).
+const MONTHS_KEPT_IN_DB = 2;
+
+/**
+ * First day of the oldest month still kept in the database. Anything with a
+ * duty_date strictly before this is served from the archive URL instead.
+ */
+export function getScheduleArchiveCutoff(): string {
+    return format(startOfMonth(subMonths(new Date(), MONTHS_KEPT_IN_DB - 1)), 'yyyy-MM-dd');
+}
+
+/**
+ * Fetch archived schedule rows for one employee directly from the audit-log
+ * Google Sheet (via /api/schedule-archive). Never throws — returns [] on any
+ * failure so the live (DB) portion still renders.
+ */
+async function fetchArchivedSchedules(
+    employeeCode: string,
+    from: string,
+    to: string
+): Promise<EmployeeSchedule[]> {
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return [];
+
+        const url = new URL(`${getFunctionsProxyBaseUrl()}/api/schedule-archive`);
+        url.searchParams.set('employee', employeeCode);
+        url.searchParams.set('from', from);
+        url.searchParams.set('to', to);
+
+        const res = await fetch(url.toString(), {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return [];
+
+        const json = await res.json().catch(() => null);
+        const rows = (json?.rows || []) as Array<{
+            employee_code: string;
+            employee_name: string;
+            duty_date: string;
+            duty_code: string;
+            duty_description: string;
+            archived_at?: string;
+        }>;
+
+        return rows.map((r) => ({
+            id: `archive-${r.employee_code}-${r.duty_date}`,
+            employee_code: r.employee_code,
+            employee_name: r.employee_name,
+            duty_date: r.duty_date,
+            duty_code: r.duty_code,
+            duty_description: r.duty_description,
+            created_at: r.archived_at || '',
+            updated_at: r.archived_at || '',
+        }));
+    } catch {
+        return [];
+    }
+}
+
 // Query schedules with optional filters
 export function useEmployeeSchedules(
     employeeCode?: string,
@@ -84,20 +146,42 @@ export function useEmployeeSchedules(
             if (startDate) query = query.gte('duty_date', startDate);
             if (endDate) query = query.lte('duty_date', endDate);
 
-            // Fire schedule + profile queries in parallel (saves ~100-200ms)
-            const [scheduleResult, profileResult] = await Promise.all([
+            // If the requested range reaches before the archive cutoff, pull that
+            // older slice straight from the archive URL (Google Sheet) instead of
+            // the DB, which no longer holds it.
+            const cutoff = getScheduleArchiveCutoff();
+            const needsArchive = !!(employeeCode && startDate && startDate < cutoff);
+            const archiveTo = needsArchive
+                ? (endDate && endDate < cutoff
+                    ? endDate
+                    : format(subDays(parseISO(cutoff), 1), 'yyyy-MM-dd'))
+                : '';
+
+            // Fire schedule + profile (+ archive) queries in parallel.
+            const [scheduleResult, profileResult, archivedRows] = await Promise.all([
                 query,
                 supabase
                     .from('profiles')
                     .select('id, full_name')
                     .eq('employee_id', employeeCode)
                     .maybeSingle(),
+                needsArchive
+                    ? fetchArchivedSchedules(employeeCode as string, startDate as string, archiveTo)
+                    : Promise.resolve([] as EmployeeSchedule[]),
             ]);
 
             if (scheduleResult.error) {
                 throw scheduleResult.error;
             }
-            const schedules = (scheduleResult.data || []) as unknown as EmployeeSchedule[];
+            const dbSchedules = (scheduleResult.data || []) as unknown as EmployeeSchedule[];
+
+            // Merge archived (older) + DB (recent); de-dupe by date, DB wins.
+            const mergedByDate = new Map<string, EmployeeSchedule>();
+            for (const r of archivedRows) mergedByDate.set(r.duty_date, r);
+            for (const r of dbSchedules) mergedByDate.set(r.duty_date, r);
+            const schedules = Array.from(mergedByDate.values()).sort((a, b) =>
+                a.duty_date.localeCompare(b.duty_date)
+            );
 
             const profile = profileResult.data;
             if (profileResult.error || !profile?.id) {

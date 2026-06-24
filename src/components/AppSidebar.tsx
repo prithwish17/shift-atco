@@ -27,6 +27,10 @@ import {
   ChevronLeft,
   Menu,
   Share2,
+  UserSearch,
+  ShieldCheck,
+  History,
+  BookLock,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { ShareAppDialog } from "@/components/ShareAppDialog";
@@ -99,6 +103,10 @@ const supervisorNav: SupervisorNav = {
     },
   ],
   bottomItems: [
+    { title: "Availability Finder", url: "/supervisor/availability-finder", icon: UserSearch },
+    { title: "Compliance Dashboard", url: "/supervisor/compliance", icon: ShieldCheck },
+    { title: "Compliance Audit Log", url: "/supervisor/compliance-audit", icon: History },
+    { title: "Rule Governance", url: "/supervisor/rule-governance", icon: BookLock },
     { title: "Leave Review", url: "/supervisor/leaves", icon: FileText },
     { title: "Duty Exchange", url: "/supervisor/duty-exchange", icon: ArrowLeftRight },
     { title: "Trainee Details", url: "/supervisor/trainees", icon: GraduationCap },
@@ -162,7 +170,7 @@ export function AppSidebar({ role }: SidebarProps) {
   const currentPath = location.pathname;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [openSection, setOpenSection] = useState<string | null>(null);
   const [hoveredSection, setHoveredSection] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
 
@@ -178,21 +186,22 @@ export function AppSidebar({ role }: SidebarProps) {
     setCollapsed(prev => !prev);
   }, []);
 
-  // Auto-open the section that contains the current active route
+  // Auto-open the section that contains the current active route (accordion: only one open)
   useEffect(() => {
     if (role !== "supervisor") return;
-    supervisorNav.sections.forEach(section => {
-      const hasActive = section.items.some(item =>
+    const activeSection = supervisorNav.sections.find(section =>
+      section.items.some(item =>
         currentPath === item.url || currentPath.startsWith(item.url + '/')
-      );
-      if (hasActive) {
-        setOpenSections(prev => prev[section.id] ? prev : { ...prev, [section.id]: true });
-      }
-    });
+      )
+    );
+    if (activeSection) {
+      setOpenSection(activeSection.id);
+    }
   }, [currentPath, role]);
 
+  // Accordion: opening a section collapses any other open one
   const toggleSection = useCallback((id: string) => {
-    setOpenSections(prev => ({ ...prev, [id]: !prev[id] }));
+    setOpenSection(prev => (prev === id ? null : id));
   }, []);
 
   const isActive = (url: string) => {
@@ -261,7 +270,7 @@ export function AppSidebar({ role }: SidebarProps) {
         )}
         <div className="space-y-0.5">
           {supervisorNav.sections.map(section => {
-            const isOpen = !!openSections[section.id];
+            const isOpen = openSection === section.id;
             const hasActiveChild = section.items.some(item => isActive(item.url));
             const isHovered = hoveredSection === section.id;
             

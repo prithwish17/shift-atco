@@ -56,6 +56,10 @@ const HolidayManagement = lazy(() => import("./pages/supervisor/HolidayManagemen
 const OPEAssignments = lazy(() => import("./pages/supervisor/OPEAssignments"));
 const DutyReport = lazy(() => import("./pages/supervisor/DutyReport"));
 const SupervisorSuggestions = lazy(() => import("./pages/supervisor/SupervisorSuggestions"));
+const AvailabilityFinder = lazy(() => import("./pages/supervisor/AvailabilityFinder"));
+const ComplianceDashboard = lazy(() => import("./pages/supervisor/ComplianceDashboard"));
+const ComplianceAuditLog = lazy(() => import("./pages/supervisor/ComplianceAuditLog"));
+const RuleGovernance = lazy(() => import("./pages/supervisor/RuleGovernance"));
 const DutyManagement = lazy(() => import("./pages/supervisor/DutyManagement"));
 const ShiftDetails = lazy(() => import("./pages/supervisor/ShiftDetails"));
 const LicenseManagement = lazy(() => import("./pages/supervisor/LicenseManagement"));
@@ -330,6 +334,10 @@ function App() {
                     <Route path="/supervisor/holidays" element={<ProtectedRoute allowedRoles={['supervisor']}><HolidayManagement /></ProtectedRoute>} />
                     <Route path="/supervisor/ope-assignments" element={<ProtectedRoute allowedRoles={['supervisor']}><OPEAssignments /></ProtectedRoute>} />
                     <Route path="/supervisor/suggestions" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorSuggestions /></ProtectedRoute>} />
+                    <Route path="/supervisor/availability-finder" element={<ProtectedRoute allowedRoles={['supervisor']}><AvailabilityFinder /></ProtectedRoute>} />
+                    <Route path="/supervisor/compliance" element={<ProtectedRoute allowedRoles={['supervisor']}><ComplianceDashboard /></ProtectedRoute>} />
+                    <Route path="/supervisor/compliance-audit" element={<ProtectedRoute allowedRoles={['supervisor']}><ComplianceAuditLog /></ProtectedRoute>} />
+                    <Route path="/supervisor/rule-governance" element={<ProtectedRoute allowedRoles={['supervisor']}><RuleGovernance /></ProtectedRoute>} />
                     <Route path="/supervisor/duty-management" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyManagement /></ProtectedRoute>} />
                     <Route path="/supervisor/shift-details" element={<ProtectedRoute allowedRoles={['supervisor']}><ShiftDetails /></ProtectedRoute>} />
                     <Route path="/supervisor/roster" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDailyRoster /></ProtectedRoute>} />

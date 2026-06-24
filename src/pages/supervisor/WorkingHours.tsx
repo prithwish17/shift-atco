@@ -30,78 +30,28 @@ import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
 
 
 /* ──────────────────────────────────────────────────────────────
-   Duty Period Limits (New Rules)
+   Duty hours, limits & start times now come from the single source of
+   truth in src/lib/dutyConfig.ts (shared with the compliance engine).
 ────────────────────────────────────────────────────────────── */
-export const DUTY_PERIOD_LIMITS = {
-  singleDuty: { hours: 12, label: "Maximum single duty period" },
-  minGap: { hours: 12, label: "Minimum gap between duty periods" },
-} as const;
+export {
+  DUTY_PERIOD_LIMITS,
+  ATCO_LIMITS,
+  CONSECUTIVE_LIMITS,
+  DUTY_HOURS_MAP,
+  DUTY_START_TIMES,
+  getDutyHours,
+  getDutyStartTime,
+} from "@/lib/dutyConfig";
 
-/* ──────────────────────────────────────────────────────────────
-   Cumulative Duty Limits (New Rules)
-────────────────────────────────────────────────────────────── */
-export const ATCO_LIMITS = {
-  peak7:  { hours: 48,  label: "7-day",  windowDays: 7  },
-  peak30: { hours: 190, label: "30-day", windowDays: 30 },
-} as const;
-
-/* ──────────────────────────────────────────────────────────────
-   Consecutive Duty Days Limits (New Rules)
-────────────────────────────────────────────────────────────── */
-export const CONSECUTIVE_LIMITS = {
-  maxConsecutiveDays: 6,
-  minRestAfterConsecutive: 48, // hours
-} as const;
-
-/* ──────────────────────────────────────────────────────────────
-   Duty code → hours mapping
-────────────────────────────────────────────────────────────── */
-const DUTY_HOURS_MAP: Record<string, number> = {
-  M: 6, A: 6, N: 6, NO: 6,
-  CO: 0, SL: 0, Tr: 0, T: 0, CH: 0, NH: 0, SAT: 0, SUN: 0, NA: 0, LEAVE: 0, L: 0,
-  G: 8, GO: 8,
-  "M+A": 12, "A+M": 12, "NO+N": 12,
-  "CO+N": 6, "CO+A": 6, "CO+M": 6,
-  "SAT+NO": 7, "SAT+N": 5,
-  "SUN+N": 5, "SUN+M": 6, "SUN+A": 6, "SUN+NO": 7,
-};
-
-function getDutyHours(code: string): number {
-  if (!code) return 0;
-  const t = code.trim();
-  return DUTY_HOURS_MAP[t] ?? DUTY_HOURS_MAP[t.toUpperCase()] ?? 0;
-}
-
-/* ──────────────────────────────────────────────────────────────
-   Duty code → start time mapping (IST)
-────────────────────────────────────────────────────────────── */
-const DUTY_START_TIMES: Record<string, string> = {
-  M: "0700",
-  A: "1300",
-  N: "1900",
-  NO: "1900",
-  "M+A": "0700",
-  "A+M": "0700",
-  G: "0940",
-  GO: "0940",
-  // Compound codes with off duty start at duty code time
-  "CO+N": "1900",
-  "CO+A": "1300",
-  "CO+M": "0700",
-  "SAT+NO": "1900",
-  "SAT+N": "1900",
-  "SUN+N": "1900",
-  "SUN+M": "0700",
-  "SUN+A": "1300",
-  "SUN+NO": "1900",
-  "NO+N": "1900",
-};
-
-function getDutyStartTime(code: string): string {
-  if (!code) return "—";
-  const t = code.trim();
-  return DUTY_START_TIMES[t] ?? DUTY_START_TIMES[t.toUpperCase()] ?? "—";
-}
+import {
+  DUTY_PERIOD_LIMITS,
+  ATCO_LIMITS,
+  CONSECUTIVE_LIMITS,
+  DUTY_HOURS_MAP,
+  DUTY_START_TIMES,
+  getDutyHours,
+  getDutyStartTime,
+} from "@/lib/dutyConfig";
 
 /* colours for duty code pills */
 const DUTY_COLOUR: Record<string, string> = {
