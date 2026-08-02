@@ -218,7 +218,7 @@ export default function EmployeeDutyMarked() {
                                 </h1>
                                 <p className="mt-0.5 flex items-center gap-1.5 text-[11px] md:text-sm text-white/80">
                                     <CalendarDays className="size-3.5 shrink-0" />
-                                    <span className="truncate">
+                                    <span>
                                         {format(rangeStart, 'd MMM')} – {format(rangeEnd, 'd MMM yyyy')}
                                     </span>
                                 </p>
@@ -273,7 +273,7 @@ export default function EmployeeDutyMarked() {
 
                                     <div className="flex flex-1 flex-col gap-3 p-3 sm:flex-row sm:items-center sm:gap-4 md:p-4">
                                         {/* Date block */}
-                                        <div className="flex items-center gap-3 sm:w-[132px] sm:shrink-0">
+                                        <div className="flex items-center gap-2.5 sm:w-[124px] sm:shrink-0">
                                             <div className="w-10 shrink-0 text-center leading-none">
                                                 <div className="text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
                                                     {format(day.date, 'EEE')}
@@ -297,13 +297,14 @@ export default function EmployeeDutyMarked() {
                                             )}
                                         </div>
 
-                                        {/* Shift */}
-                                        <div className="flex min-w-0 items-center gap-2.5 sm:w-[190px] sm:shrink-0">
-                                            <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${style.iconWrap}`}>
+                                        {/* Shift — labels run to 22 chars ("Clear off + Afternoon"),
+                                            so this wraps rather than truncating. */}
+                                        <div className="flex items-start gap-2.5 sm:w-[210px] sm:shrink-0">
+                                            <div className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg ${style.iconWrap}`}>
                                                 <Icon className="size-4" />
                                             </div>
                                             <div className="min-w-0">
-                                                <div className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                                <div className="text-sm font-semibold leading-snug text-gray-900 dark:text-gray-100">
                                                     {day.shift || 'No shift recorded'}
                                                 </div>
                                                 {day.dutyCode && (
@@ -314,20 +315,23 @@ export default function EmployeeDutyMarked() {
                                             </div>
                                         </div>
 
-                                        {/* Duties */}
+                                        {/* Duties — unit + position reaches ~43 chars, so chips
+                                            wrap and break instead of overflowing the row. */}
                                         <div className="min-w-0 flex-1 sm:border-l sm:border-gray-100 sm:pl-4 sm:dark:border-gray-700">
                                             {day.duties.length > 0 ? (
                                                 <div className="flex flex-wrap gap-1.5">
                                                     {day.duties.map((duty, idx) => (
                                                         <span
                                                             key={`${day.key}-${idx}`}
-                                                            className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium ring-1 ring-inset ${style.chip}`}
+                                                            className={`inline-flex max-w-full items-start gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium ring-1 ring-inset ${style.chip}`}
                                                         >
-                                                            <MapPin className="size-3 shrink-0 opacity-70" />
-                                                            <span>{duty.unit || '—'}</span>
-                                                            {duty.position && (
-                                                                <span className="opacity-70">· {duty.position}</span>
-                                                            )}
+                                                            <MapPin className="mt-[2px] size-3 shrink-0 opacity-70" />
+                                                            <span className="min-w-0 break-words">
+                                                                {duty.unit || '—'}
+                                                                {duty.position && (
+                                                                    <span className="opacity-70"> · {duty.position}</span>
+                                                                )}
+                                                            </span>
                                                         </span>
                                                     ))}
                                                 </div>
