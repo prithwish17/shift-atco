@@ -202,48 +202,43 @@ export default function EmployeeDutyMarked() {
     return (
         <DashboardLayout role="employee">
             <div className="space-y-4 md:space-y-6">
-                {/* Hero */}
-                <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-sky-600 via-cyan-500 to-teal-500 p-5 md:p-7 shadow-sm">
-                    <div className="absolute -right-8 -top-10 size-40 rounded-full bg-white/10" />
-                    <div className="absolute -bottom-14 right-20 size-32 rounded-full bg-white/5" />
-
-                    <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                        <div className="flex items-center gap-3 md:gap-4">
-                            <div className="flex size-11 md:size-12 shrink-0 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
-                                <ClipboardCheck className="size-5 md:size-6 text-white" />
-                            </div>
-                            <div className="min-w-0">
-                                <h1 className="text-xl md:text-2xl font-semibold tracking-tight text-white">
-                                    Duty Marked
-                                </h1>
-                                <p className="mt-0.5 flex items-center gap-1.5 text-[11px] md:text-sm text-white/80">
-                                    <CalendarDays className="size-3.5 shrink-0" />
-                                    <span>
-                                        {format(rangeStart, 'd MMM')} – {format(rangeEnd, 'd MMM yyyy')}
-                                    </span>
-                                </p>
-                            </div>
+                {/* Header */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-400 md:size-10">
+                            <ClipboardCheck className="size-4 md:size-5" />
                         </div>
-
-                        <div className="grid grid-cols-3 gap-2 md:gap-3">
-                            {[
-                                { label: 'Rostered', value: stats.rostered },
-                                { label: 'Duties', value: stats.duties },
-                                { label: 'Off days', value: stats.rest },
-                            ].map(s => (
-                                <div
-                                    key={s.label}
-                                    className="rounded-xl bg-white/15 px-3 py-2 text-center backdrop-blur-sm md:min-w-[76px]"
-                                >
-                                    <div className="text-lg md:text-xl font-bold leading-none text-white">
-                                        {isLoading ? '–' : s.value}
-                                    </div>
-                                    <div className="mt-1 text-[10px] md:text-[11px] font-medium uppercase tracking-wide text-white/75">
-                                        {s.label}
-                                    </div>
-                                </div>
-                            ))}
+                        <div>
+                            <h1 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-gray-100 md:text-2xl">
+                                Duty Marked
+                            </h1>
+                            <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 md:text-sm">
+                                <CalendarDays className="size-3.5 shrink-0" />
+                                <span>
+                                    {format(rangeStart, 'd MMM')} – {format(rangeEnd, 'd MMM yyyy')}
+                                </span>
+                            </p>
                         </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                        {[
+                            { label: 'Rostered', value: stats.rostered },
+                            { label: 'Duties', value: stats.duties },
+                            { label: 'Off days', value: stats.rest },
+                        ].map(s => (
+                            <div
+                                key={s.label}
+                                className="flex items-baseline gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 dark:border-gray-700 dark:bg-gray-800"
+                            >
+                                <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                                    {isLoading ? '–' : s.value}
+                                </span>
+                                <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                                    {s.label}
+                                </span>
+                            </div>
+                        ))}
                     </div>
                 </div>
 
