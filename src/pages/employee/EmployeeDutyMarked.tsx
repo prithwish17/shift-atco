@@ -200,7 +200,7 @@ export default function EmployeeDutyMarked() {
     }), [days]);
 
     return (
-        <DashboardLayout>
+        <DashboardLayout role="employee">
             <div className="space-y-4 md:space-y-6">
                 {/* Hero */}
                 <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-sky-600 via-cyan-500 to-teal-500 p-5 md:p-7 shadow-sm">
