@@ -92,6 +92,7 @@ const DutyExchangeRequest = lazy(() => import("./pages/employee/DutyExchangeRequ
 const EmployeeRoster = lazy(() => import("./pages/employee/EmployeeRoster"));
 const EmployeeHolidays = lazy(() => import("./pages/employee/EmployeeHolidays"));
 const EmployeeLicenses = lazy(() => import("./pages/employee/EmployeeLicenses"));
+const EmployeeDutyMarked = lazy(() => import("./pages/employee/EmployeeDutyMarked"));
 const EmployeeBATestList = lazy(() => import("./pages/employee/EmployeeBATestList"));
 
 // ATC
@@ -376,6 +377,7 @@ function App() {
                     <Route path="/employee/roster" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeRoster /></ProtectedRoute>} />
                     <Route path="/employee/holidays" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeHolidays /></ProtectedRoute>} />
                     <Route path="/employee/licenses" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeLicenses /></ProtectedRoute>} />
+                    <Route path="/employee/duty-marked" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeDutyMarked /></ProtectedRoute>} />
                     <Route path="/employee/ba-test-list" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeBATestList /></ProtectedRoute>} />
 
                     {/* ATC Routes */}
