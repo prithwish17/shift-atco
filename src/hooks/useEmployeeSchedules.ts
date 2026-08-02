@@ -67,8 +67,11 @@ type ApprovedLeaveRange = {
 
 // Schedules older than this many calendar months live in the audit-log Google
 // Sheet, not the database (see archive-schedules edge fn). MUST match the
-// monthsToKeep used by the archiver (default 2).
-const MONTHS_KEPT_IN_DB = 2;
+// monthsToKeep passed to the archiver by the archive-schedules-monthly cron
+// (see 20260802010000_schedule_archive_retention_6_months.sql) — if this is
+// larger than the archiver's retention, the months in between are queried from
+// the database, found to be empty, and never fall back to the archive.
+const MONTHS_KEPT_IN_DB = 6;
 
 /**
  * First day of the oldest month still kept in the database. Anything with a

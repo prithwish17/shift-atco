@@ -95,7 +95,10 @@ Deno.serve(async (req) => {
         }
 
         // ── Cutoff: keep current + (monthsToKeep - 1) prior months + future ──────
-        const monthsToKeep = Number(requestBody?.monthsToKeep) > 0 ? Number(requestBody.monthsToKeep) : 2;
+        // Default must match MONTHS_KEPT_IN_DB in src/hooks/useEmployeeSchedules.ts,
+        // so a manual invocation without a payload cannot archive away months the
+        // frontend still expects to find in the database.
+        const monthsToKeep = Number(requestBody?.monthsToKeep) > 0 ? Number(requestBody.monthsToKeep) : 6;
         const now = new Date();
         // First day of (current month - (monthsToKeep - 1)) in UTC.
         const cutoff = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (monthsToKeep - 1), 1));
