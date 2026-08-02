@@ -9,6 +9,59 @@ const corsHeaders = {
 const DEFAULT_APPS_SCRIPT_URL =
   "https://script.google.com/macros/s/AKfycby0ZL9nspDkRuln1JRpr8llBRaNxvaO9Zo1X6zMg89i_inQSeDBJd6EyQE9Wj6dhQ-S1Q/exec";
 
+// ── Date canonicalisation ─────────────────────────────────────────────────────
+// The sheet emits "2-Aug-2026" | "2-August-26" | "9-May-26" | "07-30-2026"
+// depending on the team/shift tab.  Everything is stored as "yyyy-MM-dd" so the
+// frontend's date filters can actually find it.
+// Mirrors src/lib/rosterDate.ts and sync-roster (no shared import available).
+const MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+const expandYear = (raw: string) => (raw.length <= 2 ? 2000 + Number(raw) : Number(raw));
+
+function toIsoRosterDate(value: string): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  let m = raw.match(/^(\d{1,2})-([A-Za-z]+)-(\d{2,4})$/);
+  if (m) {
+    const month = MONTHS[m[2].slice(0, 3).toLowerCase()];
+    const day = Number(m[1]);
+    if (month && day >= 1 && day <= 31) {
+      return `${expandYear(m[3])}-${pad(month)}-${pad(day)}`;
+    }
+    return null;
+  }
+
+  m = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if (m) {
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    const year = Number(m[3]);
+    if (a >= 1 && a <= 12 && b >= 1 && b <= 31) return `${year}-${pad(a)}-${pad(b)}`;
+    if (b >= 1 && b <= 12 && a >= 1 && a <= 31) return `${year}-${pad(b)}-${pad(a)}`;
+    return null;
+  }
+
+  m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    const year = Number(m[3]);
+    if (b >= 1 && b <= 12 && a >= 1 && a <= 31) return `${year}-${pad(b)}-${pad(a)}`;
+    if (a >= 1 && a <= 12 && b >= 1 && b <= 31) return `${year}-${pad(a)}-${pad(b)}`;
+    return null;
+  }
+
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -95,7 +148,27 @@ Deno.serve(async (req) => {
       throw new Error(`Apps Script returned ${response.status}`);
     }
 
-    const data = await response.json();
+    const body = await response.text();
+
+    // Apps Script signals failures (e.g. a spreadsheet the deployment owner can
+    // no longer open) with an HTML error page and HTTP 200.  Report the real
+    // cause rather than a confusing "Unexpected token '<'" JSON error.
+    if (body.trim().startsWith("<")) {
+      const detail = /do not have permission/i.test(body)
+        ? "permission denied on the source spreadsheet"
+        : "an HTML error page";
+      throw new Error(
+        `Apps Script returned ${detail}${team ? ` for team ${team}` : ""}`,
+      );
+    }
+
+    // deno-lint-ignore no-explicit-any
+    let data: any;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      throw new Error(`Apps Script returned a non-JSON response: ${body.slice(0, 120)}`);
+    }
 
     // Ensure data is an array. Some Apps Script deployments return { data: [...] }.
     const rows = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
@@ -126,7 +199,9 @@ Deno.serve(async (req) => {
         console.log("[fetch-roster] Sample row:", JSON.stringify(rows[0]));
       }
 
-      const toInsert = rows.map((row: Record<string, string>) => {
+      let skippedDates = 0;
+
+      const toInsert = rows.reduce((acc: Record<string, string>[], row: Record<string, string>) => {
         // Parse employee name: strip designation/rating after "/"
         // and trailing designation codes like "-AM", "-JE", "-SM"
         let empName = (row.employee_name || "").split("/")[0].trim();
@@ -137,15 +212,27 @@ Deno.serve(async (req) => {
         // Check: position, mark, remark, half (in order of priority)
         const positionValue = row.position || row.mark || row.remark || row.half || "";
 
-        return {
-          date: row.date || "",
+        // Store one canonical date format so the frontend filters can match it.
+        const isoDate = toIsoRosterDate(row.date) ?? toIsoRosterDate(date);
+        if (!isoDate) {
+          skippedDates++;
+          return acc;
+        }
+
+        acc.push({
+          date: isoDate,
           shift: normaliseShift(row.shift || ""),
           team: normaliseTeam(row.team || team),
           unit: (row.unit || "").toUpperCase().trim() === "HQ" ? "WSO" : (row.unit || ""),
           employee_name: empName,
           position: positionValue,
-        };
-      });
+        });
+        return acc;
+      }, []);
+
+      if (skippedDates > 0) {
+        console.warn(`[fetch-roster] Skipped ${skippedDates} row(s) with unparseable dates`);
+      }
 
       // Deduplicate by unique constraint columns (date, shift, employee_name, unit, position)
       const seen = new Set<string>();
@@ -160,29 +247,52 @@ Deno.serve(async (req) => {
       const combos = new Set<string>();
       dedupedInsert.forEach((r: any) => combos.add(`${r.date}|${r.shift}|${r.team}`));
 
-      // Delete old entries for each combo to avoid duplicates
+      const rowKey = (r: Record<string, string>) =>
+        `${r.date}|${r.shift}|${r.team}|${r.employee_name}|${r.unit}|${r.position}`;
+
+      // Write-then-clean, never delete-then-write: deleting first meant an upsert
+      // failure wiped the slice entirely with no way back. Snapshot first, insert,
+      // and only then remove what the new roster no longer contains.
+      const existing: Array<{ id: string; key: string }> = [];
       for (const combo of combos) {
         const [d, s, t] = combo.split("|");
-        const { error: delError } = await adminClient
+        const { data: current, error: selError } = await adminClient
           .from("rosters")
-          .delete()
+          .select("id, date, shift, team, employee_name, unit, position")
           .eq("date", d)
           .eq("shift", s)
           .eq("team", t);
-        if (delError) {
-          console.error("Delete error:", delError);
+        if (selError) {
+          throw new Error(`Failed to read existing roster: ${selError.message}`);
+        }
+        for (const r of current ?? []) {
+          existing.push({ id: (r as any).id, key: rowKey(r as any) });
         }
       }
 
-      // Upsert fresh data to handle any remaining conflicts
       const { error: insertError } = await adminClient
         .from("rosters")
         .upsert(dedupedInsert, {
           onConflict: "date,shift,team,employee_name,unit,position",
         });
 
+      // Must not be swallowed: reporting success when nothing persisted would
+      // leave the UI showing stale data with no indication anything went wrong.
       if (insertError) {
         console.error("Insert error:", insertError);
+        throw new Error(`Failed to save roster: ${insertError.message}`);
+      }
+
+      // Fresh data is committed — safe to drop rows it no longer contains.
+      const freshKeys = new Set(dedupedInsert.map((r: any) => rowKey(r)));
+      const staleIds = existing.filter((r) => !freshKeys.has(r.key)).map((r) => r.id);
+
+      for (let i = 0; i < staleIds.length; i += 100) {
+        const { error: delError } = await adminClient
+          .from("rosters")
+          .delete()
+          .in("id", staleIds.slice(i, i + 100));
+        if (delError) console.error("Stale row cleanup failed:", delError);
       }
     }
 

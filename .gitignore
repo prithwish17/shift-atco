@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 .env
 .vercel
+
+# Local DB snapshots taken before migrations — contain employee names
+.roster-backups/

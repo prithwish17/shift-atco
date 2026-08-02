@@ -33,6 +33,70 @@ const normaliseTeam = (value: string) => {
   return normalized
 }
 
+// ── Date canonicalisation ─────────────────────────────────────────────────────
+// The sheet emits at least four shapes depending on the team/shift tab:
+//   "2-Aug-2026" | "2-August-26" | "9-May-26" | "07-30-2026"
+// Anything not stored as ISO is invisible to the frontend's date filters, which
+// is why Bravo-night and Echo rows never showed up.  Everything is converted to
+// "yyyy-MM-dd" before it reaches the database.
+// Mirrors src/lib/rosterDate.ts (edge functions cannot import from src/).
+const MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+}
+
+const pad = (n: number) => String(n).padStart(2, '0')
+
+const expandYear = (raw: string) => {
+  const n = Number(raw)
+  if (raw.length <= 2) return 2000 + n
+  return n
+}
+
+function toIsoRosterDate(value: string): string | null {
+  const raw = String(value || '').trim()
+  if (!raw) return null
+
+  // Already ISO
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw
+
+  // d-MMM(M)-yy(yy)  e.g. 2-Aug-2026, 2-August-26, 9-May-26
+  let m = raw.match(/^(\d{1,2})-([A-Za-z]+)-(\d{2,4})$/)
+  if (m) {
+    const month = MONTHS[m[2].slice(0, 3).toLowerCase()]
+    const day = Number(m[1])
+    if (month && day >= 1 && day <= 31) {
+      return `${expandYear(m[3])}-${pad(month)}-${pad(day)}`
+    }
+    return null
+  }
+
+  // Numeric dashed.  Observed data is MM-dd-yyyy ("07-30-2026"); fall back to
+  // dd-MM-yyyy only when the first field cannot be a month.
+  m = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
+  if (m) {
+    const a = Number(m[1])
+    const b = Number(m[2])
+    const year = Number(m[3])
+    if (a >= 1 && a <= 12 && b >= 1 && b <= 31) return `${year}-${pad(a)}-${pad(b)}`
+    if (b >= 1 && b <= 12 && a >= 1 && a <= 31) return `${year}-${pad(b)}-${pad(a)}`
+    return null
+  }
+
+  // Slash formats: dd/MM/yyyy
+  m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (m) {
+    const a = Number(m[1])
+    const b = Number(m[2])
+    const year = Number(m[3])
+    if (b >= 1 && b <= 12 && a >= 1 && a <= 31) return `${year}-${pad(b)}-${pad(a)}`
+    if (a >= 1 && a <= 12 && b >= 1 && b <= 31) return `${year}-${pad(a)}-${pad(b)}`
+    return null
+  }
+
+  return null
+}
+
 // ── Date helpers (IST = UTC + 5:30) ──────────────────────────────────────────
 
 function getISTDateString(offsetDays = 0): string {
@@ -61,28 +125,80 @@ function deriveJobName(shift: string): string {
 
 // ── Per-team fetch ────────────────────────────────────────────────────────────
 
-async function fetchTeamRoster(
+const FETCH_TIMEOUT_MS = 25_000
+const RETRY_DELAY_MS   = 1_500
+const TEAM_GAP_MS      = 500
+const MAX_ATTEMPTS     = 3
+
+// Retrying five teams three times could in principle outlast the edge function's
+// wall-clock limit, so the whole fetch phase works to a deadline: once it passes,
+// remaining attempts are abandoned and whatever has been collected is written.
+const FETCH_BUDGET_MS = 110_000
+let runDeadline = Number.POSITIVE_INFINITY
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+type TeamFetchResult = { records: RosterRecord[]; skippedDates: number }
+
+async function fetchTeamRosterOnce(
   rosterUrl: string,
   shift: string,
   team: string,
   date: string,
-): Promise<RosterRecord[]> {
+): Promise<TeamFetchResult> {
   const url = new URL(rosterUrl)
   url.searchParams.set('shift', shift)
   url.searchParams.set('team',  team)
   url.searchParams.set('date',  date)
 
-  const res = await fetch(url.toString(), {
-    method:   'GET',
-    redirect: 'follow',
-    headers:  { 'Content-Type': 'application/json' },
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
-  const json = await res.json()
+  let body: string
+  try {
+    const res = await fetch(url.toString(), {
+      method:   'GET',
+      redirect: 'follow',
+      signal:   controller.signal,
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    body = await res.text()
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      throw new Error(`timed out after ${FETCH_TIMEOUT_MS / 1000}s`)
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+
+  // Apps Script reports failures (e.g. a spreadsheet the deployment owner can no
+  // longer open) as an HTML error page with HTTP 200.  Surface the real reason
+  // instead of letting JSON.parse produce "Unexpected token '<'".
+  if (body.trim().startsWith('<')) {
+    const detail = /do not have permission/i.test(body)
+      ? 'permission denied on the source spreadsheet'
+      : 'HTML error page'
+    throw new Error(`Apps Script returned ${detail}`)
+  }
+
+  let json: any
+  try {
+    json = JSON.parse(body)
+  } catch {
+    throw new Error(`non-JSON response (${body.slice(0, 80)})`)
+  }
+
+  if (json && !Array.isArray(json) && json.error) {
+    throw new Error(`Apps Script error: ${json.error}`)
+  }
+
   const raw: any[] = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : [])
 
-  return raw.map((row) => {
+  let skippedDates = 0
+  const records: RosterRecord[] = []
+
+  for (const row of raw) {
     // Strip designation suffixes from employee name (matches fetch-roster logic)
     let empName = (row.employee_name ?? row.name ?? '').split('/')[0].trim()
     empName = empName.replace(/-(SM|DGM|MGR|JE|AM|AGM)$/i, '').trim()
@@ -90,18 +206,68 @@ async function fetchTeamRoster(
 
     const unit = (row.unit ?? '').toUpperCase().trim() === 'HQ' ? 'WSO' : (row.unit ?? '')
 
-    // IMPORTANT: Use the date/shift/team values returned by Google Apps Script,
-    // NOT our computed values. This ensures the same format as fetch-roster
-    // (manual fetch), so the frontend can query both consistently.
-    return {
-      date:          row.date || date,
+    // The sheet's own date wins (it is the roster's real date — the webapp
+    // ignores the requested one), but it is canonicalised to ISO first.  A row
+    // whose date cannot be understood is dropped rather than written as an
+    // unqueryable string.
+    const isoDate = toIsoRosterDate(row.date) ?? toIsoRosterDate(date)
+    if (!isoDate) {
+      skippedDates++
+      continue
+    }
+
+    records.push({
+      date:          isoDate,
       shift:         normaliseShift(row.shift || shift),
       team:          normaliseTeam(row.team || team),
       unit,
       employee_name: empName,
       position:      row.position ?? row.mark ?? row.remark ?? row.half ?? '',
+    })
+  }
+
+  return { records, skippedDates }
+}
+
+// Retries on failure *and* on an empty result.  The webapp is flaky under load:
+// firing all five teams at once made Apps Script drop a request per batch (only
+// 4 of 5 executions ever reached its log, which is why Team E never synced), and
+// Team A intermittently answers with a permission error page — roughly 1 attempt
+// in 3 even when requested on its own.  Sequential requests plus a couple of
+// retries turn both into non-events.
+async function fetchTeamRoster(
+  rosterUrl: string,
+  shift: string,
+  team: string,
+  date: string,
+): Promise<TeamFetchResult> {
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (Date.now() > runDeadline) {
+      throw lastError ?? new Error('skipped — sync ran out of time')
     }
-  })
+    if (attempt > 1) await sleep(RETRY_DELAY_MS * (attempt - 1))
+
+    try {
+      const result = await fetchTeamRosterOnce(rosterUrl, shift, team, date)
+      if (result.records.length > 0) return result
+
+      lastError = new Error('returned 0 rows')
+      console.warn(`[sync-roster] Team ${team} attempt ${attempt}/${MAX_ATTEMPTS}: 0 rows`)
+    } catch (err) {
+      lastError = err as Error
+      console.warn(
+        `[sync-roster] Team ${team} attempt ${attempt}/${MAX_ATTEMPTS} failed: ${lastError.message}`,
+      )
+    }
+  }
+
+  // Exhausted every attempt with an empty result rather than a hard failure.
+  if (lastError?.message === 'returned 0 rows') {
+    return { records: [], skippedDates: 0 }
+  }
+  throw lastError ?? new Error('unknown fetch failure')
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -117,6 +283,7 @@ Deno.serve(async (req) => {
 
   try {
     const targetDate    = getTargetDate(shift)
+    runDeadline = start + FETCH_BUDGET_MS
 
     console.log(`[sync-roster] shift=${shift} targetDate=${targetDate}`)
 
@@ -134,23 +301,32 @@ Deno.serve(async (req) => {
       rosterUrl = DEFAULT_APPS_SCRIPT_URL
     }
 
-    // Fetch all teams in parallel
-    const results = await Promise.allSettled(
-      ALL_TEAMS.map((team) => fetchTeamRoster(rosterUrl, shift, team, targetDate))
-    )
-
+    // Fetch teams one at a time.  Issuing all five at once made Apps Script drop
+    // a request per batch, so one team (Echo) silently synced nothing for weeks.
     const allRecords: RosterRecord[] = []
     const errors: string[] = []
+    const perTeamCounts: string[] = []
+    let skippedDates = 0
 
-    for (const [i, result] of results.entries()) {
-      if (result.status === 'fulfilled') {
-        allRecords.push(...result.value)
-      } else {
-        errors.push(`Team ${ALL_TEAMS[i]}: ${(result.reason as Error).message}`)
+    for (const [i, team] of ALL_TEAMS.entries()) {
+      if (i > 0) await sleep(TEAM_GAP_MS)
+      try {
+        const { records, skippedDates: skipped } = await fetchTeamRoster(
+          rosterUrl, shift, team, targetDate,
+        )
+        allRecords.push(...records)
+        skippedDates += skipped
+        perTeamCounts.push(`${team}:${records.length}`)
+        // An empty result is not an error, but it is never expected — surface it
+        // so a team that stops returning data cannot hide behind a "success".
+        if (records.length === 0) errors.push(`Team ${team}: returned 0 rows`)
+      } catch (err) {
+        perTeamCounts.push(`${team}:failed`)
+        errors.push(`Team ${team}: ${(err as Error).message}`)
       }
     }
 
-    if (errors.length === ALL_TEAMS.length) {
+    if (allRecords.length === 0) {
       throw new Error('All team fetches failed: ' + errors.join('; '))
     }
 
@@ -165,23 +341,35 @@ Deno.serve(async (req) => {
         return true
       })
 
-      // Delete stale entries per unique (date, shift, team) combo from fetched data.
-      // This matches fetch-roster's delete pattern and ensures correct format matching.
+      // Replace each (date, shift, team) slice the fetch covered.  The order here
+      // matters: this used to DELETE the slice and then upsert, so any upsert
+      // failure left the shift with no data at all and no way back — exactly what
+      // happened when the ON CONFLICT target did not match a real constraint.
+      // Now the new rows go in first and stale ones are removed only afterwards,
+      // so a failure leaves the previous roster untouched.
       const combos = new Set<string>()
       dedupedRecords.forEach(r => combos.add(`${r.date}|${r.shift}|${r.team}`))
 
+      const rowKey = (r: { date: string; shift: string; team: string;
+                           employee_name: string; unit: string; position: string }) =>
+        `${r.date}|${r.shift}|${r.team}|${r.employee_name}|${r.unit}|${r.position}`
+
+      // 1. Snapshot what is currently stored for these slices, before any write.
+      const existing: Array<{ id: string; key: string }> = []
       for (const combo of combos) {
         const [d, s, t] = combo.split('|')
-        const { error: delErr } = await supabase
+        const { data, error: selErr } = await supabase
           .from('rosters')
-          .delete()
+          .select('id, date, shift, team, employee_name, unit, position')
           .eq('date', d)
           .eq('shift', s)
           .eq('team', t)
-        if (delErr) console.error(`[sync-roster] Delete error for ${combo}:`, delErr)
+        if (selErr) throw selErr
+        for (const r of data ?? []) existing.push({ id: r.id, key: rowKey(r) })
       }
 
-      // Use upsert to handle any remaining conflicts from concurrent runs
+      // 2. Write the fresh roster.  Nothing has been removed yet, so if this
+      //    throws the previous data is still intact.
       const { error: insErr, count } = await supabase
         .from('rosters')
         .upsert(dedupedRecords, {
@@ -191,11 +379,31 @@ Deno.serve(async (req) => {
 
       if (insErr) throw insErr
       totalRows = count ?? dedupedRecords.length
+
+      // 3. Only now drop rows the new roster no longer contains (a duty that was
+      //    removed or reassigned).  Failures here are non-fatal: the current
+      //    roster is already correct, at worst a stale row lingers until the next
+      //    sync, which is far safer than deleting first.
+      const freshKeys = new Set(dedupedRecords.map(rowKey))
+      const staleIds = existing.filter(r => !freshKeys.has(r.key)).map(r => r.id)
+
+      for (let i = 0; i < staleIds.length; i += 100) {
+        const chunk = staleIds.slice(i, i + 100)
+        const { error: delErr } = await supabase.from('rosters').delete().in('id', chunk)
+        if (delErr) console.error('[sync-roster] Stale row cleanup failed:', delErr)
+      }
+
+      if (staleIds.length > 0) {
+        console.log(`[sync-roster] Removed ${staleIds.length} stale row(s)`)
+      }
     }
 
+    const breakdown = perTeamCounts.join(' ')
+    const skippedNote = skippedDates > 0 ? `; ${skippedDates} row(s) skipped (unparseable date)` : ''
+
     message = errors.length > 0
-      ? `Partial: ${totalRows} rows inserted, ${errors.length} team(s) failed — ${errors.join('; ')}`
-      : `Synced ${totalRows} rows for ${shift} on ${targetDate}`
+      ? `Partial: ${totalRows} rows [${breakdown}], ${errors.length} team(s) affected — ${errors.join('; ')}${skippedNote}`
+      : `Synced ${totalRows} rows for ${shift} on ${targetDate} [${breakdown}]${skippedNote}`
 
   } catch (err) {
     status  = 'error'

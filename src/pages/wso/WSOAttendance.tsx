@@ -30,6 +30,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useDutyRoster, useRosterAssignments } from "@/hooks/useDutyGrid";
 import { useEmployeeDirectory } from "@/hooks/useEmployeeSchedules";
 import { buildNameIndex, findNameMatch, isUuidLike, normalizeEmployeeMatchName } from "@/lib/nameMatching";
+import { getRosterDateQueryValues } from "@/lib/rosterDate";
 import {
   getDutyShiftMatches,
   getTeamDutyForDateKey,
@@ -109,7 +110,10 @@ export default function WSOAttendance() {
     teamDutyToday === "A" ? "AFTERNOON" :
     teamDutyToday === "N" ? "Night" :
     null;
-  const rosterDateStr = format(selectedDate, "d-MMM-yyyy");
+  // Storage is canonical ISO, but legacy rows may still hold any of the shapes
+  // the roster webapp emits, so match on every known variant rather than one.
+  const rosterDateQueryValues = getRosterDateQueryValues(dateStr);
+  const rosterDateStr = rosterDateQueryValues.join(",");
 
   const { data: roster } = useDutyRoster(selectedDate, rosterShift || "__OFF__", wsoTeamKey || "");
   const rosterAssignmentsQuery = useRosterAssignments(roster?.id);
@@ -145,7 +149,7 @@ export default function WSOAttendance() {
       const { data, error } = await supabase
         .from("rosters" as any)
         .select("employee_name, unit, position, date, shift, team")
-        .eq("date", rosterDateStr)
+        .in("date", rosterDateQueryValues)
         .eq("team", wsoTeamKey)
         .in("shift", shiftVariants);
 
