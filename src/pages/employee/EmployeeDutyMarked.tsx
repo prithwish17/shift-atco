@@ -175,8 +175,9 @@ export default function EmployeeDutyMarked() {
         }
 
         const total = DAYS_BACK + DAYS_FORWARD + 1;
+        // Newest first: tomorrow, then today, then back through the past week.
         return Array.from({ length: total }, (_, i) => {
-            const date = addDays(rangeStart, i);
+            const date = addDays(rangeEnd, -i);
             const key = format(date, 'yyyy-MM-dd');
             const schedule = scheduleByDate.get(key);
             const code = schedule?.duty_code || '';
@@ -191,7 +192,7 @@ export default function EmployeeDutyMarked() {
                 isFuture: date > today,
             };
         });
-    }, [schedules, rosterDuties, rangeStart, today]);
+    }, [schedules, rosterDuties, rangeEnd, today]);
 
     const stats = useMemo(() => ({
         rostered: days.filter(d => d.duties.length > 0).length,
@@ -268,16 +269,18 @@ export default function EmployeeDutyMarked() {
 
                                     <div className="flex flex-1 flex-col gap-3 p-3 sm:flex-row sm:items-center sm:gap-4 md:p-4">
                                         {/* Date block */}
-                                        <div className="flex items-center gap-2.5 sm:w-[124px] sm:shrink-0">
-                                            <div className="w-10 shrink-0 text-center leading-none">
+                                        <div className="flex items-center gap-2.5 sm:w-[140px] sm:shrink-0">
+                                            <div className="shrink-0 text-center leading-none">
                                                 <div className="text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
                                                     {format(day.date, 'EEE')}
                                                 </div>
-                                                <div className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
-                                                    {format(day.date, 'd')}
-                                                </div>
-                                                <div className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
-                                                    {format(day.date, 'MMM')}
+                                                <div className="mt-1 flex items-baseline justify-center gap-1.5">
+                                                    <span className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                                                        {format(day.date, 'd')}
+                                                    </span>
+                                                    <span className="text-sm font-semibold text-gray-500 dark:text-gray-400">
+                                                        {format(day.date, 'MMM')}
+                                                    </span>
                                                 </div>
                                             </div>
                                             {day.isToday && (

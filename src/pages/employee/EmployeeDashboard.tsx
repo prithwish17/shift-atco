@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Calendar, CalendarDays, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye, Phone, MapPin, Hash, FileCheck, Globe, Star, ChevronLeft, ChevronRight, ArrowLeftRight, FlaskConical, X, ClipboardCheck } from "lucide-react";
+import { Calendar, CalendarDays, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye, Phone, MapPin, Hash, FileCheck, Globe, Star, ChevronLeft, ChevronRight, ArrowLeftRight, FlaskConical, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
@@ -642,23 +642,6 @@ export default function EmployeeDashboard() {
                     : `${licenseHealth.warningCount} renewal due soon`}
                 </div>
               )}
-            </div>
-            </Link>
-
-            <Link
-              to="/employee/duty-marked"
-              className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-            >
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
-              <div className="flex items-center justify-between mb-2 md:mb-3">
-                <div>
-                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Duty Marked</span>
-                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Last 7 days, today and tomorrow</div>
-                </div>
-                <div className="size-6 md:size-8 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg flex items-center justify-center">
-                  <ClipboardCheck className="size-3 md:size-4 text-indigo-600 dark:text-indigo-400" />
-                </div>
-              </div>
             </div>
             </Link>
 
