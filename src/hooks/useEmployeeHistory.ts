@@ -1,54 +1,124 @@
+/* eslint-disable @typescript-eslint/no-explicit-any --
+ * `employee_schedules` is missing from the generated Supabase types, and the
+ * duty_exchanges/profiles joins here predate them too. Regenerating
+ * src/integrations/supabase/types.ts is the real fix.
+ */
 import { useQuery } from "@tanstack/react-query";
 
 import { supabase } from "@/integrations/supabase/client";
 import { OPE_CODES } from "@/lib/dutyConfig";
-import type { EmployeeHistory } from "@/lib/compliance/engine";
+import { EMPTY_FAIRNESS, type FairnessHistory } from "@/lib/compliance/ladder";
+import { getTeamDutyForDateKey } from "@/lib/teamDutyRotation";
 
-export type EmployeeHistoryMap = Map<string, EmployeeHistory>;
+export type EmployeeHistoryMap = Map<string, FairnessHistory>;
 
 function key(code: string | null | undefined) {
   return String(code || "").trim().toUpperCase();
 }
 
-function blank(): EmployeeHistory {
-  return { opeMonth: 0, opeYear: 0, exMonth: 0, exYear: 0 };
-}
-
 const DEAD_STATUSES = new Set(["rejected", "cancelled", "canceled", "declined", "withdrawn"]);
 
+function nextDay(date: string): string {
+  const d = new Date(`${date}T00:00:00`);
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** employee_code → rotation team key, for the night-break derivation. */
+async function fetchTeams(): Promise<Map<string, string>> {
+  const { data, error } = await supabase.from("profiles").select("employee_id, current_shift");
+  const teams = new Map<string, string>();
+  if (error || !data) return teams;
+
+  (data as Array<{ employee_id: string | null; current_shift: string | null }>).forEach((p) => {
+    const code = key(p.employee_id);
+    if (code && p.current_shift) teams.set(code, p.current_shift);
+  });
+  return teams;
+}
+
 /**
- * Per-employee fairness history for a target date:
- *  - OPE duties done year-to-date and within the target month
- *  - duty exchanges done year-to-date and within the target month
- * Keyed by uppercased employee_code (matches the compliance timelines).
+ * Per-employee rotation load for a target date: how often each controller has already
+ * been imposed on this year and this month, across duty exchanges, OPE duties and
+ * night-breaks. The ladder uses this to rotate WITHIN a rung — it never promotes a
+ * candidate across one.
+ *
+ * Night-breaks are derived from roster truth rather than the decision log. A break
+ * writes a plain M/A, so it is invisible to the OPE code filter, and reading the audit
+ * log would miss any break entered by hand in Duty Management. Instead we compare the
+ * rostered duty against the team's rotation baseline: a day duty where the cycle
+ * rosters a night, with the following night-off also worked, is a night-break.
  */
 export async function fetchEmployeeHistory(targetDateISO: string): Promise<EmployeeHistoryMap> {
-  const target = new Date(`${targetDateISO}T00:00:00`);
-  const year = target.getFullYear();
+  const year = new Date(`${targetDateISO}T00:00:00`).getFullYear();
   const ytdStart = `${year}-01-01`;
   const monthPrefix = targetDateISO.slice(0, 7); // yyyy-MM
+
   const map: EmployeeHistoryMap = new Map();
   const get = (k: string) => {
     let v = map.get(k);
-    if (!v) { v = blank(); map.set(k, v); }
+    if (!v) {
+      v = { ...EMPTY_FAIRNESS };
+      map.set(k, v);
+    }
     return v;
   };
+  const inMonth = (date: string) => String(date).startsWith(monthPrefix);
 
-  // ── OPE duties (employee_schedules, OPE compound codes) ──────────────────
+  // ── OPE duties (compound codes in employee_schedules) ────────────────────
   const { data: opeRows, error: opeErr } = await supabase
     .from("employee_schedules" as any)
     .select("employee_code, duty_code, duty_date")
     .gte("duty_date", ytdStart)
     .lte("duty_date", targetDateISO)
     .in("duty_code", OPE_CODES);
+
   if (!opeErr && opeRows) {
-    (opeRows as Array<{ employee_code: string; duty_date: string }>).forEach((r) => {
+    (opeRows as unknown as Array<{ employee_code: string; duty_date: string }>).forEach((r) => {
       const k = key(r.employee_code);
       if (!k) return;
       const h = get(k);
       h.opeYear += 1;
-      if (String(r.duty_date).startsWith(monthPrefix)) h.opeMonth += 1;
+      if (inMonth(r.duty_date)) h.opeMonth += 1;
     });
+  }
+
+  // ── Night-breaks (roster deviating from the team rotation) ───────────────
+  const { data: dayRows, error: dayErr } = await supabase
+    .from("employee_schedules" as any)
+    .select("employee_code, duty_code, duty_date")
+    .gte("duty_date", ytdStart)
+    .lte("duty_date", targetDateISO)
+    .in("duty_code", ["M", "A"]);
+
+  if (!dayErr && dayRows) {
+    const teams = await fetchTeams();
+    const dayShiftsByEmployee = new Map<string, Set<string>>();
+
+    (dayRows as unknown as Array<{ employee_code: string; duty_date: string }>).forEach((r) => {
+      const k = key(r.employee_code);
+      if (!k) return;
+      const set = dayShiftsByEmployee.get(k) ?? new Set<string>();
+      set.add(r.duty_date);
+      dayShiftsByEmployee.set(k, set);
+    });
+
+    for (const [code, dates] of dayShiftsByEmployee) {
+      const team = teams.get(code);
+      if (!team) continue;
+
+      for (const date of dates) {
+        // Both halves must deviate: the night day AND the night-off day.
+        if (getTeamDutyForDateKey(team, date) !== "N") continue;
+        const next = nextDay(date);
+        if (!dates.has(next)) continue;
+        if (getTeamDutyForDateKey(team, next) !== "NO") continue;
+
+        const h = get(code);
+        h.nightBreaksYear += 1;
+        if (inMonth(date)) h.nightBreaksMonth += 1;
+      }
+    }
   }
 
   // ── Duty exchanges (duty_exchanges, mapped UUID → employee_code) ─────────
@@ -56,12 +126,14 @@ export async function fetchEmployeeHistory(targetDateISO: string): Promise<Emplo
     .from("duty_exchanges")
     .select("requesting_user_id, exchange_partner_id, created_at, status")
     .gte("created_at", ytdStart);
+
   if (!exErr && exRows) {
     const ids = new Set<string>();
     exRows.forEach((e: any) => {
       if (e.requesting_user_id) ids.add(e.requesting_user_id);
       if (e.exchange_partner_id) ids.add(e.exchange_partner_id);
     });
+
     const idToCode = new Map<string, string>();
     if (ids.size > 0) {
       const { data: profiles } = await supabase
@@ -70,15 +142,16 @@ export async function fetchEmployeeHistory(targetDateISO: string): Promise<Emplo
         .in("id", Array.from(ids));
       (profiles || []).forEach((p: any) => idToCode.set(p.id, key(p.employee_id)));
     }
+
     exRows.forEach((e: any) => {
       if (DEAD_STATUSES.has(String(e.status || "").toLowerCase())) return;
-      const inMonth = String(e.created_at || "").startsWith(monthPrefix);
+      const month = inMonth(String(e.created_at || ""));
       [e.requesting_user_id, e.exchange_partner_id].forEach((uid) => {
         const k = idToCode.get(uid);
         if (!k) return;
         const h = get(k);
-        h.exYear += 1;
-        if (inMonth) h.exMonth += 1;
+        h.exchangesYear += 1;
+        if (month) h.exchangesMonth += 1;
       });
     });
   }
@@ -94,3 +167,5 @@ export function useEmployeeHistory(targetDateISO?: string) {
     staleTime: 5 * 60_000,
   });
 }
+
+export type { FairnessHistory };

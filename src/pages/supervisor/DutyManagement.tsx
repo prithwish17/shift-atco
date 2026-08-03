@@ -26,6 +26,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 import { logSupervisorEdit } from "@/lib/supervisorAuditLog";
+import { upsertDuty, type DutyCellWrite } from "@/data-access/schedule.repository";
 
 /* ── Types ── */
 interface ScheduleEntry {
@@ -309,40 +310,10 @@ export default function DutyManagement() {
         staleTime: 5 * 60 * 1000,
     });
     const upsertSchedule = useMutation({
-        mutationFn: async ({
-            employeeCode,
-            employeeName,
-            dutyDate,
-            dutyCode,
-        }: {
-            employeeCode: string;
-            employeeName: string;
-            dutyDate: string;
-            dutyCode: string;
-        }) => {
-            const payload = {
-                employee_code: employeeCode,
-                employee_name: employeeName,
-                duty_date: dutyDate,
-                duty_code: dutyCode,
-                duty_description: DUTY_DESCRIPTIONS[dutyCode] || dutyCode,
-            };
-
-            if (!dutyCode) {
-                const { error } = await supabase
-                    .from("employee_schedules" as any)
-                    .delete()
-                    .eq("employee_code", employeeCode)
-                    .eq("duty_date", dutyDate);
-                if (error) throw error;
-                return;
-            }
-
-            const { error } = await supabase
-                .from("employee_schedules" as any)
-                .upsert(payload as any, { onConflict: "employee_code,duty_date" });
-            if (error) throw error;
-        },
+        // Shared with the Availability Finder's apply path — see
+        // data-access/schedule.repository.ts. The optimistic cache update below
+        // stays here because it is specific to this page's grid.
+        mutationFn: (write: DutyCellWrite) => upsertDuty(write),
         onMutate: async ({ employeeCode, dutyDate, dutyCode }) => {
             // Cancel any outgoing refetches so they don't overwrite our optimistic update
             const gridKey = scheduleKeys.grid(startDate, endDate);

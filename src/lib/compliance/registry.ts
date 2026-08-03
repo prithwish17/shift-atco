@@ -6,10 +6,31 @@
  * NOTE: the 15-day cumulative limit is intentionally absent (removed).
  * Only the DGCA 7-day (48h) and 30-day (190h) caps apply.
  */
-import type { RuleMeta, Tier } from "./types";
+import type { RuleExemption, RuleMeta, Tier } from "./types";
 import { TIER_WEIGHT } from "./types";
 
-export const REGISTRY_VERSION = "2026-06-16";
+export const REGISTRY_VERSION = "2026-08-03";
+
+/**
+ * Standing exemption from CAR Para 7.1.3 ("Limit on and interval following
+ * consecutive duty periods"), covering BOTH sub-paragraphs:
+ *   7.1.3(a) — no more than 6 consecutive duty days   → WDTL.CONSEC6
+ *   7.1.3(b) — ≥48h interval between duty blocks      → WDTL.POSTSTREAK48
+ *
+ * Source: AAI NSCBI Kolkata Office Order AAI/GM/ATM/ADMN/Ops/251024/88 (24.10.2025),
+ * which withdrew DGCA's temporary exemptions on other paras w.e.f. 0001 hrs
+ * 31.10.2025 but records that the Para 7.1.3 exemption stands, granted by
+ * ED (Aviation Safety).
+ *
+ * NOTE: the order states no expiry. `to` is therefore left open, and the exemption
+ * should be re-confirmed rather than assumed indefinite.
+ */
+export const PARA_713_EXEMPTION: RuleExemption = {
+  authority: "ED (Aviation Safety)",
+  reference: "AAI Office Order AAI/GM/ATM/ADMN/Ops/251024/88 dated 24.10.2025",
+  from: "2025-10-24",
+  note: "CAR Para 7.1.3 exemption in force — reported for visibility, not enforced",
+};
 
 export const RULES: Record<string, RuleMeta> = {
   // ── Regulatory-hard (T4) ────────────────────────────────────────────────
@@ -43,13 +64,17 @@ export const RULES: Record<string, RuleMeta> = {
     id: "WDTL.INTERVAL12", title: "≥ 12h between duties", domain: "schedule",
     tier: "T3", blocking: true, params: { hours: 12 }, regulatoryRef: "DGCA CAR §7.1.2",
   },
+  // Both §7.1.3 rules carry a standing exemption — see PARA_713_EXEMPTION below.
+  // They are still evaluated and reported, but never enforced while it is in force.
   "WDTL.CONSEC6": {
     id: "WDTL.CONSEC6", title: "≤ 6 consecutive duty days", domain: "workingHours",
     tier: "T3", blocking: true, params: { days: 6 }, regulatoryRef: "DGCA CAR §7.1.3(a)",
+    exemption: PARA_713_EXEMPTION,
   },
   "WDTL.POSTSTREAK48": {
     id: "WDTL.POSTSTREAK48", title: "≥ 48h after a duty block", domain: "workingHours",
     tier: "T3", blocking: false, params: { hours: 48 }, regulatoryRef: "DGCA CAR §7.1.3(b)",
+    exemption: PARA_713_EXEMPTION,
   },
 
   // ── Operational (T2) ────────────────────────────────────────────────────
@@ -58,8 +83,19 @@ export const RULES: Record<string, RuleMeta> = {
     tier: "T2", blocking: true, regulatoryRef: "Ops",
   },
   "OPS.ELIG": {
-    id: "OPS.ELIG", title: "Holds required rating/group", domain: "exchange",
-    tier: "T2", blocking: true, regulatoryRef: "Ops",
+    id: "OPS.ELIG", title: "Holds a similar rating", domain: "exchange",
+    tier: "T2", blocking: true,
+    regulatoryRef: "Office Order 251024/88 §2 — exchange only with an ATCO holding a similar rating",
+  },
+  "OPS.NOTICE7": {
+    id: "OPS.NOTICE7",
+    title: "7-day objection window",
+    domain: "exchange",
+    tier: "T1",
+    blocking: false,
+    params: { days: 7 },
+    regulatoryRef:
+      "Office Order 251024/88 §1 — an ATCO must give ≥7 days notice to decline a duty change or extra duty",
   },
   "COVER.GROUPMIN": {
     id: "COVER.GROUPMIN", title: "Group ≥ shift minimum", domain: "availability",
@@ -81,34 +117,22 @@ export const RULES: Record<string, RuleMeta> = {
   },
 
   // ── Preference (T0) ─────────────────────────────────────────────────────
-  "PREF.SHIFT_FIT": {
-    id: "PREF.SHIFT_FIT", title: "Best-fit source shift", domain: "exchange",
-    tier: "T0", blocking: false,
-    regulatoryRef: "Local preference: N←Night-off, M←Afternoon, A←Morning",
-  },
-  "PREF.GENERAL": {
-    id: "PREF.GENERAL", title: "General shift (flexible, no shift depletion)", domain: "exchange",
-    tier: "T0", blocking: false, regulatoryRef: "Local preference",
-  },
-  "PREF.FAIR_EXCHANGE": {
-    id: "PREF.FAIR_EXCHANGE", title: "Fewer prior exchanges preferred", domain: "exchange",
-    tier: "T0", blocking: false, regulatoryRef: "Fairness / load-balancing",
-  },
-  "PREF.FAIR_OPE": {
-    id: "PREF.FAIR_OPE", title: "Fewer prior OPE duties preferred", domain: "exchange",
-    tier: "T0", blocking: false, regulatoryRef: "Fairness / load-balancing",
-  },
+  //
+  // Strategy preference (Night-off before Afternoon before General, clear-off last)
+  // is NOT scored here — it is the ladder rung in ladder.ts. The former
+  // PREF.SHIFT_FIT / PREF.GENERAL / PREF.CALLIN / PREF.CLEAROFF rules encoded it as
+  // ±10 points that an unbounded fairness penalty could outvote, which let a
+  // controller's exchange history decide which strategy won. Rung and fairness are
+  // now separate comparator steps and neither can compensate for the other.
   "PREF.MULTIRATING": {
     id: "PREF.MULTIRATING", title: "Multi-rated flexibility", domain: "exchange",
     tier: "T0", blocking: false, regulatoryRef: "Local preference",
   },
-  "PREF.CALLIN": {
-    id: "PREF.CALLIN", title: "Call-in from rest (no swap needed)", domain: "exchange",
-    tier: "T0", blocking: false, regulatoryRef: "Local preference",
-  },
-  "PREF.CLEAROFF": {
-    id: "PREF.CLEAROFF", title: "Clear-off is lowest priority", domain: "exchange",
-    tier: "T0", blocking: false, regulatoryRef: "Local preference",
+  "PREF.FAIRNESS": {
+    id: "PREF.FAIRNESS", title: "Duty-change load (rotation)", domain: "exchange",
+    tier: "T0", blocking: false,
+    params: { exchangeWeight: 1, opeWeight: 1, nightBreakWeight: 1, monthMultiplier: 2 },
+    regulatoryRef: "Fairness / load-balancing — ranks via its own comparator step, contributes 0 points",
   },
   "COVER.SOURCE": {
     id: "COVER.SOURCE", title: "Source shift stays ≥ group minimum", domain: "availability",
@@ -181,6 +205,20 @@ function activeFor(id: string, asOf?: string): ActiveOverride | null {
 export function isRuleEnabled(id: string, asOf?: string): boolean {
   const o = activeFor(id, asOf);
   return o ? o.enabled : true;
+}
+
+/**
+ * The exemption in force for a rule on a given date, if any.
+ * An exempted rule still evaluates and still reports — it just cannot block.
+ */
+export function activeExemption(id: string, asOf?: string): RuleExemption | null {
+  const exemption = RESOLVED[id]?.exemption;
+  if (!exemption) return null;
+
+  const d = asOf ?? new Date().toISOString().slice(0, 10);
+  if (exemption.from && d < exemption.from) return null;
+  if (exemption.to && d > exemption.to) return null;
+  return exemption;
 }
 
 /** Effective params for a rule on a given date (base params merged with override). */

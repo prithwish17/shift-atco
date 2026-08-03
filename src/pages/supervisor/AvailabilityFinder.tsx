@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { addDays, eachDayOfInterval, format, isToday, isTomorrow, parseISO, subDays } from "date-fns";
 import {
   AlertTriangle,
+  ArrowRight,
   CalendarIcon,
   CheckCircle2,
   ChevronRight,
@@ -42,30 +43,30 @@ import { useApplyRuleOverrides } from "@/hooks/useApplyRuleOverrides";
 import { useApplyRuleRegistry } from "@/hooks/useApplyRuleRegistry";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import type {
-  AvailabilityCandidate,
-  BlockedCandidate,
-  ShiftBreach,
-} from "@/lib/availabilityEngine";
+import { useQueryClient } from "@tanstack/react-query";
+import { applyDutyPlan } from "@/data-access/schedule.repository";
 import { RATING_GROUPS, type GroupNum } from "@/lib/supervisorAvailability";
+import type { CoverOption } from "@/lib/compliance/ladder";
 import {
+  describeCoverage,
   findAvailability,
   scanBreaches,
   shiftLabel,
   type RatingFilter,
+  type ShiftBreach,
   type ShiftCode,
 } from "@/lib/availabilityEngine";
 
 const SHIFT_OPTIONS: ShiftCode[] = ["M", "A", "N"];
 const RATING_GROUP_NUMS = Object.keys(RATING_GROUPS).map(Number) as GroupNum[];
-
-function fitColor(fit: number) {
-  if (fit >= 85) return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 ring-1 ring-inset ring-emerald-500/30";
-  if (fit >= 65) return "bg-amber-500/15 text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-500/30";
-  return "bg-rose-500/15 text-rose-700 dark:text-rose-300 ring-1 ring-inset ring-rose-500/30";
-}
-
 const SHIFT_ORDER: Record<ShiftCode, number> = { M: 0, A: 1, N: 2 };
+
+/**
+ * Rules reach up to 29 days either side of a change (the trailing 30-day cap), and a
+ * night-break writes to the following day too. Anything narrower silently disables the
+ * cumulative gates, because absent dates count as zero hours.
+ */
+const VALIDATION_RADIUS_DAYS = 31;
 
 /** Short on the day: 3+ below minimum is critical, 1–2 is a lighter "watch". */
 function breachSeverity(deficit: number): "critical" | "watch" {
@@ -80,19 +81,140 @@ function friendlyDateLabel(iso: string): string {
   return format(d, "EEE · d MMM");
 }
 
+/** The duty-code changes a plan makes, e.g. "11 Mar: N → M". */
+function MutationTrail({ option }: { option: CoverOption }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {option.mutations.map((m) => (
+        <span
+          key={`${m.date}-${m.to}`}
+          className="inline-flex items-center gap-1 rounded border bg-muted/40 px-1.5 py-0.5 text-xs"
+        >
+          <span className="text-muted-foreground">{format(parseISO(m.date), "d MMM")}</span>
+          <span className="font-medium">{m.from ?? "—"}</span>
+          <ArrowRight className="h-3 w-3 text-muted-foreground" />
+          <span className="font-semibold">{m.to}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function OptionRow({
+  option,
+  onApply,
+  applying,
+}: {
+  option: CoverOption;
+  onApply: (o: CoverOption) => void;
+  applying: boolean;
+}) {
+  const coverage = describeCoverage(option);
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">{option.name}</span>
+          {option.rating && <Badge variant="outline">{option.rating}</Badge>}
+          {option.team && <Badge variant="outline">Team {option.team}</Badge>}
+          <Badge variant="secondary">From: {option.currentDutyCode ?? "unrostered"}</Badge>
+          <Badge variant="outline" className="font-normal text-muted-foreground">
+            Load {option.fairnessLoad}
+          </Badge>
+        </div>
+
+        <MutationTrail option={option} />
+
+        {option.rationale && (
+          <p className="text-sm text-muted-foreground">{option.rationale}</p>
+        )}
+
+        {option.warnings.length > 0 && (
+          <ul className="space-y-0.5 text-sm">
+            {option.warnings.map((w, i) => (
+              <li
+                key={i}
+                className={cn(
+                  "flex items-start gap-1.5",
+                  // An exempted rule is reported for visibility but is not a breach —
+                  // colouring it like one would train supervisors to ignore warnings.
+                  w.exemption
+                    ? "text-muted-foreground"
+                    : "text-amber-700 dark:text-amber-400",
+                )}
+              >
+                {w.exemption ? (
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                )}
+                <span>
+                  <span className="font-medium">{w.title}</span> — {w.reason}
+                  {w.regulatoryRef && <span className="opacity-70"> ({w.regulatoryRef})</span>}
+                  {w.exemption && (
+                    <span className="opacity-70">
+                      {" "}
+                      · exempted by {w.exemption.authority}, {w.exemption.reference}
+                    </span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {coverage.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <span className="text-xs font-medium text-muted-foreground">Manpower:</span>
+            {coverage.map((c) => (
+              <span key={c} className="rounded border px-1.5 py-0.5 text-xs">
+                {c}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2 self-start">
+        <Button size="sm" variant="outline" onClick={() => onApply(option)} disabled={applying}>
+          {applying ? (
+            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+          )}
+          Apply
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function AvailabilityFinder() {
   const [date, setDate] = useState<Date>(new Date());
   const [shift, setShift] = useState<ShiftCode>("N");
   const [rating, setRating] = useState<RatingFilter>("ALL");
   const [query, setQuery] = useState<{ date: string; shift: ShiftCode; rating: RatingFilter } | null>(null);
+  const [applyingId, setApplyingId] = useState<string | null>(null);
 
-  // Fetch a small window around the target date so rest / consecutive-night
-  // rules can look back 2 days and forward 1 day.
-  const windowStart = query ? format(subDays(parseISO(query.date), 2), "yyyy-MM-dd") : undefined;
-  const windowEnd = query ? format(addDays(parseISO(query.date), 1), "yyyy-MM-dd") : undefined;
+  // Wide enough that the 7-day and 30-day caps and the consecutive-day rules see
+  // real history. The previous D-2 … D+1 window made all three unfireable.
+  const windowStart = query
+    ? format(subDays(parseISO(query.date), VALIDATION_RADIUS_DAYS), "yyyy-MM-dd")
+    : undefined;
+  const windowEnd = query
+    ? format(addDays(parseISO(query.date), VALIDATION_RADIUS_DAYS), "yyyy-MM-dd")
+    : undefined;
 
   const { data: members, isLoading, isError, error } = useSupervisorScheduleMembers(windowStart, windowEnd);
   const { data: history } = useEmployeeHistory(query?.date);
+
+  const overridesToken = useApplyRuleOverrides();
+  const registryToken = useApplyRuleRegistry();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const logDecision = useLogDecision();
+  const queryClient = useQueryClient();
 
   // Breach banner: scan today → +14 days for any rating cell below its minimum.
   const breachWindow = useMemo(() => {
@@ -119,7 +241,6 @@ export default function AvailabilityFinder() {
       list.push(breach);
       map.set(breach.date, list);
     }
-    // Chronological dates; within a date order by shift (M→A→N) then worst gap first.
     for (const list of map.values()) {
       list.sort((a, b) => SHIFT_ORDER[a.shift] - SHIFT_ORDER[b.shift] || b.deficit - a.deficit);
     }
@@ -135,47 +256,6 @@ export default function AvailabilityFinder() {
     }
     return { critical, watch, days: breachesByDate.length };
   }, [breaches, breachesByDate]);
-  const overridesToken = useApplyRuleOverrides();
-  const registryToken = useApplyRuleRegistry();
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const logDecision = useLogDecision();
-
-  const recordAccept = async (c: AvailabilityCandidate) => {
-    if (!query) return;
-    await logDecision.mutateAsync({
-      action: "accept_suggestion",
-      actor_id: user?.id ?? null,
-      actor_name: user?.email ?? null,
-      target_date: query.date,
-      shift: query.shift,
-      rating: query.rating === "ALL" ? "ALL" : String(query.rating),
-      employee_id: c.employeeId,
-      employee_name: c.name,
-      score: c.score,
-      reason: `Accepted ${c.mode} from ${c.originLabel}`,
-      snapshot: { ledger: c.ledger, fit: c.fit, history: c.history },
-    });
-    toast({ title: "Decision recorded", description: `${c.name} — logged to audit trail` });
-  };
-
-  const recordOverride = async (b: BlockedCandidate) => {
-    if (!query) return;
-    const reason = window.prompt(`Override justification for ${b.name} (blocked):\n${b.blockReasons.join("; ")}`);
-    if (!reason) return;
-    await logDecision.mutateAsync({
-      action: "override_block",
-      actor_id: user?.id ?? null,
-      actor_name: user?.email ?? null,
-      target_date: query.date,
-      shift: query.shift,
-      employee_id: b.employeeId,
-      employee_name: b.name,
-      reason,
-      snapshot: { blockReasons: b.blockReasons, origin: b.originLabel },
-    });
-    toast({ title: "Override recorded", description: `${b.name} — justification logged` });
-  };
 
   const result = useMemo(() => {
     if (!query || !members) return null;
@@ -203,14 +283,56 @@ export default function AvailabilityFinder() {
     setQuery({ date: breach.date, shift: breach.shift, rating: nextRating });
   };
 
+  const applyOption = async (option: CoverOption) => {
+    if (!query) return;
+    const summary = option.mutations.map((m) => `${m.date}: ${m.from ?? "—"} → ${m.to}`).join(", ");
+    if (!window.confirm(`Apply this duty change?\n\n${option.name}\n${summary}`)) return;
+
+    setApplyingId(option.id);
+    try {
+      await applyDutyPlan({ mutations: option.mutations, employeeName: option.name });
+      await logDecision.mutateAsync({
+        action: "apply_cover_plan",
+        actor_id: user?.id ?? null,
+        actor_name: user?.email ?? null,
+        target_date: query.date,
+        shift: query.shift,
+        rating: query.rating === "ALL" ? "ALL" : String(query.rating),
+        employee_id: option.employeeId,
+        employee_name: option.name,
+        score: option.rung,
+        reason: `${option.strategyLabel} (rung ${option.rung}) — ${summary}`,
+        snapshot: {
+          strategy: option.strategy,
+          rung: option.rung,
+          mutations: option.mutations,
+          ledger: option.ledger,
+          warnings: option.warnings,
+          fairnessLoad: option.fairnessLoad,
+        },
+      });
+
+      await queryClient.invalidateQueries({ queryKey: ["supervisor-schedule-members"] });
+      toast({ title: "Duty change applied", description: `${option.name} — ${summary}` });
+    } catch (e) {
+      toast({
+        title: "Could not apply",
+        description: e instanceof Error ? e.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setApplyingId(null);
+    }
+  };
+
   return (
     <DashboardLayout role="supervisor">
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Availability Finder</h1>
           <p className="text-muted-foreground">
-            Pick a date, shift and rating to rank who can be brought in to cover it — checked against
-            rest, night-limit, transition and one-duty-per-day rules. Runs fully in-app.
+            Pick a date, shift and rating to see who can cover it — ordered by the operational
+            ladder, checked against the DGCA duty limits and the daily manpower minimums.
           </p>
         </div>
 
@@ -451,101 +573,43 @@ export default function AvailabilityFinder() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <ShieldCheck className="h-5 w-5 text-emerald-600" />
-                  Available — ranked ({result.candidates.length})
+                  Ways to cover this shift ({result.options.length})
                 </CardTitle>
                 <CardDescription>
-                  People who can cover this shift without breaking any rule. Call-ins are listed before swaps.
+                  Grouped by the operational ladder — try the top group first. Within a group,
+                  whoever has been asked least often this year comes first.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {result.candidates.length === 0 && (
+              <CardContent className="space-y-5">
+                {result.options.length === 0 && (
                   <Alert>
                     <Info className="h-4 w-4" />
-                    <AlertTitle>No rule-safe candidates</AlertTitle>
+                    <AlertTitle>No rule-safe way to cover this</AlertTitle>
                     <AlertDescription>
-                      Nobody with this rating is free to cover this shift without a rule violation. See the
-                      blocked list below for why, or try a different rating/shift.
+                      Every option breaks a duty limit or would leave another shift below its
+                      minimum. See the blocked list below for the specific rule in each case.
                     </AlertDescription>
                   </Alert>
                 )}
 
-                {result.candidates.map((c) => (
-                  <div
-                    key={c.employeeId}
-                    className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-start sm:justify-between"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{c.name}</span>
-                        {c.rating && <Badge variant="outline">{c.rating}</Badge>}
-                        {c.team && <Badge variant="outline">Team {c.team}</Badge>}
-                        <Badge variant="outline">From: {c.originLabel}</Badge>
-                        <Badge variant={c.priorityClass === 2 ? "destructive" : c.mode === "call-in" ? "default" : "secondary"}>
-                          {c.priorityClass === 2 ? "Clear-off (last resort)" : c.mode === "call-in" ? "Call-in" : "Swap"}
-                        </Badge>
-                        {c.history && (
-                          <Badge variant="outline" className="font-normal text-muted-foreground">
-                            {c.history.exYear} exch · {c.history.opeYear} OPE (yr)
-                          </Badge>
-                        )}
-                      </div>
-                      {c.reasons.length > 0 && (
-                        <ul className="text-sm text-muted-foreground">
-                          {c.reasons.map((r, i) => (
-                            <li key={i} className="flex items-start gap-1.5">
-                              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
-                              {r}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      {c.warnings.length > 0 && (
-                        <ul className="text-sm text-amber-700 dark:text-amber-400">
-                          {c.warnings.map((w, i) => (
-                            <li key={i} className="flex items-start gap-1.5">
-                              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                              {w}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      {c.coverage.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                          <span className="text-xs font-medium text-muted-foreground">Cover impact:</span>
-                          {c.coverage.map((cov) => (
-                            <span
-                              key={cov.groupKey}
-                              className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs"
-                            >
-                              <span className="font-medium">{cov.label}</span>
-                              <span className="text-muted-foreground">
-                                {shiftLabel(cov.targetShift)} {cov.targetAvailable}/{cov.targetRequired} → {cov.targetAvailable + 1}
-                              </span>
-                              {cov.donorShift && cov.donorAvailable !== null && cov.donorRequired !== null && (
-                                <span className="text-rose-600 dark:text-rose-400">
-                                  · from {shiftLabel(cov.donorShift)} {cov.donorAvailable}/{cov.donorRequired} → {cov.donorAvailable - 1}
-                                </span>
-                              )}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                {result.rungs.map((group) => (
+                  <div key={group.rung} className="space-y-2">
+                    <div className="flex items-baseline gap-2">
+                      <Badge variant="default">Option {group.rung}</Badge>
+                      <span className="text-sm font-semibold">{group.label}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {group.options.length} {group.options.length === 1 ? "person" : "people"}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-2 self-start">
-                      <div className="rounded-md bg-foreground/5 px-2.5 py-1 text-sm font-semibold tabular-nums">
-                        {c.score >= 0 ? `+${c.score}` : c.score} pts
-                      </div>
-                      <div
-                        className={cn(
-                          "rounded-md px-2.5 py-1 text-sm font-semibold tabular-nums",
-                          fitColor(c.fit),
-                        )}
-                      >
-                        {c.fit}% fit
-                      </div>
-                      <Button size="sm" variant="outline" onClick={() => recordAccept(c)} disabled={logDecision.isPending}>
-                        <CheckCircle2 className="mr-1 h-3.5 w-3.5" /> Accept
-                      </Button>
+                    <div className="space-y-2">
+                      {group.options.map((option) => (
+                        <OptionRow
+                          key={option.id}
+                          option={option}
+                          onApply={applyOption}
+                          applying={applyingId === option.id}
+                        />
+                      ))}
                     </div>
                   </div>
                 ))}
@@ -577,34 +641,36 @@ export default function AvailabilityFinder() {
                     <AlertTriangle className="h-4 w-4 text-rose-600" />
                     Rule-blocked ({result.blocked.length})
                   </CardTitle>
-                  <CardDescription>Have the rating but cannot take this shift without a violation.</CardDescription>
+                  <CardDescription>
+                    Options that would break a duty limit or a manpower minimum, with the rule
+                    each one fails.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {result.blocked.map((b) => (
-                    <div key={b.employeeId} className="rounded-lg border border-dashed p-3">
+                    <div key={b.id} className="rounded-lg border border-dashed p-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{b.name}</span>
                         {b.rating && <Badge variant="outline">{b.rating}</Badge>}
                         {b.team && <Badge variant="outline">Team {b.team}</Badge>}
-                        <Badge variant="outline">From: {b.originLabel}</Badge>
+                        <Badge variant="secondary">{b.strategyLabel}</Badge>
                       </div>
-                      <ul className="mt-1 text-sm text-rose-700 dark:text-rose-400">
-                        {b.blockReasons.map((r, i) => (
+                      <div className="mt-1.5">
+                        <MutationTrail option={b} />
+                      </div>
+                      <ul className="mt-1.5 space-y-0.5 text-sm text-rose-700 dark:text-rose-400">
+                        {b.blockingFailures.map((f, i) => (
                           <li key={i} className="flex items-start gap-1.5">
                             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                            {r}
+                            <span>
+                              <span className="font-medium">{f.title}</span> — {f.reason}
+                              {f.regulatoryRef && (
+                                <span className="text-muted-foreground"> ({f.regulatoryRef})</span>
+                              )}
+                            </span>
                           </li>
                         ))}
                       </ul>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="mt-2 h-7 text-xs text-muted-foreground"
-                        onClick={() => recordOverride(b)}
-                        disabled={logDecision.isPending}
-                      >
-                        Override with justification
-                      </Button>
                     </div>
                   ))}
                 </CardContent>

@@ -18,6 +18,26 @@ export type Verdict = "satisfied" | "violated" | "na";
 
 export type Domain = "schedule" | "workingHours" | "availability" | "exchange";
 
+/**
+ * A standing regulatory exemption from a CAR paragraph.
+ *
+ * An exempted rule is still EVALUATED and still REPORTED — it simply stops being
+ * enforced. Deleting the rule instead would lose the visibility, and silently make
+ * it impossible to tell an exempted breach from a compliant roster if the exemption
+ * is ever withdrawn.
+ */
+export interface RuleExemption {
+  /** Who granted it, e.g. "ED (Aviation Safety)". */
+  authority: string;
+  /** The document granting it. */
+  reference: string;
+  /** ISO date the exemption takes effect. */
+  from: string;
+  /** ISO date it lapses. Absent when the grant states no expiry. */
+  to?: string;
+  note: string;
+}
+
 export interface RuleMeta {
   id: string;
   title: string;
@@ -27,6 +47,8 @@ export interface RuleMeta {
   blocking: boolean;
   params?: Record<string, number>;
   regulatoryRef?: string;
+  /** When present and in force, the rule reports but never blocks. */
+  exemption?: RuleExemption;
 }
 
 export interface LedgerEntry {
@@ -42,6 +64,8 @@ export interface LedgerEntry {
   regulatoryRef?: string;
   observed?: string | number;
   threshold?: string | number;
+  /** Set when a standing exemption suppressed this rule's enforcement. */
+  exemption?: RuleExemption;
 }
 
 export interface ScoreResult {

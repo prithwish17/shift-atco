@@ -5,7 +5,7 @@ exchange, duty-hour limits, and daily availability — combining the DGCA regula
 app's current duty-hours logic, the daily availability chart minimums, and the desired
 exchange preferences. This is the spec we'll build the engine against.
 
-**Status:** Compiled 2026-06-16 · For review before implementation.
+**Status:** Compiled 2026-06-16 · Engine implemented 2026-08-03 · Reconciled against AAI Office Order 251024/88 (see **Part G**).
 
 ---
 
@@ -17,7 +17,8 @@ exchange preferences. This is the spec we'll build the engine against.
 | A2 | App **Working Hours** module | App implementation | `src/pages/supervisor/WorkingHours.tsx` |
 | A3 | App **Daily Availability Chart** rules | App implementation | `src/lib/supervisorAvailability.ts` |
 | A4 | **Duty-change rules** (operational) | Internal design | `roster_automation/services/decision-engine/DUTY_CHANGE_RULES.md` |
-| A5 | **Exchange preferences** | User direction (this request) | This document, Part E |
+| A5 | **Exchange preferences** | User direction | This document, Part E |
+| A6 | **AAI Office Order** `AAI/GM/ATM/ADMN/Ops/251024/88` (24.10.2025) — local WDTL compliance order | Local (mandatory) | Uploaded PDF · Part G |
 
 Where A1 (regulation) and A2–A4 (app) disagree, the regulation wins; differences are logged in Part F.
 
@@ -142,19 +143,44 @@ A duty change (replacement A→B, or swap A↔B) is permitted only when triggere
 event — leave, fatigue, supervisor decision, or an approved swap — **and** the result complies
 with WDTL (B1–B6) and group coverage (D2), **and** it is approved by the supervisor / ATS-in-charge (B7). No change is auto-applied.
 
-### E2. Best-fit source shift (directional — audited)
-For each target shift, the preferred source is:
+### E2. The preference ladder (implemented — `src/lib/compliance/ladder.ts`)
+Each rung is a different *kind* of intervention with a different cost. Lower is preferred;
+a rung is only reached for when the ones above it yield nothing usable.
 
-| Target shift | Best source | Then |
-|---|---|---|
-| **Night (N)** | **Night-off (NO) / rest** (call-in) | Afternoon (A) |
-| **Morning (M)** | **Afternoon (A)** | rest / General |
-| **Afternoon (A)** | **Morning (M)** | rest / General |
+| Rung | Night (N) | Morning (M) | Afternoon (A) |
+|:----:|-----------|-------------|---------------|
+| 1 | Night-off call-in (`NO`→`NO+N`) | Swap from Afternoon | Swap from Morning |
+| 2.0 | Swap from Afternoon (`A`→`N`) | **Night-break** — relieves both days | **Night-break** — relieves both days |
+| 2.5 | — | **Night-break** — relieves the first day only | **Night-break** — relieves the first day only |
+| 3 | General (`G`/`GO`) | **Extra duty** (`A`→`M+A`) | **Extra duty** (`M`→`M+A`) |
+| 4 | Other rest call-in | General | General |
+| 5 | Clear-off (`CO`→`CO+N`) | Other rest call-in | Other rest call-in |
+| 6 | — | Clear-off | Clear-off |
 
-- **General (G/GO)** is a flexible day duty that can cover **M, A, or N** and does **not** occupy any
-  M/A/N availability cell, so pulling a General person never depletes a shift — they are a preferred
-  flexible reserve.
-- **Clear-off (CO)** is the **lowest-priority source of all** — used only as a last resort.
+- **Night-break:** a controller rostered `N` works the night day and the following night-off
+  day as day duties, keeping only the clear-off. Two cells change; the `CO` is untouched.
+  Cumulative hours are unchanged (12h either way). Requires a rest day on D+1 to consume.
+- **Extra duty (OPE):** `M+A` is a single contiguous 0700–1900 duty period of exactly 12h.
+  It costs **no** manpower anywhere — the controller keeps their original shift — which is
+  why it is the fallback when the counterpart swap would strip the donor shift.
+- **General (G/GO)** occupies no M/A/N cell, so pulling one never depletes a shift; it still
+  ranks last on every shift because moving a day-working reserve is operationally disruptive.
+- **Clear-off (CO)** is the lowest-priority source of all.
+- Every duty code the ladder writes (`NO+N`, `CO+N`, `M+A`, `M`, `A`) already existed — no
+  schema change was needed.
+
+### E2a. Ordering (lexicographic — never a single summed score)
+```
+1. rung          ascending   ← ladder position; dominates everything
+2. fairness load ascending   ← rotation: fewer prior impositions first
+3. soft signals  descending  ← multi-rating, rested previous day
+4. name
+```
+`fairness load = impositions this year + 2 × impositions this month`, counting duty
+exchanges, OPE duties and night-breaks alike. Fairness rotates people **within** a rung and
+can never promote one across a rung; no accumulation of soft points can outrank a better
+rung. (The previous engine summed unbounded fairness penalties into the same band as ±10
+preference nudges, so a controller's exchange history silently decided which *strategy* won.)
 
 ### E3. Hard constraints every candidate must pass (gates — never violated)
 A candidate may cover the target shift **only if all** hold:
@@ -188,8 +214,86 @@ Every suggestion shows its origin shift, signed score, and an itemized reason le
 | **F2** | **Hours per shift** | ✅ **RESOLVED** — M = 6 h, A = 6 h, **N = 12 h** (1900→0700), summing to 24 h/day. Set in `src/lib/dutyConfig.ts`. | Closed. |
 | **F3** | **`NO` meaning** | ✅ **RESOLVED** — `NO` (Night-off) = rest day given after a night = **0 duty hours**, callable for night cover; classified as off/rest. | Closed. |
 | **F4** | **Time-in-position (§7.2)** | 2 h position limit, 30 min breaks, 2230–0600 ≤ 4 h are **not** modelled (roster is shift-level, not position-level). | Decide whether the engine must check position rotation, or only shift-level WDTL. |
-| **F5** | **48→36 h SRA exception (§7.1.3)** | Allowed only with an approved SRA. | Keep 48 h hard by default; expose a supervisor override flag if/when an SRA exists. |
-| **F6** | **Fatigue data** | Regulation and rules treat fatigue as a hard block, but the app has **no fatigue table** yet. | Add a fatigue flag/source, or omit fatigue checks for v1. |
+| **F5** | **48→36 h exception (§7.1.3)** | ✅ **RESOLVED** — Office Order 251024/88 records a standing exemption for **all of Para 7.1.3**, granted by ED (Aviation Safety). Implemented as `PARA_713_EXEMPTION`; see **G0**. | Closed. Re-confirm periodically — the order states no expiry. |
+| **F6** | **Fatigue data** | ⚠️ **NOW MANDATED** — Office Order 251024/88 §3 requires a **Fatigue Register**: ATCOs self-assess, report to the WSO, and the WSO relieves/rearranges duty and records the action. The app still has no fatigue table. | Build the fatigue register; until then the "not fatigued" exchange gate has no data behind it. |
+
+---
+
+## Part G — AAI Office Order 251024/88 (local authority)
+
+| # | Source | Authority | Where it lives |
+|---|--------|-----------|----------------|
+| A6 | **AAI NSCBI Kolkata Office Order** `AAI/GM/ATM/ADMN/Ops/251024/88`, dated 24.10.2025 — "Compliance of WDTL & Rest Requirements for ATCOs" | Local, mandatory. Supersedes orders 250530/52 (30.05.2025) and 240821/41 (21.08.2024) | Uploaded PDF |
+
+### G0. The Para 7.1.3 exemption — **the single most important item here**
+The order records two things:
+
+1. DGCA's temporary exemptions on the CAR were **withdrawn w.e.f. 0001 hrs on 31.10.2025** —
+   so everything else in Part B is now strictly in force.
+2. **Exemption for Para 7.1.3 — "Limit on and interval following consecutive duty periods" —
+   has been granted by ED (Aviation Safety).**
+
+Para 7.1.3 covers **both** sub-paragraphs, so both of these are exempted:
+
+| Rule | CAR | Was | Now |
+|------|-----|-----|-----|
+| `WDTL.CONSEC6` — ≤ 6 consecutive duty days | §7.1.3(a) | **blocking** | reported, **not enforced** |
+| `WDTL.POSTSTREAK48` — ≥ 48 h between duty blocks | §7.1.3(b) | warning | reported, **not enforced** |
+
+Implemented as `PARA_713_EXEMPTION` in `src/lib/compliance/registry.ts`. An exempted rule is
+**still evaluated and still reported** — deleting it would lose the visibility and make an
+exempted breach indistinguishable from a compliant roster if the exemption is ever withdrawn.
+It simply cannot block a duty change. This **closes F5**.
+
+> The order states **no expiry** for the exemption. It should be re-confirmed periodically
+> rather than assumed indefinite; `PARA_713_EXEMPTION.to` is deliberately left open.
+
+### G1. The rotation sits exactly on its regulatory boundaries
+`N` ends 0700 on D+1 and the next block's `M` starts 0700 on D+3 — **exactly 48 h**. `A`→next-day
+`M` is **exactly 12 h**, the §7.1.2 minimum. The roster carries no slack anywhere.
+
+### G2. A night-break costs the 48 h post-block rest — **but that is now permitted**
+Consuming the night-off leaves only the clear-off, so the gap to the next block falls to **36 h**
+(42 h if the second duty is a `M`). Everything else about the break is clean: 7-day and 30-day
+totals are unchanged, and — per **G4** — the two days are ordinary day duties, so no night rule
+applies. The 36 h gap engages §7.1.3(b), **which is exempted (G0)**. The engine reports it for
+the record and does not block. *Superseded resolution: no SRA is needed; the exemption covers it.*
+
+### G3. Night cover remains hard — **and is NOT exempted**
+§7.3.2 (rest after night duties) and §7.1.1 (cumulative caps) were **not** exempted, so this
+still stands. Because the roster grants exactly 48 h (G1) while §7.3.2(b) demands **54 h** after
+*two* consecutive nights, any intervention creating a second consecutive night breaches rest:
+
+- **Rung 1 (Night-off call-in)** additionally puts a third night into a 7-day window —
+  3 × 12 h plus surrounding day shifts — breaching the 48 h weekly cap of §7.1.1(b).
+- **Rung 2 (Afternoon swap)** is legal *only* when the controller's following day is already
+  rest. In the pure cycle `A` is always followed by `N`, so usually it is not.
+
+Follows directly from **F2** fixing `N` at 12 h. Options: revisit the 12 h night model, roster
+extra rest around called-in nights, or seek a §7.3.2 exemption. **Policy decision, not a code one.**
+
+### G4. A night-break yields ordinary day duties
+Confirmed and enforced: breaking a night writes plain `M`/`A` on both days (6 h each, 12 h total —
+identical to the 12 h night it replaces). The controller then has **no night duty**, so
+`WDTL.NIGHT2`, `WDTL.RESTN1` and `WDTL.RESTN2` do not apply to that block at all.
+
+### G5. Rules added from the order
+| Rule | Order § | Behaviour |
+|------|---------|-----------|
+| `OPS.ELIG` — exchange only with an ATCO holding a **similar rating** | §2 | blocking; rating groups are the equivalence class |
+| `OPS.NOTICE7` — ATCO must have **≥ 7 days** to decline a duty change or extra duty; silence counts as acceptance | §1 | advisory only — flags changes made inside the window; never disqualifies |
+
+### G6. Gaps between the order and the app — **not yet implemented**
+| # | Order requires | App today |
+|---|---------------|-----------|
+| 1 | **Mutual exchange is bilateral** — Annexure-A exchanges *A's duty on date X* for *B's duty on date Y* | The ladder models one-sided cover (move P from duty X to Y). Bilateral two-person, two-date swaps are not generated. |
+| 2 | Approval chain **WSO(s) → JGM(ATM-SQMS) *recommend* → GM(ATM) *approve*** (§2) | `duty_exchange_approvals` runs a **2-step** WSO → supervisor chain. The separate recommend/approve split is absent. |
+| 3 | **Fatigue Register** — ATCO self-assesses, reports to WSO, WSO relieves/rearranges and records (§3) | No fatigue table. The exchange gate "not fatigued" has no data source. **This is F6, now mandated.** |
+| 4 | **Operational duty period** records — start/duration/end of each time-in-position (§4) | Roster is shift-level only. **This is F4**, and §7.2's 2 h position limit / 30 min breaks / 2230–0600 ≤ 4 h remain unmodelled. |
+| 5 | **Annexure-A** form with six signature blocks | Not generated by the app. |
+| 6 | **Duty Exchange Register** maintained by the WSO | `compliance_audit_log` is close but is not framed or exported as the register. |
+| 7 | Verify changes in the **'MY DUTY' Google sheet**; update the **IAMATC Portal** (Duty/Rest) | External systems, no integration. |
+| 8 | Roster released **fortnightly**; leave by 22nd (1st fortnight) / 8th (2nd fortnight); leave inside 5 days needs WSO recommendation and **gets no substitute** | Part B7 still says "published ≥5 days / prepared ≥2 weeks" (the CAR minimum). The no-substitute rule matters here: a gap from late leave should **not** trigger a cover search. |
 
 ---
 
