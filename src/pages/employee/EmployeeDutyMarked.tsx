@@ -14,12 +14,11 @@ import {
     CircleSlash,
 } from 'lucide-react';
 import { addDays, format, isSameDay, startOfDay, subDays } from 'date-fns';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserProfile } from '@/hooks/useUsers';
 import { useMySchedule, DUTY_DESCRIPTIONS } from '@/hooks/useEmployeeSchedules';
-import { getRosterDateQueryValues, toIsoRosterDate } from '@/lib/rosterDate';
+import { useMyRoster } from '@/hooks/useRosters';
+import { toIsoRosterDate } from '@/lib/rosterDate';
 
 // Last 7 days + today + tomorrow.
 const DAYS_BACK = 7;
@@ -104,34 +103,6 @@ function shiftKind(code: string): ShiftKind {
     return 'other';
 }
 
-/** Roster duties for one employee across a date range. */
-function useMyRosterRange(employeeName?: string, from?: string, to?: string) {
-    return useQuery({
-        queryKey: ['duty-marked-roster', employeeName, from, to],
-        enabled: !!employeeName && !!from && !!to,
-        staleTime: 60_000,
-        queryFn: async () => {
-            // rosters.date is canonical ISO, but older rows may still carry one of
-            // the webapp's legacy formats — query every variant for each day.
-            const dateValues = new Set<string>();
-            let cursor = new Date(`${from}T00:00:00`);
-            const end = new Date(`${to}T00:00:00`);
-            while (cursor <= end) {
-                getRosterDateQueryValues(format(cursor, 'yyyy-MM-dd')).forEach(v => dateValues.add(v));
-                cursor = addDays(cursor, 1);
-            }
-
-            const { data, error } = await (supabase.from('rosters' as any) as any)
-                .select('date, shift, team, unit, position, employee_name')
-                .ilike('employee_name', employeeName!)
-                .in('date', Array.from(dateValues));
-
-            if (error) throw error;
-            return (data || []) as RosterDuty[];
-        },
-    });
-}
-
 function shiftLabel(dutyCode?: string, dutyDescription?: string) {
     const code = (dutyCode || '').trim();
     if (!code) return dutyDescription || '';
@@ -153,13 +124,16 @@ export default function EmployeeDutyMarked() {
         startStr,
         endStr,
     );
-    const { data: rosterDuties = [], isLoading: rosterLoading } = useMyRosterRange(
+    const { data: rosterDuties = [], isLoading: rosterLoading } = useMyRoster(
         profile?.full_name,
         startStr,
         endStr,
     );
 
-    const isLoading = profileLoading || schedulesLoading || rosterLoading;
+    // Both queries stay disabled until the profile lands, and a disabled query
+    // reports isLoading === false — without `!profile` the timeline would render
+    // "No roster duty marked" for every day while the profile is still in flight.
+    const isLoading = profileLoading || !profile || schedulesLoading || rosterLoading;
 
     const days = useMemo(() => {
         const scheduleByDate = new Map(schedules.map(s => [s.duty_date, s]));

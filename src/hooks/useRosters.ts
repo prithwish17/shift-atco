@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
 import { logCriticalEvent } from "@/lib/sentryHelpers";
-import { getRosterDateQueryValues, parseRosterDate } from "@/lib/rosterDate";
+import { getRosterDateQueryValues, getRosterDateRangeQueryValues, parseRosterDate } from "@/lib/rosterDate";
 import { getRosterTeamQueryValues, normalizeRosterTeamKey } from "@/lib/rosterTeam";
 
 export { parseRosterDate } from "@/lib/rosterDate";
@@ -209,17 +209,38 @@ export function useRosters(filters?: {
   });
 }
 
-// Fetch roster entries for a specific employee by name
-export function useMyRoster(employeeName?: string) {
+/**
+ * Roster entries for one employee, optionally narrowed to [from, to] (ISO dates).
+ *
+ * Always pass a range when the caller only cares about a window.  `rosters.date`
+ * is a text column, so an unbounded `.order("date").limit(n)` sorts
+ * lexicographically — legacy spellings such as "30-Jul-26" sort above every
+ * canonical "2026-..." row, and a roster published weeks ahead pushes today off
+ * the end of the page entirely.  That is how duties that exist in the table stop
+ * reaching the employee's dashboard.
+ */
+export function useMyRoster(employeeName?: string, from?: string, to?: string) {
+  const normalizedName = String(employeeName || "").trim();
+
   return useQuery({
-    queryKey: ["my-roster", employeeName],
-    enabled: !!employeeName,
+    queryKey: ["my-roster", normalizedName, from ?? null, to ?? null],
+    enabled: !!normalizedName,
+    staleTime: 60_000,
     queryFn: async () => {
-      const { data, error } = await (supabase.from("rosters" as any)
+      let query = (supabase.from("rosters" as any) as any)
         .select("*")
-        .ilike("employee_name", employeeName!)
-        .order("date", { ascending: false })
-        .limit(50));
+        .ilike("employee_name", normalizedName);
+
+      // Narrow windows are matched spelling-by-spelling so legacy rows still
+      // hit; wider ones fall back to a range over the canonical ISO form.
+      const dateValues = getRosterDateRangeQueryValues(from, to);
+      if (dateValues.length > 0) {
+        query = query.in("date", dateValues);
+      } else if (from && to) {
+        query = query.gte("date", from).lte("date", to);
+      }
+
+      const { data, error } = await query.order("date", { ascending: false }).limit(2000);
       if (error) throw error;
       return (data || []) as unknown as RosterEntry[];
     },

@@ -105,7 +105,11 @@ export function OjtProgressCard({
                             {formatOjtHours(record.performedHours)} / {formatOjtHours(record.requiredHours)}
                         </span>
                     </div>
-                    <Progress value={percent} className="h-1.5" />
+                    <Progress
+                        value={percent}
+                        className="h-1.5"
+                        indicatorClassName="bg-emerald-500 dark:bg-emerald-400"
+                    />
                     <div className="flex items-baseline justify-between text-[11px] text-muted-foreground">
                         <span>{Math.round(percent)}% complete</span>
                         <span className="tabular-nums">{formatOjtHours(record.hoursLeft)} left</span>

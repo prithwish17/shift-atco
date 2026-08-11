@@ -211,8 +211,15 @@ export default function EmployeeCompOffPage() {
   // Fetch CH holidays for the selected year
   const { data: yearHolidays = [] } = useHolidaysByYear(selectedYear);
 
-  // Fetch employee's roster entries to cross-reference against CH dates
-  const { data: rosterData = [] } = useMyRoster(employeeName || undefined);
+  // Fetch employee's roster entries to cross-reference against CH dates.  The
+  // CH holidays being matched are all inside the selected year, so bound the
+  // query to it — unbounded, the query used to page in only the newest rows and
+  // silently miss CH duties earlier in the year.
+  const { data: rosterData = [] } = useMyRoster(
+    employeeName || undefined,
+    `${selectedYear}-01-01`,
+    `${selectedYear}-12-31`,
+  );
 
   const employeeRecord = useMemo(() => {
     const empId = employeeEmpId || "";

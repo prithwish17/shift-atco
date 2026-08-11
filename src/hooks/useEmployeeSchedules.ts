@@ -130,12 +130,40 @@ async function fetchArchivedSchedules(
     }
 }
 
+/**
+ * Identity behind an employee code, used to overlay approved leave.  Every
+ * schedule query needs it, and a page usually mounts several of them over
+ * different date ranges — pulling it through the query cache collapses those
+ * repeated `profiles` round trips into one.
+ */
+async function fetchScheduleOwner(client: ReturnType<typeof useQueryClient>, employeeCode: string) {
+    // Never rejects: the leave overlay is an enhancement, and losing it must not
+    // take the schedule itself down with it.
+    return client
+        .fetchQuery({
+            queryKey: ['schedule', 'owner', employeeCode],
+            staleTime: 10 * 60_000,
+            queryFn: async () => {
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('id, full_name')
+                    .eq('employee_id', employeeCode)
+                    .maybeSingle();
+                if (error) return null;
+                return data;
+            },
+        })
+        .catch(() => null);
+}
+
 // Query schedules with optional filters
 export function useEmployeeSchedules(
     employeeCode?: string,
     startDate?: string,
     endDate?: string
 ) {
+    const queryClient = useQueryClient();
+
     return useQuery({
         queryKey: scheduleKeys.employee(employeeCode, startDate, endDate),
         ...SCHEDULE_QUERY_OPTIONS,
@@ -161,13 +189,11 @@ export function useEmployeeSchedules(
                 : '';
 
             // Fire schedule + profile (+ archive) queries in parallel.
-            const [scheduleResult, profileResult, archivedRows] = await Promise.all([
+            const [scheduleResult, profile, archivedRows] = await Promise.all([
                 query,
-                supabase
-                    .from('profiles')
-                    .select('id, full_name')
-                    .eq('employee_id', employeeCode)
-                    .maybeSingle(),
+                employeeCode
+                    ? fetchScheduleOwner(queryClient, employeeCode)
+                    : Promise.resolve(null),
                 needsArchive
                     ? fetchArchivedSchedules(employeeCode as string, startDate as string, archiveTo)
                     : Promise.resolve([] as EmployeeSchedule[]),
@@ -186,8 +212,7 @@ export function useEmployeeSchedules(
                 a.duty_date.localeCompare(b.duty_date)
             );
 
-            const profile = profileResult.data;
-            if (profileResult.error || !profile?.id) {
+            if (!profile?.id) {
                 return schedules;
             }
 

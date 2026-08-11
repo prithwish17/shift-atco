@@ -64,7 +64,7 @@ export function OjtDashboardSummary() {
 
                             <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
                                 <div
-                                    className="h-full rounded-full bg-indigo-500 dark:bg-indigo-400"
+                                    className="h-full rounded-full bg-emerald-500 dark:bg-emerald-400"
                                     style={{ width: `${percent}%` }}
                                 />
                             </div>

@@ -1,4 +1,4 @@
-import { format, parse } from "date-fns";
+import { addDays, format, parse } from "date-fns";
 
 // The roster webapp emits several date shapes depending on which team/shift tab a
 // row came from: "2-Aug-2026", "2-August-26" and "9-May-26" (Bravo night) and
@@ -74,4 +74,34 @@ export function getRosterDateQueryValues(targetIsoDate?: string) {
     format(parsed, "M/d/yyyy"),
     format(parsed, "MM/dd/yyyy"),
   ])];
+}
+
+/**
+ * Widest range that is still worth expanding into an `.in("date", ...)` filter.
+ * Each day contributes ~14 spellings, so 31 days is already ~430 values in the
+ * query string — past that the URL gets unreasonable and callers should filter
+ * on the canonical ISO range instead.
+ */
+export const MAX_ROSTER_DATE_RANGE_DAYS = 31;
+
+/**
+ * Every stored spelling of every day in [fromIsoDate, toIsoDate], for building
+ * an `.in("date", ...)` filter that matches legacy rows as well as canonical
+ * ones.  Returns [] when the range is unparseable, inverted, or wider than
+ * MAX_ROSTER_DATE_RANGE_DAYS — the caller must fall back to an ISO range filter.
+ */
+export function getRosterDateRangeQueryValues(fromIsoDate?: string, toIsoDate?: string) {
+  if (!fromIsoDate || !toIsoDate) return [];
+
+  const start = parse(fromIsoDate, "yyyy-MM-dd", new Date());
+  const end = parse(toIsoDate, "yyyy-MM-dd", new Date());
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return [];
+
+  const values = new Set<string>();
+  for (let cursor = start, days = 0; cursor <= end; cursor = addDays(cursor, 1), days++) {
+    if (days >= MAX_ROSTER_DATE_RANGE_DAYS) return [];
+    getRosterDateQueryValues(format(cursor, "yyyy-MM-dd")).forEach((value) => values.add(value));
+  }
+
+  return [...values];
 }
