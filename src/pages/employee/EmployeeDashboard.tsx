@@ -7,9 +7,6 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
 import { useLeaveBalances } from "@/hooks/useLeaves";
-import { useLeaveData } from "@/hooks/useLeaveData";
-import { DEFAULT_CL_BALANCE, DEFAULT_RH_BALANCE } from "@/lib/leaveConstants";
-import { useShifts } from "@/hooks/useShifts";
 import { useMyRoster } from "@/hooks/useRosters";
 import { useMySchedule, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
 import { isFinalLeaveApproved, useMyLeaveRequests } from "@/hooks/useLeaveRequests";
@@ -69,28 +66,53 @@ function getRosterDutyLabel(shift?: string): string {
   return normalizedShift ? `${normalizedShift} Shift` : "—";
 }
 
+/**
+ * Roster rows whose unit/position is a marker rather than a real position.  They
+ * used to be dropped from the Duty Overview entirely, which meant an employee
+ * whose only marked duty for the day was (say) an extra duty saw "No assignment"
+ * while the duty sat in the roster.  They are now shown under this label instead.
+ */
+const SPECIAL_ROSTER_CATEGORIES: { token: string; label: string }[] = [
+  { token: "EXTRA DUTY", label: "Extra Duty" },
+  { token: "DUTY EXCHANGE", label: "Duty Exchange" },
+  { token: "DUTY CHANGE", label: "Duty Change" },
+  { token: "TRAINING", label: "Training" },
+  { token: "LEAVE", label: "Leave" },
+  { token: "SPECIAL", label: "Special Duty" },
+];
+
+function getSpecialRosterLabel(unit?: string, position?: string): string | null {
+  const haystack = `${unit || ""} ${position || ""}`.trim().toUpperCase();
+  if (!haystack) return null;
+  return SPECIAL_ROSTER_CATEGORIES.find((category) => haystack.includes(category.token))?.label ?? null;
+}
+
 function getRosterAssignmentLabel(shift?: string, unit?: string, position?: string): string {
   const shiftLabel = shift?.trim() || "—";
+  const specialLabel = getSpecialRosterLabel(unit, position);
+  if (specialLabel) return `${shiftLabel} - ${specialLabel}`;
+
   const unitLabel = unit?.trim() || "—";
   const positionLabel = position?.trim() || "";
-  const hidePosition = shouldHideRosterValue(positionLabel);
-  const hideUnit = shouldHideRosterValue(unitLabel);
-  if (hideUnit || hidePosition) return "";
-  const parts = [shiftLabel];
+  const parts = [shiftLabel, unitLabel];
 
-  if (!hideUnit) parts.push(unitLabel);
-  if (!hidePosition && positionLabel) parts.push(positionLabel);
+  if (positionLabel) parts.push(positionLabel);
 
   return parts.join(" - ");
 }
 
-function shouldHideRosterValue(value?: string): boolean {
-  const normalizedValue = value?.trim().toUpperCase() || "";
-  return ["SPECIAL", "LEAVE", "LEAVES", "TRAINING", "EXTRA DUTY"].some((token) => normalizedValue.includes(token));
-}
+/** Detail line under the duty label: "Unit 3 · APP · Team A", or the category. */
+function getRosterDetailLabel(entry: { unit?: string; position?: string; team?: string }): string {
+  const specialLabel = getSpecialRosterLabel(entry.unit, entry.position);
+  const teamLabel = entry.team?.trim() ? `Team ${entry.team.trim()}` : null;
 
-function shouldHideRosterEntry(unit?: string, position?: string): boolean {
-  return shouldHideRosterValue(unit) || shouldHideRosterValue(position);
+  if (specialLabel) return [specialLabel, teamLabel].filter(Boolean).join(" · ");
+
+  return [
+    entry.unit?.trim() ? `Unit ${entry.unit.trim()}` : null,
+    entry.position?.trim() || null,
+    teamLabel,
+  ].filter(Boolean).join(" · ");
 }
 
 function sortRosterEntriesByShift<T extends { shift: string }>(entries: T[]): T[] {
@@ -145,21 +167,24 @@ export default function EmployeeDashboard() {
   const weekEnd = format(addDays(new Date(), 9), "yyyy-MM-dd");
   const employeeEmpId = profile?.employee_id ? String(profile.employee_id) : null;
 
-  const { data: balances, isLoading: balancesLoading } = useLeaveBalances(user?.id);
-  const { data: leaveLedgerData = [] } = useLeaveData(currentYear, employeeEmpId);
-  const { shifts, isLoading: shiftsLoading } = useShifts(user?.id, today, weekEnd);
-  const { data: myRoster, isLoading: rosterLoading } = useMyRoster(profile?.full_name);
-  const { data: mySchedule = [], isLoading: scheduleLoading } = useMySchedule(
-    profile?.employee_id,
+  const { data: balances } = useLeaveBalances(user?.id);
+  // The Duty Overview only reads today + tomorrow, so ask for exactly that.
+  const { data: myRoster, isLoading: rosterLoading } = useMyRoster(
+    profile?.full_name,
     today,
-    format(addDays(new Date(), 9), 'yyyy-MM-dd')
+    format(addDays(new Date(), 1), "yyyy-MM-dd"),
   );
-  const { data: monthlySchedule = [], isLoading: monthlyScheduleLoading } = useMySchedule(
+  const { data: mySchedule = [], isLoading: scheduleLoading } = useMySchedule(
+    employeeEmpId || undefined,
+    today,
+    weekEnd,
+  );
+  const { data: monthlySchedule = [] } = useMySchedule(
     employeeEmpId || undefined,
     currentMonthStart,
     currentMonthEnd
   );
-  const { data: myLeaveRequests = [], isLoading: leaveRequestsLoading } = useMyLeaveRequests(user?.id);
+  const { data: myLeaveRequests = [] } = useMyLeaveRequests(user?.id);
   const { data: myExchanges = [] } = useDutyExchanges(user?.id);
 
   const pendingExchanges = useMemo(() => {
@@ -181,20 +206,27 @@ export default function EmployeeDashboard() {
         .eq("test_date", format(new Date(), "yyyy-MM-dd"));
       return (data ?? []) as { employee_code: string | null; employee_name: string; shift: string | null }[];
     },
-    refetchInterval: 60 * 1000,
+    // The banner's cutoffs move on a 30-minute grid, so minute-by-minute polling
+    // only cost every employee a request a minute.
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
     enabled: !!profile,
   });
 
-  const baTestAlert = useMemo(() => {
-    if (!profile) return null;
+  /** This employee's row on today's BA list, regardless of the banner cutoff. */
+  const myBaTestEntry = useMemo(() => {
+    if (!profile || baTestRows.length === 0) return null;
 
-    if (baTestRows.length === 0) return null;
     const myCode = String(profile.employee_id ?? "").trim().toLowerCase();
     const myName = String(profile.full_name ?? "").trim().toLowerCase();
-    const match = baTestRows.find(r =>
+    return baTestRows.find(r =>
       (myCode && String(r.employee_code ?? "").trim().toLowerCase() === myCode) ||
       (myName && String(r.employee_name ?? "").trim().toLowerCase() === myName)
-    );
+    ) ?? null;
+  }, [baTestRows, profile]);
+
+  const baTestAlert = useMemo(() => {
+    const match = myBaTestEntry;
     if (!match) return null;
 
     // Time-aware visibility: hide banner after shift cutoff (IST)
@@ -216,24 +248,10 @@ export default function EmployeeDashboard() {
     // Hide banner after cutoff
     if (istTimeMinutes >= cutoffMinutes) return null;
     return match;
-  }, [baTestRows, profile]);
+  }, [myBaTestEntry]);
 
   const yearBalances = balances?.filter(b => b.year === currentYear) || [];
-  const clBalance = yearBalances.find(b => b.leave_type === "cl");
-  const rhBalance = yearBalances.find(b => b.leave_type === "rh");
-  const elBalance = yearBalances.find(b => b.leave_type === "el");
   const compOff = yearBalances.find(b => b.leave_type === "comp_off");
-  const ledgerRecord = useMemo(
-    () => (employeeEmpId ? leaveLedgerData.find((r) => r.empId === employeeEmpId) ?? null : null),
-    [employeeEmpId, leaveLedgerData],
-  );
-
-  useEffect(() => {
-    if (balancesLoading) return;
-    // #region agent log
-    fetch('http://127.0.0.1:7366/ingest/cec5e719-b092-499e-b7f6-47f8a73a026c',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'037720'},body:JSON.stringify({sessionId:'037720',location:'EmployeeDashboard.tsx:balances',message:'Dashboard quick-action balance sources',data:{currentYear,employeeEmpId,dbCl:clBalance?.balance??null,dbRh:rhBalance?.balance??null,dbCompOff:compOff?.balance??null,ledgerClRemaining:ledgerRecord?.casualRemaining??null,ledgerRhRemaining:ledgerRecord?Math.max(DEFAULT_RH_BALANCE-ledgerRecord.restrictedCount,0):null,ledgerCompOffRemaining:ledgerRecord?.compOffRemaining??null,dutyExchangeTileShowsRhBalance:rhBalance?.balance??null,pendingExchangesCount:pendingExchanges.length},timestamp:Date.now(),hypothesisId:'H1-H2'})}).catch(()=>{});
-    // #endregion
-  }, [balancesLoading, clBalance?.balance, compOff?.balance, currentYear, employeeEmpId, ledgerRecord, pendingExchanges.length, rhBalance?.balance]);
 
   // 2-day roster + schedule lookup
   const now = new Date();
@@ -248,14 +266,18 @@ export default function EmployeeDashboard() {
     const d = parseRosterDate(r.date);
     return d && isSameDay(d, tomorrow);
   }));
-  const visibleTodayRosters = todayRosters.filter((roster) => !shouldHideRosterEntry(roster.unit, roster.position));
-  const visibleTomorrowRosters = tomorrowRosters.filter((roster) => !shouldHideRosterEntry(roster.unit, roster.position));
   const todaySchedule = mySchedule.find(s => s.duty_date === today);
   const tomorrowSchedule = mySchedule.find(s => s.duty_date === tomorrowStr);
-  const shouldShowTodayRosterList = visibleTodayRosters.length > 1 || (todaySchedule && isDoubleDuty(todaySchedule.duty_code) && visibleTodayRosters.length > 0);
-  const shouldShowTomorrowRosterList = visibleTomorrowRosters.length > 1 || (tomorrowSchedule && isDoubleDuty(tomorrowSchedule.duty_code) && visibleTomorrowRosters.length > 0);
-  const todayRoster = visibleTodayRosters[0];
-  const tomorrowRoster = visibleTomorrowRosters[0];
+  const shouldShowTodayRosterList = todayRosters.length > 1 || (todaySchedule && isDoubleDuty(todaySchedule.duty_code) && todayRosters.length > 0);
+  const shouldShowTomorrowRosterList = tomorrowRosters.length > 1 || (tomorrowSchedule && isDoubleDuty(tomorrowSchedule.duty_code) && tomorrowRosters.length > 0);
+  const todayRoster = todayRosters[0];
+  const tomorrowRoster = tomorrowRosters[0];
+
+  // The roster and schedule queries stay disabled until the profile resolves, and
+  // a disabled query reports isLoading === false.  Without folding the profile in,
+  // the card renders "No assignment" for the whole profile fetch — and forever if
+  // that fetch fails — even though the duty is marked.
+  const dutyOverviewLoading = profileLoading || !profile || rosterLoading || scheduleLoading;
 
   const dashboardCalendarCells = useMemo(() => {
     const year = currentMonthDate.getFullYear();
@@ -343,8 +365,6 @@ export default function EmployeeDashboard() {
 
     return map;
   }, [appliedLeaveDates, approvedLeaveDates]);
-
-  const isLoading = profileLoading || balancesLoading || shiftsLoading || monthlyScheduleLoading || leaveRequestsLoading;
 
   const currentShift = profile?.current_shift ? `${profile.current_shift.toUpperCase()} Shift` : "—";
   const licenseHealth = buildEmployeeLicenseHealth(profile, ((profile?.licenses || []) as LicenseWithExtras[]));
@@ -463,21 +483,18 @@ export default function EmployeeDashboard() {
             <div className="bg-purple-100 dark:bg-purple-900/30 rounded-xl p-4 md:p-6">
               <div className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-1">TODAY</div>
               <div className="text-sm text-purple-700 dark:text-purple-300 mb-3 md:mb-4">{format(now, "EEE, dd MMM")}</div>
-              {(rosterLoading || scheduleLoading) ? (
+              {dutyOverviewLoading ? (
                 <p className="text-sm text-purple-600 dark:text-purple-400">Loading…</p>
               ) : shouldShowTodayRosterList ? (
                 <div className="space-y-1">
-                  {visibleTodayRosters
-                    .map((roster) => ({
-                      key: `${roster.date}-${roster.shift}-${roster.position}-${roster.unit}`,
-                      label: getRosterAssignmentLabel(roster.shift, roster.unit, roster.position),
-                    }))
-                    .filter((roster) => roster.label)
-                    .map((roster) => (
-                      <div key={roster.key} className="text-sm font-medium text-purple-800 dark:text-purple-200">
-                        {roster.label}
-                      </div>
-                    ))}
+                  {todayRosters.map((roster, idx) => (
+                    <div
+                      key={`${roster.date}-${roster.shift}-${roster.position}-${roster.unit}-${idx}`}
+                      className="text-sm font-medium text-purple-800 dark:text-purple-200"
+                    >
+                      {getRosterAssignmentLabel(roster.shift, roster.unit, roster.position)}
+                    </div>
+                  ))}
                 </div>
               ) : todayRoster ? (
                 <div className="space-y-1">
@@ -485,11 +502,7 @@ export default function EmployeeDashboard() {
                     {getRosterDutyLabel(todayRoster.shift)}
                   </div>
                   <div className="text-sm font-medium text-purple-800 dark:text-purple-200">
-                    {[
-                      todayRoster.unit?.trim().toUpperCase() === "SPECIAL" ? null : `Unit ${todayRoster.unit}`,
-                      todayRoster.position?.trim().toUpperCase() === "EXTRA DUTY" ? null : todayRoster.position,
-                      `Team ${todayRoster.team}`,
-                    ].filter(Boolean).join(" · ")}
+                    {getRosterDetailLabel(todayRoster)}
                   </div>
                 </div>
               ) : todaySchedule ? (
@@ -507,21 +520,18 @@ export default function EmployeeDashboard() {
             <div className="bg-blue-100 dark:bg-blue-900/30 rounded-xl p-4 md:p-6">
               <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">TOMORROW</div>
               <div className="text-sm text-blue-700 dark:text-blue-300 mb-3 md:mb-4">{format(tomorrow, "EEE, dd MMM")}</div>
-              {(rosterLoading || scheduleLoading) ? (
+              {dutyOverviewLoading ? (
                 <p className="text-sm text-blue-600 dark:text-blue-400">Loading…</p>
               ) : shouldShowTomorrowRosterList ? (
                 <div className="space-y-1">
-                  {visibleTomorrowRosters
-                    .map((roster) => ({
-                      key: `${roster.date}-${roster.shift}-${roster.position}-${roster.unit}`,
-                      label: getRosterAssignmentLabel(roster.shift, roster.unit, roster.position),
-                    }))
-                    .filter((roster) => roster.label)
-                    .map((roster) => (
-                      <div key={roster.key} className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                        {roster.label}
-                      </div>
-                    ))}
+                  {tomorrowRosters.map((roster, idx) => (
+                    <div
+                      key={`${roster.date}-${roster.shift}-${roster.position}-${roster.unit}-${idx}`}
+                      className="text-sm font-medium text-blue-800 dark:text-blue-200"
+                    >
+                      {getRosterAssignmentLabel(roster.shift, roster.unit, roster.position)}
+                    </div>
+                  ))}
                 </div>
               ) : tomorrowRoster ? (
                 <div className="space-y-1">
@@ -529,11 +539,7 @@ export default function EmployeeDashboard() {
                     {getRosterDutyLabel(tomorrowRoster.shift)}
                   </div>
                   <div className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                    {[
-                      tomorrowRoster.unit?.trim().toUpperCase() === "SPECIAL" ? null : `Unit ${tomorrowRoster.unit}`,
-                      tomorrowRoster.position?.trim().toUpperCase() === "EXTRA DUTY" ? null : tomorrowRoster.position,
-                      `Team ${tomorrowRoster.team}`,
-                    ].filter(Boolean).join(" · ")}
+                    {getRosterDetailLabel(tomorrowRoster)}
                   </div>
                 </div>
               ) : tomorrowSchedule ? (
@@ -607,20 +613,28 @@ export default function EmployeeDashboard() {
             </Link>
 
             <Link
-              to="/employee/duty-exchange"
+              to="/employee/ba-test-list"
               className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
             >
             <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
               <div className="flex items-center justify-between mb-2 md:mb-3">
                 <div>
-                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Duty Exchange</span>
-                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Request and track exchange status</div>
+                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">BA Test List</span>
+                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">See who is selected for today's breath analyzer test</div>
                 </div>
-                <div className="size-6 md:size-8 bg-purple-100 dark:bg-purple-900/40 rounded-lg flex items-center justify-center">
-                  <FileText className="size-3 md:size-4 text-purple-600 dark:text-purple-400" />
+                <div className={`size-6 md:size-8 rounded-lg flex items-center justify-center ${myBaTestEntry ? "bg-red-100 dark:bg-red-900/40" : "bg-purple-100 dark:bg-purple-900/40"}`}>
+                  <FlaskConical className={`size-3 md:size-4 ${myBaTestEntry ? "text-red-600 dark:text-red-400" : "text-purple-600 dark:text-purple-400"}`} />
                 </div>
               </div>
-              <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{rhBalance ? rhBalance.balance : ""}</div>
+              {myBaTestEntry ? (
+                <div className="text-[10px] md:text-xs font-medium text-red-600 dark:text-red-400">
+                  You are on today's list{myBaTestEntry.shift ? ` — ${myBaTestEntry.shift} shift` : ""}
+                </div>
+              ) : baTestRows.length > 0 ? (
+                <div className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400">
+                  {baTestRows.length} listed today
+                </div>
+              ) : null}
             </div>
             </Link>
 
@@ -702,7 +716,9 @@ export default function EmployeeDashboard() {
                     {duty.duty_code}
                   </span>
                 </div>
-              )) : (
+              )) : dutyOverviewLoading ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">Loading…</p>
+              ) : (
                 <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No schedule data yet. Fetch from Settings.</p>
               )}
             </div>
