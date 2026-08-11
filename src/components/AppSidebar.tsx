@@ -1,585 +1,557 @@
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useUserProfile } from "@/hooks/useUsers";
+import { useNavCounts } from "@/hooks/useNavCounts";
 import {
-  LayoutDashboard,
-  Table2,
-  Users,
-  Settings,
-  ClipboardList,
-  ClipboardCheck,
-  Calendar,
-  CalendarDays,
-  FileText,
-  Clock,
-  Shield,
-  LogOut,
-  Radio,
-  ArrowLeftRight,
-  BarChart3,
-  X,
-  UserCog,
-  Activity,
-  Mail,
-  GraduationCap,
-  AlertTriangle,
-  Timer,
-  TimerReset,
   ChevronDown,
-  Database,
   ChevronLeft,
+  ChevronRight,
+  LogOut,
   Menu,
+  MoreHorizontal,
+  Repeat,
+  Search,
+  Settings,
   Share2,
-  UserSearch,
-  ShieldCheck,
-  History,
-  BookLock,
+  X,
 } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ShareAppDialog } from "@/components/ShareAppDialog";
-
-type Role = "admin" | "supervisor" | "wso" | "employee";
+import { NavCommandPalette } from "@/components/NavCommandPalette";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  matchesPath,
+  navByRole,
+  switchDashboardItems,
+  type NavGroup,
+  type NavItem,
+  type Role,
+} from "@/lib/navConfig";
 
 interface SidebarProps {
   role: Role;
 }
 
-interface NavItem {
-  title: string;
-  url: string;
-  icon: React.ElementType;
+const COLLAPSED_KEY = "atcora:sidebar:collapsed";
+const openGroupsKey = (role: Role) => `atcora:sidebar:open-groups:${role}`;
+
+function readStored<T>(key: string, fallback: T): T {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw === null ? fallback : (JSON.parse(raw) as T);
+  } catch {
+    return fallback;
+  }
 }
 
-interface NavSection {
-  id: string;
-  label: string;
-  icon: React.ElementType;
-  items: NavItem[];
+function writeStored(key: string, value: unknown) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* private mode / quota — layout preference isn't worth failing over */
+  }
 }
-
-interface SupervisorNav {
-  topItems: NavItem[];
-  sections: NavSection[];
-  bottomItems: NavItem[];
-}
-
-// ── Supervisor structured nav ───────────────────────────────────────────────
-
-const supervisorNav: SupervisorNav = {
-  topItems: [
-    { title: "Dashboard", url: "/supervisor", icon: LayoutDashboard },
-  ],
-  sections: [
-    {
-      id: "hrd",
-      label: "HRD",
-      icon: Users,
-      items: [
-        { title: "Schedule Management", url: "/supervisor/duty-management", icon: CalendarDays },
-        { title: "Leave Dashboard", url: "/supervisor/leave-dashboard", icon: BarChart3 },
-        { title: "Employee Management", url: "/supervisor/employees", icon: Users },
-        { title: "Mark Attendance", url: "/supervisor/attendance", icon: ClipboardList },
-        { title: "View Attendance", url: "/supervisor/attendance-view", icon: Calendar },
-        { title: "Daily Availability Chart", url: "/supervisor/roster-view", icon: Table2 },
-        { title: "Duty Report", url: "/supervisor/duty-report", icon: ClipboardList },
-      ],
-    },
-    {
-      id: "cap",
-      label: "CAP",
-      icon: GraduationCap,
-      items: [
-        { title: "License Management", url: "/supervisor/licenses", icon: Shield },
-        { title: "Ratings Management", url: "/supervisor/ratings", icon: Shield },
-      ],
-    },
-    {
-      id: "others",
-      label: "Others",
-      icon: Menu,
-      items: [
-        { title: "Shift Duty Grid", url: "/supervisor/atc-grid", icon: Radio },
-        { title: "Shift Roster Data", url: "/supervisor/roster", icon: ClipboardList },
-        { title: "Holidays", url: "/supervisor/holidays", icon: CalendarDays },
-        { title: "Email Logs", url: "/supervisor/email-logs", icon: Mail },
-      ],
-    },
-  ],
-  bottomItems: [
-    { title: "Availability Finder", url: "/supervisor/availability-finder", icon: UserSearch },
-    { title: "Compliance Dashboard", url: "/supervisor/compliance", icon: ShieldCheck },
-    { title: "Compliance Audit Log", url: "/supervisor/compliance-audit", icon: History },
-    { title: "Rule Governance", url: "/supervisor/rule-governance", icon: BookLock },
-    { title: "Leave Review", url: "/supervisor/leaves", icon: FileText },
-    { title: "Duty Exchange", url: "/supervisor/duty-exchange", icon: ArrowLeftRight },
-    { title: "Trainee Details", url: "/supervisor/trainees", icon: GraduationCap },
-    { title: "OJT Progress", url: "/supervisor/ojt-progress", icon: TimerReset },
-    { title: "Working Hours", url: "/supervisor/working-hours", icon: Clock },
-    { title: "Shift Details", url: "/supervisor/shift-details", icon: Table2 },
-  ],
-};
-
-// ── Flat nav for other roles ────────────────────────────────────────────────
-
-const menuItems = {
-  admin: [
-    { title: "Dashboard", url: "/admin", icon: LayoutDashboard },
-    { title: "User Management", url: "/admin/users", icon: Users },
-    { title: "Authenticated Users", url: "/admin/authenticated-users", icon: Shield },
-    { title: "System Settings", url: "/admin/settings", icon: Settings },
-    { title: "Employee Page Notices", url: "/admin/employee-page-notices", icon: AlertTriangle },
-    { title: "Change Password", url: "/admin/change-password", icon: Shield },
-    { title: "Email Logs", url: "/admin/email-logs", icon: Mail },
-    { title: "Cron Jobs", url: "/admin/cron-jobs", icon: Timer },
-    { title: "Cache Monitoring", url: "/admin/cache", icon: Database },
-  ],
-  wso: [
-    { title: "Dashboard", url: "/wso", icon: LayoutDashboard },
-    { title: "Attendance", url: "/wso/attendance", icon: ClipboardList },
-    { title: "Shift Duty Roster", url: "/wso/atc-grid", icon: Table2 },
-    { title: "BA Test Management", url: "/wso/ba-test", icon: Shield },
-    { title: "Leave Requests", url: "/wso/leaves", icon: FileText },
-    { title: "Duty Exchange", url: "/wso/duty-exchange", icon: ArrowLeftRight },
-    { title: "OPE Duty", url: "/wso/ope-assignments", icon: Activity },
-    { title: "Roster Data", url: "/wso/roster", icon: Calendar },
-  ],
-  employee: [
-    { title: "Dashboard", url: "/employee", icon: LayoutDashboard },
-    { title: "My Duty Schedule", url: "/employee/schedule", icon: Calendar },
-    { title: "My Leave Summary", url: "/employee/leave-dashboard", icon: BarChart3 },
-    { title: "License Status", url: "/employee/licenses", icon: Shield },
-    { title: "My OJT Progress", url: "/employee/ojt-progress", icon: TimerReset },
-    { title: "Duty Marked", url: "/employee/duty-marked", icon: ClipboardCheck },
-    { title: "Apply for Leave", url: "/employee/leave", icon: FileText },
-    { title: "Duty Exchange", url: "/employee/duty-exchange", icon: ArrowLeftRight },
-    { title: "My Attendance", url: "/employee/attendance", icon: ClipboardList },
-    { title: "Holidays", url: "/employee/holidays", icon: CalendarDays },
-    { title: "Shift Duty Roster", url: "/employee/atc-duties", icon: Table2 },
-    { title: "Comp-Off Details", url: "/employee/comp-off", icon: Clock },
-    { title: "BA Test List", url: "/employee/ba-test-list", icon: Activity },
-    { title: "Profile Settings", url: "/employee/profile", icon: UserCog },
-  ],
-};
-
-const switchDashboardItems: Record<string, { title: string; url: string; icon: typeof LayoutDashboard }> = {
-  admin: { title: "Admin Dashboard", url: "/admin", icon: Shield },
-  supervisor: { title: "Supervisor Dashboard", url: "/supervisor", icon: Users },
-  wso: { title: "WSO Dashboard", url: "/wso", icon: BarChart3 },
-  employee: { title: "Employee Dashboard", url: "/employee", icon: LayoutDashboard },
-};
 
 // ── Component ───────────────────────────────────────────────────────────────
 
 export function AppSidebar({ role }: SidebarProps) {
-  const { signOut, userRole } = useAuth();
+  const { signOut, userRole, user } = useAuth();
+  const { profile } = useUserProfile(user?.id);
   const location = useLocation();
   const currentPath = location.pathname;
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-  const [openSection, setOpenSection] = useState<string | null>(null);
-  const [hoveredSection, setHoveredSection] = useState<string | null>(null);
-  const [shareOpen, setShareOpen] = useState(false);
 
-  // Listen for toggle event from DashboardLayout header
+  const groups = useMemo(() => navByRole[role] ?? [], [role]);
+  const counts = useNavCounts(role === "supervisor");
+
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => readStored(COLLAPSED_KEY, false));
+  const [openGroups, setOpenGroups] = useState<string[]>(() =>
+    readStored(
+      openGroupsKey(role),
+      (navByRole[role] ?? []).filter(g => g.defaultOpen).map(g => g.id),
+    ),
+  );
+  // Flyouts are portalled: the nav scrolls vertically, which clips anything
+  // absolutely positioned outside its box.
+  const [flyout, setFlyout] = useState<{ groupId: string; top: number; left: number } | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Toggle event from the DashboardLayout header
   useEffect(() => {
     const handler = () => setMobileOpen(prev => !prev);
-    window.addEventListener('toggle-sidebar', handler);
-    return () => window.removeEventListener('toggle-sidebar', handler);
+    window.addEventListener("toggle-sidebar", handler);
+    return () => window.removeEventListener("toggle-sidebar", handler);
   }, []);
 
-  // Toggle sidebar collapsed state
-  const toggleCollapsed = useCallback(() => {
-    setCollapsed(prev => !prev);
-  }, []);
-
-  // Auto-open the section that contains the current active route (accordion: only one open)
+  // ⌘K / Ctrl+K opens navigation search
   useEffect(() => {
-    if (role !== "supervisor") return;
-    const activeSection = supervisorNav.sections.find(section =>
-      section.items.some(item =>
-        currentPath === item.url || currentPath.startsWith(item.url + '/')
-      )
-    );
-    if (activeSection) {
-      setOpenSection(activeSection.id);
-    }
-  }, [currentPath, role]);
-
-  // Accordion: opening a section collapses any other open one
-  const toggleSection = useCallback((id: string) => {
-    setOpenSection(prev => (prev === id ? null : id));
+    const handler = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        setPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const isActive = (url: string) => {
-    if (url === `/${role}`) return currentPath === url;
-    return currentPath === url || currentPath.startsWith(url + '/');
-  };
+  useEffect(() => writeStored(COLLAPSED_KEY, collapsed), [collapsed]);
+  useEffect(() => writeStored(openGroupsKey(role), openGroups), [openGroups, role]);
+
+  const isActive = useCallback(
+    (item: NavItem) =>
+      matchesPath(currentPath, item.url, item.end) ||
+      (item.children ?? []).some(child => matchesPath(currentPath, child.url)),
+    [currentPath],
+  );
+
+  // Reveal the group holding the current route — on navigation only, so a group
+  // the user deliberately collapsed doesn't spring back open under them.
+  const lastPathRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastPathRef.current === currentPath) return;
+    lastPathRef.current = currentPath;
+    const active = groups.find(group => group.label && group.items.some(isActive));
+    if (!active) return;
+    setOpenGroups(prev => (prev.includes(active.id) ? prev : [...prev, active.id]));
+  }, [currentPath, groups, isActive]);
+
+  // A short close delay lets the pointer cross from the rail into the flyout.
+  const flyoutTimer = useRef<number | null>(null);
+  const cancelFlyoutClose = useCallback(() => {
+    if (flyoutTimer.current === null) return;
+    window.clearTimeout(flyoutTimer.current);
+    flyoutTimer.current = null;
+  }, []);
+  const openFlyout = useCallback(
+    (groupId: string, trigger: HTMLElement) => {
+      cancelFlyoutClose();
+      const rect = trigger.getBoundingClientRect();
+      setFlyout({ groupId, top: rect.top, left: rect.right });
+    },
+    [cancelFlyoutClose],
+  );
+  const scheduleFlyoutClose = useCallback(() => {
+    cancelFlyoutClose();
+    flyoutTimer.current = window.setTimeout(() => setFlyout(null), 120);
+  }, [cancelFlyoutClose]);
+  useEffect(() => cancelFlyoutClose, [cancelFlyoutClose]);
+  useEffect(() => {
+    if (!collapsed) setFlyout(null);
+  }, [collapsed]);
+
+  const toggleGroup = useCallback((id: string) => {
+    setOpenGroups(prev => (prev.includes(id) ? prev.filter(entry => entry !== id) : [...prev, id]));
+  }, []);
+
+  const groupCount = useCallback(
+    (group: NavGroup) =>
+      group.items.reduce((total, item) => total + (item.badge ? (counts[item.badge] ?? 0) : 0), 0),
+    [counts],
+  );
 
   const handleLogout = async () => {
     await signOut();
   };
 
-  const showSwitchToRole = role === 'employee' && userRole && userRole !== 'employee'
-    ? userRole
-    : role !== 'employee'
-      ? 'employee'
-      : null;
+  const closeMobile = () => setMobileOpen(false);
 
+  const showSwitchToRole =
+    role === "employee" && userRole && userRole !== "employee"
+      ? (userRole as Role)
+      : role !== "employee"
+        ? "employee"
+        : null;
   const switchItem = showSwitchToRole ? switchDashboardItems[showSwitchToRole] : null;
 
-  const navLinkClass = (url: string) =>
-    `flex items-center gap-3 px-3 py-2 rounded-lg border-l-2 text-sm transition-all duration-300 ${
-      isActive(url) 
-        ? 'border-[#60a5fa] bg-[#EEF2FF] text-[#151A2D] font-medium' 
-        : 'border-[#60a5fa]/40 bg-[#1e2742]/45 text-[#F1F4FF] hover:border-[#60a5fa] hover:bg-[#EEF2FF] hover:text-[#151A2D]'
-    } ${collapsed ? 'justify-center' : ''}`;
+  const displayName = profile?.full_name || "User";
+  const initials = displayName.split(" ").map(part => part[0]).join("").slice(0, 2).toUpperCase();
 
-  const sectionHeaderClass = (hasActiveChild: boolean) =>
-    `flex w-full items-center gap-3 px-3 py-2 rounded-lg border border-[#2d3748] text-sm font-medium transition-all duration-300 ${
-      hasActiveChild
-        ? 'bg-[#EEF2FF]/10 text-[#EEF2FF] border-[#60a5fa]/40'
-        : 'bg-[#111827]/40 text-[#94a3b8] hover:bg-[#EEF2FF]/10 hover:text-[#EEF2FF] hover:border-[#60a5fa]/30'
-    } ${collapsed ? 'justify-center' : ''}`;
+  // ── Row renderers ───────────────────────────────────────────────────────
 
-  // ── Supervisor-specific render ──────────────────────────────────────────
+  const renderItem = (item: NavItem) => {
+    const active = isActive(item);
+    const badge = item.badge ? (counts[item.badge] ?? 0) : 0;
+    const children = item.children ?? [];
 
-  const renderSupervisorNav = () => (
-    <>
-      {/* Top standalone: Dashboard */}
-      <div className="space-y-1">
-        {!collapsed && (
-          <div className="px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-widest text-[#60a5fa]">
-            Standalone Pages
-          </div>
-        )}
-        {supervisorNav.topItems.map(item => (
-          <NavLink
-            key={item.url}
-            to={item.url}
-            end
-            onClick={() => setMobileOpen(false)}
-            className={navLinkClass(item.url)}
-            title={collapsed ? item.title : undefined}
-          >
-            <item.icon className="size-5 shrink-0" />
-            {!collapsed && <span className="truncate">{item.title}</span>}
-          </NavLink>
-        ))}
-      </div>
-
-      {/* Collapsible sections */}
-      <div className="mt-1">
-        {!collapsed && (
-          <div className="px-3 pb-1.5 pt-2.5 text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">
-            Dropdown Menus
-          </div>
-        )}
-        <div className="space-y-0.5">
-          {supervisorNav.sections.map(section => {
-            const isOpen = openSection === section.id;
-            const hasActiveChild = section.items.some(item => isActive(item.url));
-            const isHovered = hoveredSection === section.id;
-            
-            return (
-              <div 
-                key={section.id}
-                className="relative"
-                onMouseEnter={() => collapsed && setHoveredSection(section.id)}
-                onMouseLeave={() => setHoveredSection(null)}
-              >
-                <button
-                  type="button"
-                  onClick={() => !collapsed && toggleSection(section.id)}
-                  className={sectionHeaderClass(hasActiveChild)}
-                  title={collapsed ? section.label : undefined}
-                >
-                  <section.icon className="size-5 shrink-0" />
-                  {!collapsed && (
-                    <>
-                      <span className="flex-1 text-left truncate">{section.label}</span>
-                      <span className="rounded-full bg-[#60a5fa]/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#93c5fd]">
-                        Menu
-                      </span>
-                      <ChevronDown
-                        className={`size-4 shrink-0 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
-                      />
-                    </>
-                  )}
-                </button>
-
-                {/* Expanded dropdown */}
-                {!collapsed && isOpen && (
-                  <div className="ml-4 mt-1 space-y-0.5 border-l border-dashed border-[#60a5fa]/30 pl-3 overflow-hidden transition-all duration-300">
-                    {section.items.map(item => (
-                      <NavLink
-                        key={item.url}
-                        to={item.url}
-                        onClick={() => setMobileOpen(false)}
-                        className={`flex items-center gap-3 px-3 py-1.5 rounded-lg text-sm transition-all duration-300 ${
-                          isActive(item.url) 
-                            ? 'bg-[#EEF2FF] text-[#151A2D] font-medium' 
-                            : 'text-[#94a3b8] hover:bg-[#EEF2FF]/10 hover:text-[#EEF2FF]'
-                        }`}
-                      >
-                        <span className={`size-1.5 rounded-full ${isActive(item.url) ? 'bg-[#151A2D]' : 'bg-[#60a5fa]/60'}`} />
-                        <item.icon className="size-4 shrink-0" />
-                        <span className="truncate">{item.title}</span>
-                      </NavLink>
-                    ))}
-                  </div>
-                )}
-
-                {/* Collapsed flyout */}
-                {collapsed && (isHovered || isOpen) && (
-                  <div className="absolute left-full top-0 ml-2 z-50 min-w-[200px] bg-[#151A2D] rounded-lg shadow-xl border border-[#2d3748] py-2">
-                    <div className="px-3 py-2 text-sm font-semibold text-[#EEF2FF] border-b border-[#2d3748] mb-1">
-                      <div>{section.label}</div>
-                      <div className="text-[10px] font-semibold uppercase tracking-widest text-[#60a5fa]">Dropdown Menu</div>
-                    </div>
-                    {section.items.map(item => (
-                      <NavLink
-                        key={item.url}
-                        to={item.url}
-                        onClick={() => setMobileOpen(false)}
-                        className={`flex items-center gap-3 px-3 py-2 mx-1 rounded-lg text-sm transition-all duration-200 ${
-                          isActive(item.url) 
-                            ? 'bg-[#EEF2FF] text-[#151A2D] font-medium' 
-                            : 'text-[#94a3b8] hover:bg-[#EEF2FF] hover:text-[#151A2D]'
-                        }`}
-                      >
-                        <item.icon className="size-4 shrink-0" />
-                        <span>{item.title}</span>
-                      </NavLink>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="mt-2 space-y-0.5">
-        {!collapsed && (
-          <div className="px-3 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-widest text-[#60a5fa]">
-            More Standalone Pages
-          </div>
-        )}
-        {supervisorNav.bottomItems.map(item => (
-          <NavLink
-            key={item.url}
-            to={item.url}
-            onClick={() => setMobileOpen(false)}
-            className={navLinkClass(item.url)}
-            title={collapsed ? item.title : undefined}
-          >
-            <item.icon className="size-5 shrink-0" />
-            {!collapsed && <span className="truncate">{item.title}</span>}
-          </NavLink>
-        ))}
-      </div>
-
-    </>
-  );
-
-  // ── Generic flat nav for other roles ───────────────────────────────────
-
-  const renderFlatNav = () => {
-    const items = menuItems[role as keyof typeof menuItems] || [];
     return (
-      <>
-        {!collapsed && (
-          <div className="px-3 pb-2 pt-2 text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">
-            Navigation
+      <div key={item.url}>
+        <NavLink
+          to={item.url}
+          end={item.end}
+          onClick={closeMobile}
+          className={`flex items-center gap-2.5 rounded-r-lg border-l-2 px-2.5 py-[7px] text-[13px] transition-colors ${
+            active
+              ? "border-[#60a5fa] bg-[#EEF2FF] font-medium text-[#151A2D]"
+              : "border-transparent text-[#cbd5e1] hover:bg-white/[0.06] hover:text-white"
+          }`}
+        >
+          <item.icon className="size-4 shrink-0" />
+          <span className="flex-1 truncate">{item.title}</span>
+          {badge > 0 && (
+            <span
+              className={`rounded-full px-1.5 py-px text-[11px] font-medium tabular-nums ${
+                active ? "bg-[#151A2D] text-white" : "bg-[#f87171]/20 text-[#fca5a5]"
+              }`}
+            >
+              {badge}
+            </span>
+          )}
+        </NavLink>
+
+        {/* Sub-pages surface only while their parent branch is active */}
+        {active && children.length > 0 && (
+          <div className="mt-0.5 space-y-0.5 border-l border-[#2d3748] pl-3 ml-3">
+            {children.map(child => (
+              <NavLink
+                key={child.url}
+                to={child.url}
+                onClick={closeMobile}
+                className={`block truncate rounded-md px-2.5 py-1 text-[12px] transition-colors ${
+                  matchesPath(currentPath, child.url)
+                    ? "bg-white/[0.10] font-medium text-white"
+                    : "text-[#94a3b8] hover:bg-white/[0.06] hover:text-[#cbd5e1]"
+                }`}
+              >
+                {child.title}
+              </NavLink>
+            ))}
           </div>
         )}
-        <div className="space-y-1">
-          {items.map(item => (
-            <NavLink
-              key={item.title}
-              to={item.url}
-              end={item.url === `/${role}`}
-              onClick={() => setMobileOpen(false)}
-              className={navLinkClass(item.url)}
-              title={collapsed ? item.title : undefined}
-            >
-              <item.icon className="size-5 shrink-0" />
-              {!collapsed && <span className="truncate">{item.title}</span>}
-            </NavLink>
-          ))}
-        </div>
-
-        {switchItem && (
-          <>
-            {!collapsed && (
-              <div className="px-3 pb-2 pt-4 text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">
-                Switch Dashboard
-              </div>
-            )}
-            <div className="space-y-1 mt-2">
-              <NavLink
-                to={switchItem.url}
-                onClick={() => setMobileOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#94a3b8] hover:bg-[#EEF2FF] hover:text-[#151A2D] text-sm transition-all duration-300 ${
-                  collapsed ? 'justify-center' : ''
-                }`}
-                title={collapsed ? switchItem.title : undefined}
-              >
-                <switchItem.icon className="size-5 shrink-0" />
-                {!collapsed && <span className="truncate">{switchItem.title}</span>}
-              </NavLink>
-            </div>
-          </>
-        )}
-      </>
+      </div>
     );
   };
 
+  const renderExpandedGroup = (group: NavGroup) => {
+    if (!group.label) {
+      return (
+        <div key={group.id} className="space-y-0.5">
+          {group.items.map(renderItem)}
+        </div>
+      );
+    }
+
+    const isOpen = openGroups.includes(group.id);
+    const badge = groupCount(group);
+
+    return (
+      <div key={group.id}>
+        <button
+          type="button"
+          onClick={() => toggleGroup(group.id)}
+          aria-expanded={isOpen}
+          className="sticky top-0 z-10 flex w-full items-center gap-1.5 bg-[#151A2D] px-2.5 pb-1 pt-3.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9fb0c9] transition-colors hover:text-[#e2e8f0]"
+        >
+          <span className="flex-1 text-left">{group.label}</span>
+          {badge > 0 && !isOpen && (
+            <span className="rounded-full bg-[#f87171]/20 px-1.5 text-[10px] tabular-nums text-[#fca5a5]">
+              {badge}
+            </span>
+          )}
+          <ChevronDown className={`size-3.5 transition-transform ${isOpen ? "" : "-rotate-90"}`} />
+        </button>
+        {isOpen && <div className="space-y-0.5">{group.items.map(renderItem)}</div>}
+      </div>
+    );
+  };
+
+  const renderRailButton = (group: NavGroup) => {
+    const hasActive = group.items.some(isActive);
+    const badge = groupCount(group);
+
+    return (
+      <button
+        key={group.id}
+        type="button"
+        aria-label={group.label ?? "Navigation"}
+        onMouseEnter={event => openFlyout(group.id, event.currentTarget)}
+        onFocus={event => openFlyout(group.id, event.currentTarget)}
+        className={`relative flex w-full items-center justify-center rounded-lg py-2 transition-colors ${
+          hasActive ? "bg-[#EEF2FF] text-[#151A2D]" : "text-[#94a3b8] hover:bg-white/[0.06] hover:text-white"
+        }`}
+      >
+        <group.icon className="size-[18px]" />
+        {badge > 0 && (
+          <span className="absolute right-1 top-0.5 min-w-[15px] rounded-full bg-[#ef4444] px-1 text-[10px] font-medium leading-[15px] text-white">
+            {badge}
+          </span>
+        )}
+      </button>
+    );
+  };
+
+  const renderFlyout = () => {
+    if (!flyout) return null;
+    const group = groups.find(entry => entry.id === flyout.groupId);
+    if (!group) return null;
+
+    return createPortal(
+      <div
+        className="fixed z-[60] pl-2"
+        style={{ top: flyout.top, left: flyout.left }}
+        onMouseEnter={cancelFlyoutClose}
+        onMouseLeave={() => setFlyout(null)}
+      >
+        <div className="min-w-[212px] rounded-lg border border-[#2d3748] bg-[#151A2D] py-1.5 shadow-xl">
+          {group.label && (
+            <div className="border-b border-[#2d3748] px-3 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#9fb0c9]">
+              {group.label}
+            </div>
+          )}
+          <div className="mt-1 space-y-0.5 px-1">
+            {group.items.map(item => {
+              const itemBadge = item.badge ? (counts[item.badge] ?? 0) : 0;
+              return (
+                <NavLink
+                  key={item.url}
+                  to={item.url}
+                  end={item.end}
+                  onClick={() => {
+                    setFlyout(null);
+                    closeMobile();
+                  }}
+                  className={`flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] transition-colors ${
+                    isActive(item)
+                      ? "bg-[#EEF2FF] font-medium text-[#151A2D]"
+                      : "text-[#cbd5e1] hover:bg-white/[0.08] hover:text-white"
+                  }`}
+                >
+                  <item.icon className="size-4 shrink-0" />
+                  <span className="flex-1 truncate">{item.title}</span>
+                  {itemBadge > 0 && (
+                    <span className="rounded-full bg-[#f87171]/20 px-1.5 text-[11px] tabular-nums text-[#fca5a5]">
+                      {itemBadge}
+                    </span>
+                  )}
+                </NavLink>
+              );
+            })}
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  };
+
+  // Collapsed: ungrouped items keep their own icons, every group folds to one.
+  const renderRail = () => (
+    <div className="space-y-1" onMouseLeave={scheduleFlyoutClose}>
+      {groups.map((group, index) => {
+        if (!group.label) {
+          return (
+            <div key={group.id} className="space-y-1">
+              {group.items.map(item => (
+                <NavLink
+                  key={item.url}
+                  to={item.url}
+                  end={item.end}
+                  onClick={closeMobile}
+                  title={item.title}
+                  className={`flex items-center justify-center rounded-lg py-2 transition-colors ${
+                    isActive(item)
+                      ? "bg-[#EEF2FF] text-[#151A2D]"
+                      : "text-[#94a3b8] hover:bg-white/[0.06] hover:text-white"
+                  }`}
+                >
+                  <item.icon className="size-[18px]" />
+                </NavLink>
+              ))}
+            </div>
+          );
+        }
+        const previous = groups[index - 1];
+        return (
+          <div key={group.id}>
+            {previous && <div className="mx-auto my-1.5 h-px w-6 bg-[#2d3748]" />}
+            {renderRailButton(group)}
+          </div>
+        );
+      })}
+    </div>
+  );
+
   return (
     <>
-      {/* Mobile overlay */}
       {mobileOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
+        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={closeMobile} />
       )}
 
-      {/* Mobile menu button */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="fixed top-4 left-4 z-50 p-2 bg-[#151A2D] text-[#F1F4FF] rounded-lg lg:hidden shadow-lg"
+        aria-label="Open navigation"
+        className="fixed left-4 top-4 z-50 rounded-lg bg-[#151A2D] p-2 text-[#F1F4FF] shadow-lg lg:hidden"
       >
         <Menu className="size-5" />
       </button>
 
-      {/* Sidebar */}
-      <div 
-        className={`
-          fixed lg:static inset-y-0 left-0 z-50
-          bg-[#151A2D] text-white flex flex-col
-          transform transition-all duration-300 ease-in-out lg:transform-none
-          ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-          ${collapsed ? 'lg:w-[85px]' : 'lg:w-[270px]'}
-          w-[270px]
-        `}
+      <div
+        className={`fixed inset-y-0 left-0 z-50 flex w-[262px] transform flex-col bg-[#151A2D] text-white transition-all duration-300 ease-in-out lg:static lg:transform-none ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        } ${collapsed ? "lg:w-[68px]" : "lg:w-[262px]"}`}
       >
-        {/* Header with Logo and Toggle */}
-        <div className={`p-4 border-b border-[#2d3748] flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
-          <div className={`flex items-center gap-3 ${collapsed ? 'hidden lg:flex' : ''}`}>
-            <img src="/logo.png" alt="ATCORA" className="h-10 w-10 rounded-lg object-cover" />
+        {/* Brand */}
+        <div
+          className={`relative flex items-center border-b border-[#2d3748] p-3.5 ${
+            collapsed ? "justify-center" : "justify-between"
+          }`}
+        >
+          <div className={`flex items-center gap-2.5 ${collapsed ? "hidden lg:flex" : ""}`}>
+            <img src="/logo.png" alt="ATCORA" className="size-9 rounded-lg object-cover" />
             {!collapsed && (
               <div>
-                <div className="text-[#60a5fa] font-bold text-base leading-tight tracking-wider">ATCORA</div>
-                <div className="text-xs text-[#64748b] capitalize">{role} Portal</div>
+                <div className="text-[15px] font-bold leading-tight tracking-wider text-[#60a5fa]">ATCORA</div>
+                <div className="text-[11px] capitalize text-[#9fb0c9]">{role} Portal</div>
               </div>
             )}
           </div>
-          
-          {/* Collapsed logo icon only */}
-          {collapsed && (
-            <img src="/logo.png" alt="ATCORA" className="h-10 w-10 rounded-lg object-cover hidden lg:block" />
-          )}
-          
-          {/* Mobile close button */}
-          <button
-            onClick={() => setMobileOpen(false)}
-            className="lg:hidden p-1 hover:bg-[#EEF2FF]/10 rounded-lg transition-colors"
-          >
+
+          <button onClick={closeMobile} aria-label="Close navigation" className="rounded-lg p-1 hover:bg-white/[0.06] lg:hidden">
             <X className="size-5 text-[#94a3b8]" />
           </button>
-          
-          {/* Desktop toggle button */}
+
           <button
-            onClick={toggleCollapsed}
-            className="hidden lg:flex p-1.5 bg-[#EEF2FF] text-[#151A2D] rounded-lg hover:bg-[#dbe4ff] transition-all duration-300 absolute -right-3 top-1/2 -translate-y-1/2 shadow-md"
+            onClick={() => setCollapsed(prev => !prev)}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="absolute -right-3 top-1/2 hidden -translate-y-1/2 rounded-lg bg-[#EEF2FF] p-1.5 text-[#151A2D] shadow-md transition-colors hover:bg-[#dbe4ff] lg:flex"
           >
-            <ChevronLeft 
-              className={`size-4 transition-transform duration-300 ${collapsed ? 'rotate-180' : ''}`} 
-            />
+            <ChevronLeft className={`size-4 transition-transform duration-300 ${collapsed ? "rotate-180" : ""}`} />
+          </button>
+        </div>
+
+        {/* Portal switcher — sits with the brand, since it answers "which portal am I in" */}
+        {switchItem && (
+          <div className={`shrink-0 border-b border-[#2d3748] pb-2.5 pt-2.5 ${collapsed ? "px-2" : "px-2.5"}`}>
+            <NavLink
+              to={switchItem.url}
+              onClick={closeMobile}
+              title={collapsed ? `Switch to ${switchItem.title}` : undefined}
+              className={`flex w-full items-center gap-2 rounded-lg bg-[#60a5fa]/[0.12] text-[13px] text-[#bfdbfe] transition-colors hover:bg-[#60a5fa]/20 hover:text-white ${
+                collapsed ? "justify-center py-2" : "px-2.5 py-[7px]"
+              }`}
+            >
+              {/* A fixed switch glyph, not the target role's icon — on the collapsed
+                  rail that icon would be indistinguishable from Dashboard. */}
+              <Repeat className="size-4 shrink-0" />
+              {!collapsed && (
+                <>
+                  <span className="flex-1 truncate text-left">{switchItem.title}</span>
+                  <ChevronRight className="size-3.5 shrink-0 opacity-70" />
+                </>
+              )}
+            </NavLink>
+          </div>
+        )}
+
+        {/* Search */}
+        <div className={`shrink-0 pt-2.5 ${collapsed ? "px-2" : "px-2.5"}`}>
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            title={collapsed ? "Search pages" : undefined}
+            className={`flex w-full items-center gap-2 rounded-lg border border-[#2d3748] bg-[#1e2742] text-[13px] text-[#9fb0c9] transition-colors hover:border-[#3b4a6b] hover:text-[#e2e8f0] ${
+              collapsed ? "justify-center py-2" : "px-2.5 py-[7px]"
+            }`}
+          >
+            <Search className="size-4 shrink-0" />
+            {!collapsed && (
+              <>
+                <span className="flex-1 text-left">Search</span>
+                <span className="rounded border border-[#3b4a6b] px-1 font-mono text-[10px]">⌘K</span>
+              </>
+            )}
           </button>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 min-h-0 px-3 py-3 overflow-y-auto scrollbar-thin scrollbar-thumb-[#2d3748] scrollbar-track-transparent">
-          {role === "supervisor" ? renderSupervisorNav() : renderFlatNav()}
-
-          {/* Switch Dashboard — supervisor only (flat nav handles it inline) */}
-          {role === "supervisor" && switchItem && !collapsed && (
-            <>
-              <div className="px-3 pb-2 pt-4 text-[10px] font-semibold uppercase tracking-widest text-[#64748b]">
-                Switch Dashboard
-              </div>
-              <div className="space-y-1">
-                <NavLink
-                  to={switchItem.url}
-                  onClick={() => setMobileOpen(false)}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#94a3b8] hover:bg-[#EEF2FF] hover:text-[#151A2D] text-sm transition-all duration-300"
-                >
-                  <switchItem.icon className="size-5 shrink-0" />
-                  <span className="truncate">{switchItem.title}</span>
-                </NavLink>
-              </div>
-            </>
-          )}
-          
-          {/* Collapsed switch for supervisor */}
-          {role === "supervisor" && switchItem && collapsed && (
-            <div className="mt-2">
-              <NavLink
-                to={switchItem.url}
-                onClick={() => setMobileOpen(false)}
-                className="flex items-center justify-center p-2.5 rounded-lg text-[#94a3b8] hover:bg-[#EEF2FF] hover:text-[#151A2D] transition-all duration-300"
-                title={switchItem.title}
-              >
-                <switchItem.icon className="size-5 shrink-0" />
-              </NavLink>
-            </div>
-          )}
+        <nav
+          className={`sidebar-scrollbar min-h-0 flex-1 overflow-y-auto py-2 ${
+            collapsed ? "px-2" : "pl-1.5 pr-2.5"
+          }`}
+        >
+          {collapsed ? renderRail() : groups.map(renderExpandedGroup)}
         </nav>
 
-        {/* Bottom: App Settings + Share + Logout */}
-        <div className="shrink-0 p-3 border-t border-[#2d3748]">
+        {/* Account */}
+        <div className={`shrink-0 border-t border-[#2d3748] p-2 ${collapsed ? "space-y-1" : ""}`}>
           <Link
             to={`/settings?portal=${role}`}
-            onClick={() => setMobileOpen(false)}
-            className={`mb-2 flex items-center gap-3 px-3 py-2.5 rounded-lg w-full text-sm transition-all duration-300 ${
-              currentPath === "/settings"
-                ? "bg-[#EEF2FF] text-[#151A2D] font-medium"
-                : "text-[#94a3b8] hover:bg-[#EEF2FF] hover:text-[#151A2D]"
-            } ${collapsed ? 'justify-center' : ''}`}
+            onClick={closeMobile}
             title={collapsed ? "App Settings" : undefined}
+            className={`flex items-center gap-2.5 rounded-lg py-[7px] text-[13px] transition-colors ${
+              currentPath === "/settings"
+                ? "bg-[#EEF2FF] font-medium text-[#151A2D]"
+                : "text-[#94a3b8] hover:bg-white/[0.06] hover:text-white"
+            } ${collapsed ? "justify-center" : "px-2.5"}`}
           >
-            <Settings className="size-5 shrink-0" />
+            <Settings className="size-4 shrink-0" />
             {!collapsed && <span>App Settings</span>}
           </Link>
-          <button
-            type="button"
-            onClick={() => setShareOpen(true)}
-            className={`mb-2 flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#94a3b8] hover:bg-[#EEF2FF] hover:text-[#151A2D] w-full text-sm transition-all duration-300 ${
-              collapsed ? 'justify-center' : ''
-            }`}
-            title={collapsed ? "Share This App" : undefined}
-          >
-            <Share2 className="size-5 shrink-0" />
-            {!collapsed && <span>Share This App</span>}
-          </button>
-          <button
-            onClick={handleLogout}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-[#94a3b8] hover:bg-red-500/20 hover:text-red-400 w-full text-sm transition-all duration-300 ${
-              collapsed ? 'justify-center' : ''
-            }`}
-            title={collapsed ? "Logout" : undefined}
-          >
-            <LogOut className="size-5 shrink-0" />
-            {!collapsed && <span>Logout</span>}
-          </button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                title={collapsed ? displayName : undefined}
+                className={`mt-1 flex w-full items-center gap-2.5 rounded-lg py-1.5 text-[13px] text-[#cbd5e1] transition-colors hover:bg-white/[0.06] ${
+                  collapsed ? "justify-center" : "px-2.5"
+                }`}
+              >
+                <Avatar className="size-7 border border-[#2d3748]">
+                  <AvatarImage src={profile?.photo_url || undefined} alt={displayName} />
+                  <AvatarFallback className="bg-[#1e2742] text-[11px] font-medium text-[#93c5fd]">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+                {!collapsed && (
+                  <>
+                    <span className="flex-1 truncate text-left">{displayName}</span>
+                    <MoreHorizontal className="size-4 shrink-0 text-[#9fb0c9]" />
+                  </>
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              side="top"
+              sideOffset={8}
+              className="w-56 border-gray-200 bg-white p-1.5 shadow-xl dark:border-gray-700 dark:bg-gray-900"
+            >
+              <div className="px-2 py-1.5">
+                <div className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{displayName}</div>
+                <div className="text-xs capitalize text-gray-500 dark:text-gray-400">{role} Portal</div>
+              </div>
+              <DropdownMenuSeparator className="bg-gray-200 dark:bg-gray-700" />
+              <DropdownMenuItem
+                onSelect={() => setShareOpen(true)}
+                className="gap-2 py-2 text-gray-700 focus:bg-gray-100 focus:text-gray-900 dark:text-gray-200 dark:focus:bg-gray-800 dark:focus:text-white"
+              >
+                <Share2 className="size-4" />
+                Share this app
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={handleLogout}
+                className="gap-2 py-2 text-red-600 focus:bg-red-50 focus:text-red-700 dark:text-red-400 dark:focus:bg-red-950 dark:focus:text-red-300"
+              >
+                <LogOut className="size-4" />
+                Log out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
+      {collapsed && renderFlyout()}
       <ShareAppDialog open={shareOpen} onOpenChange={setShareOpen} />
+      <NavCommandPalette role={role} open={paletteOpen} onOpenChange={setPaletteOpen} />
     </>
   );
 }
-
-/** Exported for DashboardLayout to trigger mobile sidebar */
-export { X as MenuIcon };

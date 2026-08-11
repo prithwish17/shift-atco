@@ -257,6 +257,29 @@ All colors MUST be HSL.
   scrollbar-color: #9ca3af #f3f4f6;
 }
 
+/* Sidebar nav — a light default scrollbar reads as a seam on the dark rail */
+.sidebar-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: #2d3748;
+  border-radius: 3px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #3b4a6b;
+}
+
+.sidebar-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #2d3748 transparent;
+}
+
 @keyframes splash-slide {
   0% {
     transform: translateX(0) scaleX(0.72);
