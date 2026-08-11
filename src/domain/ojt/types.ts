@@ -90,6 +90,15 @@ export interface OjtProgressRecord extends OjtProgress {
     overrideUpdatedAt: string | null;
     overrideUpdatedByName: string | null;
     overrideNote: string | null;
+
+    /**
+     * Milestone from Trainee Details. 'training_continue' is filtered out
+     * server-side — it is the default "still going" value and tells a
+     * supervisor nothing they could act on.
+     */
+    traineeStatus: string | null;
+    /** The date belonging to that milestone, ISO `YYYY-MM-DD`. */
+    traineeStatusDate: string | null;
 }
 
 /** The employee-facing subset — no sheet internals, no editor identity. */

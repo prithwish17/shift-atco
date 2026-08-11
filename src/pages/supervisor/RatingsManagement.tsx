@@ -41,6 +41,15 @@ import {
     type TraineeStatus,
 } from '@/lib/traineeMilestones';
 import {
+    formatDaysLeft,
+    formatOjtHours,
+    formatOjtRatio,
+    getOjtBandClass,
+    getOjtBandLabel,
+    getOjtRatioTextClass,
+    type OjtBand,
+} from '@/domain/ojt';
+import {
     PROFICIENCY_RATING_TYPES as RATING_TYPES,
     getRecordProfValidity,
     normalizeRatingEntry,
@@ -136,6 +145,23 @@ interface TraineeSyncRecord {
     board_scheduled_on: string | null;
     highest_rating: string | null;
     current_station: string | null;
+    /**
+     * OJT correlation, supplied by get_supervisor_trainee_records(). Optional so
+     * the legacy fallback query below still type-checks when the RPC is absent.
+     * Where a trainee runs more than one live cycle, these describe the most
+     * pressing one and ojt_cycle_count says how many there are.
+     */
+    ojt_unit?: string | null;
+    ojt_start_date?: string | null;
+    ojt_deadline?: string | null;
+    ojt_hours_left?: number | null;
+    ojt_days_left?: number | null;
+    ojt_ratio?: number | null;
+    ojt_band?: OjtBand | null;
+    ojt_requires_gm_extension?: boolean;
+    ojt_cycle_count?: number;
+    /** 'both' | 'trainee' | 'ojt' — which side this row came from. */
+    source?: string | null;
 }
 
 type EditableRatingRecord = {
@@ -501,23 +527,21 @@ function useTraineeSyncData() {
                     board_scheduled_on: string | null;
                     highest_rating: string | null;
                     current_station: string | null;
+                    ojt_unit: string | null;
+                    ojt_start_date: string | null;
+                    ojt_deadline: string | null;
+                    ojt_hours_left: number | null;
+                    ojt_days_left: number | null;
+                    ojt_ratio: number | null;
+                    ojt_band: OjtBand | null;
+                    ojt_requires_gm_extension: boolean | null;
+                    ojt_cycle_count: number | null;
+                    source: string | null;
                 }>)
-                    .filter((row): row is {
-                        emp_id: string;
-                        name: string | null;
-                        designation: string | null;
-                        unit: string | null;
-                        hours_required: number | null;
-                        status: TraineeStatus | null;
-                        preboard_completed_on: string | null;
-                        preboard_scheduled_on: string | null;
-                        board_scheduled_on: string | null;
-                        highest_rating: string | null;
-                        current_station: string | null;
-                    } => Boolean(row.emp_id))
+                    .filter((row) => Boolean(row.emp_id))
                     .map((row) => ({
-                        emp_id: row.emp_id,
-                        name: row.name || row.emp_id,
+                        emp_id: row.emp_id as string,
+                        name: row.name || (row.emp_id as string),
                         designation: row.designation,
                         unit: row.unit,
                         hours_required: row.hours_required,
@@ -527,6 +551,16 @@ function useTraineeSyncData() {
                         board_scheduled_on: row.board_scheduled_on,
                         highest_rating: row.highest_rating,
                         current_station: row.current_station,
+                        ojt_unit: row.ojt_unit,
+                        ojt_start_date: row.ojt_start_date,
+                        ojt_deadline: row.ojt_deadline,
+                        ojt_hours_left: row.ojt_hours_left,
+                        ojt_days_left: row.ojt_days_left,
+                        ojt_ratio: row.ojt_ratio,
+                        ojt_band: row.ojt_band,
+                        ojt_requires_gm_extension: Boolean(row.ojt_requires_gm_extension),
+                        ojt_cycle_count: row.ojt_cycle_count ?? 0,
+                        source: row.source,
                     }));
             } catch (error) {
                 if (!shouldFallbackToLegacyTraineeQuery(error)) {
@@ -1004,6 +1038,9 @@ function TraineeTab({
                 record.preboard_completed_on || '',
                 record.preboard_scheduled_on || '',
                 record.board_scheduled_on || '',
+                record.ojt_unit || '',
+                record.ojt_band ? getOjtBandLabel(record.ojt_band) : '',
+                record.ojt_requires_gm_extension ? 'gm extension' : '',
             ]
                 .join(' ')
                 .toLowerCase();
@@ -1219,6 +1256,53 @@ function TraineeTab({
                                     <span className="text-muted-foreground">Station</span>
                                     <span className="min-w-0 text-right font-medium">{record.current_station || '—'}</span>
                                 </div>
+
+                                {/* OJT hours progress, correlated from the OJT Progress page. */}
+                                {record.ojt_band && (
+                                    <div className="mt-2 space-y-1 rounded-lg border border-border/70 bg-muted/40 p-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="font-medium text-muted-foreground">
+                                                OJT {record.ojt_unit}
+                                                {(record.ojt_cycle_count ?? 0) > 1 && (
+                                                    <span className="ml-1 font-normal">
+                                                        (+{(record.ojt_cycle_count ?? 1) - 1} more)
+                                                    </span>
+                                                )}
+                                            </span>
+                                            <Badge variant="outline" className={`text-[9px] md:text-[10px] px-1.5 py-0 ${getOjtBandClass(record.ojt_band)}`}>
+                                                {getOjtBandLabel(record.ojt_band)}
+                                            </Badge>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="text-muted-foreground">Hours left</span>
+                                            <span className="text-right font-medium tabular-nums">
+                                                {formatOjtHours(record.ojt_hours_left)}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="text-muted-foreground">Deadline</span>
+                                            <span className="text-right font-medium">
+                                                {formatTraineeDate(record.ojt_deadline)}
+                                                <span className={`ml-1 font-normal ${(record.ojt_days_left ?? 0) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
+                                                    ({formatDaysLeft(record.ojt_days_left)})
+                                                </span>
+                                            </span>
+                                        </div>
+                                        {record.ojt_ratio !== null && record.ojt_ratio !== undefined && (
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="text-muted-foreground">Required rate</span>
+                                                <span className={`text-right font-semibold tabular-nums ${getOjtRatioTextClass(record.ojt_band)}`}>
+                                                    {formatOjtRatio(record.ojt_ratio)} hrs/day
+                                                </span>
+                                            </div>
+                                        )}
+                                        {record.ojt_requires_gm_extension && (
+                                            <p className="pt-0.5 font-medium text-rose-700 dark:text-rose-300">
+                                                Needs GM (ATM) extension — under 15 days at above 1 hr/day
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                             <div className="mt-auto border-t border-border/70 pt-2">
                                 <div className="flex flex-col gap-2 text-[10px] md:text-xs sm:flex-row sm:items-start sm:justify-between">

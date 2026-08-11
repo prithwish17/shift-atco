@@ -16,6 +16,7 @@ import {
 import type { OjtProgress } from '@/domain/ojt';
 
 import { GmExtensionAlert } from './GmExtensionAlert';
+import { TraineeMilestoneChip } from './TraineeMilestoneChip';
 import { formatOjtDate } from './formatOjtDate';
 
 export interface OjtCardRecord extends OjtProgress {
@@ -31,6 +32,9 @@ export interface OjtCardRecord extends OjtProgress {
     currentStation?: string | null;
     startDateSource?: 'app' | 'sheet' | null;
     profileLinked?: boolean;
+    /** Milestone carried over from Trainee Details, when one is set. */
+    traineeStatus?: string | null;
+    traineeStatusDate?: string | null;
 }
 
 export function OjtProgressCard({
@@ -155,6 +159,14 @@ export function OjtProgressCard({
                         Duty days {record.performedDays ?? '—'} / {record.requiredDays ?? '—'}
                     </span>
                 </div>
+
+                {/* Pre-board / board milestone, when Trainee Details has one */}
+                {record.traineeStatus && (
+                    <div className="flex items-center gap-1.5 border-t pt-2">
+                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Milestone</span>
+                        <TraineeMilestoneChip status={record.traineeStatus} date={record.traineeStatusDate} />
+                    </div>
+                )}
 
                 {/* Flags — never a replacement for the band */}
                 {(record.notStarted || record.daysRequirementMet || record.profileLinked === false) && (

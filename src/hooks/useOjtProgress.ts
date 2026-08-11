@@ -40,6 +40,8 @@ interface OjtProgressRow {
     override_updated_at: string | null;
     override_updated_by_name: string | null;
     override_note: string | null;
+    trainee_status: string | null;
+    trainee_status_date: string | null;
 }
 
 /**
@@ -90,6 +92,8 @@ function toRecord(row: OjtProgressRow): OjtProgressRecord {
         overrideUpdatedAt: row.override_updated_at,
         overrideUpdatedByName: row.override_updated_by_name,
         overrideNote: row.override_note,
+        traineeStatus: row.trainee_status,
+        traineeStatusDate: row.trainee_status_date,
     };
 }
 

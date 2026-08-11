@@ -7,6 +7,7 @@ import {
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { GmExtensionAlert } from '@/components/ojt/GmExtensionAlert';
 import { OjtProgressCard } from '@/components/ojt/OjtProgressCard';
+import { TraineeMilestoneChip } from '@/components/ojt/TraineeMilestoneChip';
 import { formatOjtDate } from '@/components/ojt/formatOjtDate';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -611,6 +612,7 @@ export default function OjtProgress() {
                                         <TableHead className="text-right">Days left</TableHead>
                                         <TableHead className="text-right">Rate</TableHead>
                                         <TableHead>Status</TableHead>
+                                        <TableHead>Milestone</TableHead>
                                         <TableHead className="w-10" />
                                     </TableRow>
                                 </TableHeader>
@@ -676,6 +678,16 @@ export default function OjtProgress() {
                                                         <span className="text-[10px] text-muted-foreground">No hours logged</span>
                                                     )}
                                                 </div>
+                                            </TableCell>
+                                            <TableCell className="py-2">
+                                                {record.traineeStatus ? (
+                                                    <TraineeMilestoneChip
+                                                        status={record.traineeStatus}
+                                                        date={record.traineeStatusDate}
+                                                    />
+                                                ) : (
+                                                    <span className="text-[11px] text-muted-foreground">—</span>
+                                                )}
                                             </TableCell>
                                             <TableCell className="py-2">
                                                 <Button
