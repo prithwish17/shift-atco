@@ -197,7 +197,7 @@ Deno.serve(async (_req: Request) => {
     if (emailToggle?.value === 'false') {
       message = 'Email system paused by admin — skipping queue processing'
       status = 'success'
-      await logApiCall({ endpoint: ENDPOINT, status, message, duration_ms: Date.now() - start, triggered_by: 'pg_cron', job_name: JOB_NAME, records_affected: 0 })
+      await log.complete(status, message, 0)
       return new Response(JSON.stringify({ status, message }), { headers: { 'Content-Type': 'application/json' } })
     }
 
@@ -218,7 +218,7 @@ Deno.serve(async (_req: Request) => {
     if (fetchError) throw fetchError
     if (!jobs?.length) {
       message = 'No pending jobs'
-      await logApiCall({ endpoint: ENDPOINT, status, message, duration_ms: Date.now() - start, triggered_by: 'pg_cron', job_name: JOB_NAME, records_affected: 0 })
+      await log.complete(status, message, 0)
       return new Response(JSON.stringify({ status, message }), { headers: { 'Content-Type': 'application/json' } })
     }
 
