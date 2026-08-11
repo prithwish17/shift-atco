@@ -67,6 +67,7 @@ const MedicalList = lazy(() => import("./pages/supervisor/MedicalList"));
 const RatingsManagement = lazy(() => import("./pages/supervisor/RatingsManagement"));
 const ProficiencyList = lazy(() => import("./pages/supervisor/ProficiencyList"));
 const TraineeDetails = lazy(() => import("./pages/supervisor/TraineeDetails"));
+const SupervisorOjtProgress = lazy(() => import("./pages/supervisor/OjtProgress"));
 const SupervisorRosterView = lazy(() => import("./pages/supervisor/SupervisorRosterView"));
 const SupervisorAvailabilityReport = lazy(() => import("./pages/supervisor/SupervisorAvailabilityReport"));
 const WorkingHours = lazy(() => import("./pages/supervisor/WorkingHours"));
@@ -92,6 +93,7 @@ const DutyExchangeRequest = lazy(() => import("./pages/employee/DutyExchangeRequ
 const EmployeeRoster = lazy(() => import("./pages/employee/EmployeeRoster"));
 const EmployeeHolidays = lazy(() => import("./pages/employee/EmployeeHolidays"));
 const EmployeeLicenses = lazy(() => import("./pages/employee/EmployeeLicenses"));
+const EmployeeOjtProgress = lazy(() => import("./pages/employee/OjtProgress"));
 const EmployeeDutyMarked = lazy(() => import("./pages/employee/EmployeeDutyMarked"));
 const EmployeeBATestList = lazy(() => import("./pages/employee/EmployeeBATestList"));
 
@@ -349,6 +351,7 @@ function App() {
                     <Route path="/supervisor/ratings" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><RatingsManagement /></ProtectedRoute>} />
                     <Route path="/supervisor/ratings/proficiency-list" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><ProficiencyList /></ProtectedRoute>} />
                     <Route path="/supervisor/trainees" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><TraineeDetails /></ProtectedRoute>} />
+                    <Route path="/supervisor/ojt-progress" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><SupervisorOjtProgress /></ProtectedRoute>} />
                     <Route path="/supervisor/email-logs" element={<ProtectedRoute allowedRoles={['supervisor']}><EmailLogs portalRole="supervisor" /></ProtectedRoute>} />
                     <Route path="/supervisor/working-hours" element={<ProtectedRoute allowedRoles={['supervisor']}><WorkingHours /></ProtectedRoute>} />
                     <Route path="/supervisor/duty-report" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyReport /></ProtectedRoute>} />
@@ -377,6 +380,7 @@ function App() {
                     <Route path="/employee/roster" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeRoster /></ProtectedRoute>} />
                     <Route path="/employee/holidays" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeHolidays /></ProtectedRoute>} />
                     <Route path="/employee/licenses" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeLicenses /></ProtectedRoute>} />
+                    <Route path="/employee/ojt-progress" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeOjtProgress /></ProtectedRoute>} />
                     <Route path="/employee/duty-marked" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeDutyMarked /></ProtectedRoute>} />
                     <Route path="/employee/ba-test-list" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><EmployeeBATestList /></ProtectedRoute>} />
 

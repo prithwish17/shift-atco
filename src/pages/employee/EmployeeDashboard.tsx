@@ -16,6 +16,7 @@ import { isFinalLeaveApproved, useMyLeaveRequests } from "@/hooks/useLeaveReques
 import { useDutyExchanges } from "@/hooks/useDutyExchanges";
 import { buildEmployeeLicenseHealth, type LicenseWithExtras } from "@/hooks/useLicenseDashboard";
 import { extractTraineeMilestone, getScheduledTraineeMilestone } from "@/lib/traineeMilestones";
+import { OjtDashboardSummary } from "@/components/ojt/OjtDashboardSummary";
 import { format, addDays, isSameDay, parse, parseISO, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, isAfter, isBefore } from "date-fns";
 import { parseRosterDate } from "@/lib/rosterDate";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -573,6 +574,8 @@ export default function EmployeeDashboard() {
             </div>
           </div>
         )}
+
+        <OjtDashboardSummary />
 
         <div className="bg-white dark:bg-gray-900 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-3 mb-4 md:mb-6">

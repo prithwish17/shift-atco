@@ -12,6 +12,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    // Edge-function tests cover the pure parsing modules only (e.g.
+    // fetch-ojt-data/parse.ts); handlers that touch Deno globals stay untested here.
+    include: ["src/**/*.test.ts", "supabase/functions/**/*.test.ts"],
   },
 });

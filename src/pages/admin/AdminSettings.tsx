@@ -29,6 +29,7 @@ export default function AdminSettings() {
     const [medicalUrl, setMedicalUrl] = useState("");
     const [ratingUrl, setRatingUrl] = useState("");
     const [traineeUrl, setTraineeUrl] = useState("");
+    const [ojtUrl, setOjtUrl] = useState("");
     const [elUrl, setElUrl] = useState("");
     const [teamCodeUrl, setTeamCodeUrl] = useState("");
     const [employeeDataUrl, setEmployeeDataUrl] = useState("");
@@ -66,6 +67,8 @@ export default function AdminSettings() {
             if (rating) setRatingUrl(rating.value);
             const trainee = settings.find((s) => s.key === "trainee_data_webapp_url");
             if (trainee) setTraineeUrl(trainee.value);
+            const ojt = settings.find((s) => s.key === "ojt_data_webapp_url");
+            if (ojt) setOjtUrl(ojt.value);
             const el = settings.find((s) => s.key === "el_data_webapp_url");
             if (el) setElUrl(el.value);
             const teamCode = settings.find((s) => s.key === "team_code_webapp_url");
@@ -193,6 +196,18 @@ export default function AdminSettings() {
             key: "trainee_data_webapp_url",
             value: traineeUrl.trim(),
             label: "Trainee Data Webapp URL",
+        });
+    };
+
+    const handleSaveOjtUrl = () => {
+        if (!ojtUrl.trim()) {
+            toast({ title: "Error", description: "URL cannot be empty", variant: "destructive" });
+            return;
+        }
+        updateSetting.mutate({
+            key: "ojt_data_webapp_url",
+            value: ojtUrl.trim(),
+            label: "OJT Progress Data Webapp URL",
         });
     };
 
@@ -678,6 +693,48 @@ export default function AdminSettings() {
                         </div>
                         <Button
                             onClick={handleSaveTraineeUrl}
+                            disabled={updateSetting.isPending || isLoading}
+                        >
+                            {updateSetting.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <Save className="h-4 w-4 mr-2" />
+                            )}
+                            Save URL
+                        </Button>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>OJT Progress Integration</CardTitle>
+                        <CardDescription>
+                            Configure the webapp URL used to fetch OJT progress. It must return both sheet tabs in one
+                            payload — <code className="font-mono text-xs">{`{ "extracted": [...], "ojt": [...] }`}</code> —
+                            so performed hours can never land against a stale start date. Synced twice daily at 13:00
+                            and 19:00 IST.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="ojt-url">OJT Progress Data Webapp URL</Label>
+                            <Input
+                                id="ojt-url"
+                                type="url"
+                                placeholder="https://script.google.com/macros/s/.../exec"
+                                value={ojtUrl}
+                                onChange={(e) => setOjtUrl(e.target.value)}
+                                className="font-mono text-sm"
+                                disabled={isLoading}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                <span className="font-medium">extracted</span>: name, emp id, unit, required/performed hours and days.{" "}
+                                <span className="font-medium">ojt</span>: name, emp id, unit, date of start of OJT. Rows are joined on
+                                emp id + unit.
+                            </p>
+                        </div>
+                        <Button
+                            onClick={handleSaveOjtUrl}
                             disabled={updateSetting.isPending || isLoading}
                         >
                             {updateSetting.isPending ? (
