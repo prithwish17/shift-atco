@@ -13,6 +13,8 @@
  * the whole affected window, not just the target day, so a plan that is legal today
  * but breaks a rest requirement two days out is caught.
  */
+import { addDays, format, parseISO } from "date-fns";
+
 import {
   RATING_GROUPS,
   matchesSummaryCategory,
@@ -26,10 +28,11 @@ import {
   cellKey,
   deficitsFor,
   groupLabel,
+  mutationDelta,
   requiredFor,
-  type CellKey,
   type GroupKey,
 } from "@/lib/compliance/coverage";
+import { applyMutations, type DutyMutation } from "@/lib/compliance/planValidator";
 import {
   EMPTY_FAIRNESS,
   buildOptions,
@@ -37,6 +40,7 @@ import {
   type CoverOption,
   type FairnessHistory,
 } from "@/lib/compliance/ladder";
+import { buildDayManpower, type DayManpower } from "@/lib/compliance/manpower";
 import { buildTimelines, classifyDuty, originLabel, type ShiftCode } from "@/lib/compliance/rosterState";
 
 export type { ShiftCode } from "@/lib/compliance/rosterState";
@@ -45,11 +49,17 @@ export type RatingFilter = GroupNum | "ALL";
 
 const GROUP_NUMS = Object.keys(RATING_GROUPS).map(Number) as GroupNum[];
 
-const iso = (date: string, offset: number) => {
-  const d = new Date(`${date}T00:00:00`);
-  d.setDate(d.getDate() + offset);
-  return d.toISOString().slice(0, 10);
-};
+/**
+ * ISO date `offset` days from `date`.
+ *
+ * date-fns rather than `new Date(…).toISOString()`: the latter parses "yyyy-MM-dd"
+ * as LOCAL midnight and then formats in UTC, so anywhere east of Greenwich the round
+ * trip lands back on the previous day and `iso(date, 1)` silently returned `date`
+ * itself. In IST that collapsed the two-day window a night-break needs, which made
+ * the second day's chart cells invisible to both the depletion gate and the
+ * "does this day actually need the body?" test.
+ */
+const iso = (date: string, offset: number) => format(addDays(parseISO(date), offset), "yyyy-MM-dd");
 
 export function shiftLabel(shift: ShiftCode): string {
   return shift === "M" ? "Morning" : shift === "A" ? "Afternoon" : "Night";
@@ -72,22 +82,6 @@ export interface RatingCellAvailability {
   available: number;
   required: number;
   deficit: number;
-}
-
-/** Per rating-group availability for one date + shift — a column of the chart. */
-export function computeRatingAvailability(
-  members: SummaryScheduleMember[],
-  date: string,
-  shift: ShiftCode,
-): RatingCellAvailability[] {
-  const base = buildCoverageBase(members, [date]);
-  return deficitsFor(base, new Map(), date, shift).map((row) => ({
-    key: row.group,
-    label: row.label,
-    available: row.available,
-    required: row.required,
-    deficit: row.deficit,
-  }));
 }
 
 export interface ShiftBreach extends RatingCellAvailability {
@@ -137,6 +131,8 @@ export interface AlreadyCovering {
   name: string;
   team: string | null;
   rating: string | null;
+  /** True when they are only on this shift because of a staged, unwritten pick. */
+  staged: boolean;
 }
 
 export interface RungGroup {
@@ -156,7 +152,15 @@ export interface AvailabilityResult {
   /** Plans that break a hard gate, with the rule they fail. */
   blocked: CoverOption[];
   alreadyCovering: AlreadyCovering[];
-  ratingAvailability: RatingCellAvailability[];
+  /**
+   * The whole Daily Availability Chart column for the requested date — all three
+   * shifts, every rating group, plus the day's extra-duty / General / leave / rest
+   * populations. A supervisor cannot judge whether moving a body is wise from the
+   * target shift alone; the donor shift is the other half of the decision.
+   */
+  dayManpower: DayManpower;
+  /** The same day as it WOULD be with the staged picks applied, or null if none. */
+  projectedManpower: DayManpower | null;
   meta: { poolSize: number; generated: number };
 }
 
@@ -167,10 +171,22 @@ export interface FindAvailabilityArgs {
   rating: RatingFilter;
   history?: Map<string, FairnessHistory>;
   /**
-   * Deltas from plans already accepted in this sitting, so a second suggestion is
-   * ranked against the roster as it will actually be — not as it was before the first.
+   * Duty changes staged in this sitting but not yet written. Every suggestion is
+   * generated, gated and ranked against the roster as it will actually be — not as
+   * it was before the first pick. Without this, two individually safe picks can
+   * jointly strip a shift below its minimum and nothing objects.
    */
-  pendingDelta?: Map<CellKey, number>;
+  pending?: DutyMutation[];
+}
+
+/** Staged mutations grouped by the timeline key `buildTimelines` uses. */
+function groupPending(pending: DutyMutation[]): Map<string, DutyMutation[]> {
+  const grouped = new Map<string, DutyMutation[]>();
+  for (const mutation of pending) {
+    const key = mutation.employeeId.trim().toUpperCase();
+    grouped.set(key, [...(grouped.get(key) ?? []), mutation]);
+  }
+  return grouped;
 }
 
 export function findAvailability({
@@ -179,15 +195,32 @@ export function findAvailability({
   shift,
   rating,
   history,
-  pendingDelta,
+  pending = [],
 }: FindAvailabilityArgs): AvailabilityResult {
   const timelines = buildTimelines(members);
   const nextDay = iso(date, 1);
 
   // A night-break writes to the following day too, so both must be in the snapshot.
   const base = buildCoverageBase(members, [date, nextDay]);
-  if (pendingDelta) {
-    for (const [key, value] of pendingDelta) base.set(key, (base.get(key) ?? 0) + value);
+  const stagedShifts = new Set<string>();
+
+  // Staged picks move BOTH halves of the model: the timeline the duty rules are
+  // evaluated against, and the head-counts the coverage gate reads. Adjusting only
+  // the counts would leave someone offerable as a Morning donor after they had
+  // already been staged off the Morning, and validate that plan against the duty
+  // they no longer hold. The delta is derived from the same mutations rather than
+  // passed in alongside them, so the two cannot describe different plans.
+  for (const [key, mutations] of groupPending(pending)) {
+    const timeline = timelines.get(key);
+    if (!timeline) continue;
+
+    timelines.set(key, applyMutations(timeline, mutations));
+    for (const [cell, change] of mutationDelta(timeline.member, mutations)) {
+      base.set(cell, (base.get(cell) ?? 0) + change);
+    }
+    for (const mutation of mutations) {
+      if (mutation.date === date) stagedShifts.add(key);
+    }
   }
 
   const options: CoverOption[] = [];
@@ -206,6 +239,7 @@ export function findAvailability({
         name: tl.name,
         team: tl.team,
         rating: tl.rating,
+        staged: stagedShifts.has(tl.employeeId.trim().toUpperCase()),
       });
       continue;
     }
@@ -226,6 +260,10 @@ export function findAvailability({
   const ranked = rankOptions(options);
   alreadyCovering.sort((a, b) => a.name.localeCompare(b.name));
 
+  // The chart the supervisor reads is derived from the same base the gate enforces,
+  // so the "before" column of an option's impact and the day view cannot disagree.
+  const dayManpower = buildDayManpower(members, date);
+
   return {
     date,
     shift,
@@ -234,7 +272,8 @@ export function findAvailability({
     rungs: groupByRung(ranked),
     blocked: rankOptions(blocked),
     alreadyCovering,
-    ratingAvailability: computeRatingAvailability(members, date, shift),
+    dayManpower,
+    projectedManpower: pending.length > 0 ? buildDayManpower(members, date, pending) : null,
     meta: { poolSize, generated: ranked.length + blocked.length },
   };
 }
@@ -248,17 +287,6 @@ function groupByRung(options: CoverOption[]): RungGroup[] {
     else groups.push({ rung: option.rung, label: option.strategyLabel, options: [option] });
   }
   return groups;
-}
-
-/** Human summary of a plan's manpower effect, for the UI. */
-export function describeCoverage(option: CoverOption): string[] {
-  return [...option.coverageDelta.entries()]
-    .filter(([, change]) => change !== 0)
-    .map(([key, change]) => {
-      const [cellDate, cellShift, group] = key.split("::");
-      const sign = change > 0 ? "+" : "";
-      return `${groupLabel(group as GroupKey)} ${shiftLabel(cellShift as ShiftCode)} ${cellDate}: ${sign}${change}`;
-    });
 }
 
 export { GROUP_NUMS };

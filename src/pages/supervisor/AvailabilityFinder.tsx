@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Info,
   Loader2,
+  Plus,
   Search,
   ShieldCheck,
   Users,
@@ -47,8 +48,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { applyDutyPlan } from "@/data-access/schedule.repository";
 import { RATING_GROUPS, type GroupNum } from "@/lib/supervisorAvailability";
 import type { CoverOption } from "@/lib/compliance/ladder";
+import { validateBasket } from "@/lib/compliance/basket";
+import { describeImpact } from "@/lib/compliance/manpower";
+import { originLabel } from "@/lib/compliance/rosterState";
+import { useCoverBasket } from "@/hooks/useCoverBasket";
+import { CoverBasket } from "@/components/availability/CoverBasket";
+import { DayManpowerPanel } from "@/components/availability/DayManpowerPanel";
+import { PlanImpactTable, SafetyMarginBadge } from "@/components/availability/PlanImpactTable";
 import {
-  describeCoverage,
   findAvailability,
   scanBreaches,
   shiftLabel,
@@ -100,91 +107,146 @@ function MutationTrail({ option }: { option: CoverOption }) {
   );
 }
 
-function OptionRow({
-  option,
-  onApply,
-  applying,
-}: {
-  option: CoverOption;
-  onApply: (o: CoverOption) => void;
-  applying: boolean;
-}) {
-  const coverage = describeCoverage(option);
+/** The rotation counters behind an option's fairness position. */
+function RotationLoad({ option }: { option: CoverOption }) {
+  const f = option.fairness;
+  const parts = [
+    { label: "exchanges", year: f.exchangesYear, month: f.exchangesMonth },
+    { label: "extra duties", year: f.opeYear, month: f.opeMonth },
+    { label: "night-breaks", year: f.nightBreaksYear, month: f.nightBreaksMonth },
+  ].filter((p) => p.year > 0);
+
+  if (parts.length === 0) {
+    return <span className="text-xs text-muted-foreground">No duty changes asked of them this year</span>;
+  }
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-start sm:justify-between">
-      <div className="space-y-1.5">
+    <span className="text-xs text-muted-foreground">
+      This year:{" "}
+      {parts
+        .map((p) => `${p.year} ${p.label}${p.month > 0 ? ` (${p.month} this month)` : ""}`)
+        .join(" · ")}
+    </span>
+  );
+}
+
+/** Warnings and exempted rules, in the shared wording used for blocked options too. */
+function WarningList({ entries }: { entries: CoverOption["warnings"] }) {
+  if (entries.length === 0) return null;
+  return (
+    <ul className="space-y-0.5 text-sm">
+      {entries.map((w, i) => (
+        <li
+          key={i}
+          className={cn(
+            "flex items-start gap-1.5",
+            // An exempted rule is reported for visibility but is not a breach —
+            // colouring it like one would train supervisors to ignore warnings.
+            w.exemption ? "text-muted-foreground" : "text-amber-700 dark:text-amber-400",
+          )}
+        >
+          {w.exemption ? (
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          )}
+          <span>
+            <span className="font-medium">{w.title}</span> — {w.reason}
+            {w.regulatoryRef && <span className="opacity-70"> ({w.regulatoryRef})</span>}
+            {w.exemption && (
+              <span className="opacity-70">
+                {" "}
+                · exempted by {w.exemption.authority}, {w.exemption.reference}
+              </span>
+            )}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Where the controller is coming from and what they end up rostered as. */
+function DutyTransition({ option }: { option: CoverOption }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded border bg-muted/40 px-1.5 py-0.5 text-xs">
+      <span className="text-muted-foreground">{originLabel(option.currentDutyCode)}</span>
+      <span className="font-mono">{option.currentDutyCode ?? "—"}</span>
+      <ArrowRight className="h-3 w-3 text-muted-foreground" />
+      <span className="font-mono font-semibold">{option.targetDutyCode}</span>
+    </span>
+  );
+}
+
+function OptionRow({
+  option,
+  onStage,
+  onApply,
+  applying,
+  staged,
+}: {
+  option: CoverOption;
+  onStage: (o: CoverOption) => void;
+  /** Only offered while nothing is staged — see the note on the buttons below. */
+  onApply: ((o: CoverOption) => void) | null;
+  applying: boolean;
+  staged: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{option.name}</span>
           {option.rating && <Badge variant="outline">{option.rating}</Badge>}
           {option.team && <Badge variant="outline">Team {option.team}</Badge>}
-          <Badge variant="secondary">From: {option.currentDutyCode ?? "unrostered"}</Badge>
-          <Badge variant="outline" className="font-normal text-muted-foreground">
-            Load {option.fairnessLoad}
-          </Badge>
+          {option.createsOpe && (
+            <Badge className="border-violet-500/40 bg-violet-500/15 text-violet-700 hover:bg-violet-500/15 dark:text-violet-300">
+              Extra duty (OPE)
+            </Badge>
+          )}
+          <SafetyMarginBadge impact={option.impact} />
         </div>
 
-        <MutationTrail option={option} />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <DutyTransition option={option} />
+          <MutationTrail option={option} />
+        </div>
 
-        {option.rationale && (
-          <p className="text-sm text-muted-foreground">{option.rationale}</p>
-        )}
+        {option.rationale && <p className="text-sm text-muted-foreground">{option.rationale}</p>}
 
-        {option.warnings.length > 0 && (
-          <ul className="space-y-0.5 text-sm">
-            {option.warnings.map((w, i) => (
-              <li
-                key={i}
-                className={cn(
-                  "flex items-start gap-1.5",
-                  // An exempted rule is reported for visibility but is not a breach —
-                  // colouring it like one would train supervisors to ignore warnings.
-                  w.exemption
-                    ? "text-muted-foreground"
-                    : "text-amber-700 dark:text-amber-400",
-                )}
-              >
-                {w.exemption ? (
-                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                ) : (
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                )}
-                <span>
-                  <span className="font-medium">{w.title}</span> — {w.reason}
-                  {w.regulatoryRef && <span className="opacity-70"> ({w.regulatoryRef})</span>}
-                  {w.exemption && (
-                    <span className="opacity-70">
-                      {" "}
-                      · exempted by {w.exemption.authority}, {w.exemption.reference}
-                    </span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        <WarningList entries={option.warnings} />
 
-        {coverage.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-            <span className="text-xs font-medium text-muted-foreground">Manpower:</span>
-            {coverage.map((c) => (
-              <span key={c} className="rounded border px-1.5 py-0.5 text-xs">
-                {c}
-              </span>
-            ))}
-          </div>
-        )}
+        <div className="space-y-1 rounded-md border bg-muted/20 p-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            Manpower effect — each rating group against its own minimum
+          </span>
+          <PlanImpactTable impact={option.impact} />
+        </div>
+
+        <RotationLoad option={option} />
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 self-start">
-        <Button size="sm" variant="outline" onClick={() => onApply(option)} disabled={applying}>
-          {applying ? (
-            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-          )}
-          Apply
+      <div className="flex shrink-0 flex-col items-stretch gap-1.5 self-start">
+        <Button size="sm" onClick={() => onStage(option)} disabled={staged}>
+          <Plus className="mr-1 h-3.5 w-3.5" />
+          {staged ? "Staged" : "Stage"}
         </Button>
+        {/*
+          "Apply now" disappears once anything is staged. This option was gated
+          against the roster WITH those staged picks in it, so writing it on its own
+          would be checking one plan and applying another — a staged pick that adds
+          to a shift can be what made this one look affordable.
+        */}
+        {onApply && (
+          <Button size="sm" variant="outline" onClick={() => onApply(option)} disabled={applying}>
+            {applying ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+            )}
+            Apply now
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -215,6 +277,7 @@ export default function AvailabilityFinder() {
   const { toast } = useToast();
   const logDecision = useLogDecision();
   const queryClient = useQueryClient();
+  const basket = useCoverBasket();
 
   // Breach banner: scan today → +14 days for any rating cell below its minimum.
   const breachWindow = useMemo(() => {
@@ -265,12 +328,33 @@ export default function AvailabilityFinder() {
       shift: query.shift,
       rating: query.rating,
       history,
+      pending: basket.mutations,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, members, history, overridesToken, registryToken]);
+  }, [query, members, history, basket.mutations, overridesToken, registryToken]);
+
+  // Re-checked against the live roster on every render of the basket, not captured
+  // when the picks were made: the whole point is to notice the roster moving.
+  const basketValidation = useMemo(
+    () => (members && basket.picks.length > 0 ? validateBasket(members, basket.picks) : null),
+    [members, basket.picks],
+  );
+
+  const stagedIds = useMemo(() => new Set(basket.picks.map((p) => p.id)), [basket.picks]);
 
   const runSearch = () => {
     setQuery({ date: format(date, "yyyy-MM-dd"), shift, rating });
+  };
+
+  const stageOption = (option: CoverOption) => {
+    if (!query) return;
+    const refusal = basket.add(option, query.date, query.shift);
+    if (refusal) toast({ title: "Not staged", description: refusal, variant: "destructive" });
+  };
+
+  const commitBasket = async () => {
+    if (!members || !query) return;
+    await basket.commit(members, query.rating);
   };
 
   const applyBreach = (breach: ShiftBreach) => {
@@ -286,7 +370,18 @@ export default function AvailabilityFinder() {
   const applyOption = async (option: CoverOption) => {
     if (!query) return;
     const summary = option.mutations.map((m) => `${m.date}: ${m.from ?? "—"} → ${m.to}`).join(", ");
-    if (!window.confirm(`Apply this duty change?\n\n${option.name}\n${summary}`)) return;
+    const coverage = describeImpact(option.impact);
+
+    // The manpower consequence goes in the confirmation, not just the audit log —
+    // the supervisor is signing off on the shift this LEAVES, as much as the one
+    // it fills, and that is the half that is easy to forget.
+    if (
+      !window.confirm(
+        `Apply this duty change?\n\n${option.name}\n${summary}\n\nManpower effect:\n${coverage}`,
+      )
+    ) {
+      return;
+    }
 
     setApplyingId(option.id);
     try {
@@ -301,7 +396,7 @@ export default function AvailabilityFinder() {
         employee_id: option.employeeId,
         employee_name: option.name,
         score: option.rung,
-        reason: `${option.strategyLabel} (rung ${option.rung}) — ${summary}`,
+        reason: `${option.strategyLabel} (rung ${option.rung}) — ${summary} · ${coverage}`,
         snapshot: {
           strategy: option.strategy,
           rung: option.rung,
@@ -309,10 +404,19 @@ export default function AvailabilityFinder() {
           ledger: option.ledger,
           warnings: option.warnings,
           fairnessLoad: option.fairnessLoad,
+          createsOpe: option.createsOpe,
+          // The chart arithmetic the decision was made on, so an audit can replay
+          // what the source shifts looked like at the moment of the call.
+          impact: option.impact,
         },
       });
 
-      await queryClient.invalidateQueries({ queryKey: ["supervisor-schedule-members"] });
+      // Both the roster and the rotation counters move when a plan lands — an OPE
+      // just applied has to be visible the next time this controller is ranked.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["supervisor-schedule-members"] }),
+        queryClient.invalidateQueries({ queryKey: ["employee-history"] }),
+      ]);
       toast({ title: "Duty change applied", description: `${option.name} — ${summary}` });
     } catch (e) {
       toast({
@@ -500,6 +604,20 @@ export default function AvailabilityFinder() {
           </CardContent>
         </Card>
 
+        {/*
+          Above the results, not below them: the staged picks are the premise every
+          suggestion underneath is now being judged against, so they have to be read
+          first.
+        */}
+        <CoverBasket
+          picks={basket.picks}
+          validation={basketValidation}
+          committing={basket.committing}
+          onRemove={basket.remove}
+          onClear={basket.clear}
+          onCommit={commitBasket}
+        />
+
         {query && isLoading && (
           <Card>
             <CardContent className="space-y-3 py-6">
@@ -533,39 +651,21 @@ export default function AvailabilityFinder() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">
-                  Manpower available — {shiftLabel(result.shift)} shift
+                  Manpower on {format(parseISO(result.date), "d MMM yyyy (EEE)")}
                 </CardTitle>
                 <CardDescription>
-                  Qualified controllers on duty vs. the daily minimum for each rating group, for {format(parseISO(result.date), "d MMM yyyy")}.
+                  Every shift of the day, not just the one being filled — each rating group's
+                  head-count against its own minimum. Any plan that covers the{" "}
+                  {shiftLabel(result.shift)} takes the body off one of the other columns, and
+                  that column has to survive it.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {result.ratingAvailability.map((cell) => (
-                    <div
-                      key={cell.key}
-                      className={cn(
-                        "flex items-center justify-between rounded-lg border px-3 py-2",
-                        cell.deficit > 0 ? "border-rose-500/40 bg-rose-500/5" : "border-emerald-500/30 bg-emerald-500/5",
-                      )}
-                    >
-                      <span className="text-sm font-medium">{cell.label}</span>
-                      <span className="flex items-center gap-2">
-                        <span className="text-sm font-semibold tabular-nums">
-                          {cell.available}
-                          <span className="text-muted-foreground">/{cell.required}</span>
-                        </span>
-                        {cell.deficit > 0 ? (
-                          <Badge variant="destructive">Short {cell.deficit}</Badge>
-                        ) : (
-                          <Badge variant="secondary" className="text-emerald-700 dark:text-emerald-300">
-                            +{cell.available - cell.required}
-                          </Badge>
-                        )}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                <DayManpowerPanel
+                  day={result.dayManpower}
+                  projected={result.projectedManpower}
+                  focusShift={result.shift}
+                />
               </CardContent>
             </Card>
 
@@ -577,7 +677,9 @@ export default function AvailabilityFinder() {
                 </CardTitle>
                 <CardDescription>
                   Grouped by the operational ladder — try the top group first. Within a group,
-                  whoever has been asked least often this year comes first.
+                  whoever has been asked least often this year comes first; where that ties,
+                  the plan that leaves more spare in the shift it draws from. Every option
+                  here has already been checked against its source shift's own minimums.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -606,8 +708,10 @@ export default function AvailabilityFinder() {
                         <OptionRow
                           key={option.id}
                           option={option}
-                          onApply={applyOption}
+                          onStage={stageOption}
+                          onApply={basket.picks.length === 0 ? applyOption : null}
                           applying={applyingId === option.id}
+                          staged={stagedIds.has(option.id)}
                         />
                       ))}
                     </div>
@@ -619,14 +723,23 @@ export default function AvailabilityFinder() {
             {result.alreadyCovering.length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Already on this shift ({result.alreadyCovering.length})</CardTitle>
+                  <CardTitle className="text-base">On this shift ({result.alreadyCovering.length})</CardTitle>
+                  <CardDescription>
+                    Rostered here already, plus anyone a staged pick would put here — those
+                    are marked, because nothing is written until the basket is applied.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="flex flex-wrap gap-2">
                     {result.alreadyCovering.map((m) => (
-                      <Badge key={m.employeeId} variant="secondary">
+                      <Badge
+                        key={m.employeeId}
+                        variant={m.staged ? "default" : "secondary"}
+                        className={m.staged ? "gap-1" : undefined}
+                      >
                         {m.name}
                         {m.team ? ` · ${m.team}` : ""}
+                        {m.staged && <span className="opacity-80">· staged</span>}
                       </Badge>
                     ))}
                   </div>
@@ -654,8 +767,14 @@ export default function AvailabilityFinder() {
                         {b.rating && <Badge variant="outline">{b.rating}</Badge>}
                         {b.team && <Badge variant="outline">Team {b.team}</Badge>}
                         <Badge variant="secondary">{b.strategyLabel}</Badge>
+                        {b.createsOpe && (
+                          <Badge className="border-violet-500/40 bg-violet-500/15 text-violet-700 hover:bg-violet-500/15 dark:text-violet-300">
+                            Extra duty (OPE)
+                          </Badge>
+                        )}
                       </div>
-                      <div className="mt-1.5">
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        <DutyTransition option={b} />
                         <MutationTrail option={b} />
                       </div>
                       <ul className="mt-1.5 space-y-0.5 text-sm text-rose-700 dark:text-rose-400">
@@ -671,6 +790,14 @@ export default function AvailabilityFinder() {
                           </li>
                         ))}
                       </ul>
+                      {b.impact.releases.length > 0 && (
+                        <div className="mt-1.5 space-y-1 rounded-md border bg-muted/20 p-2">
+                          <span className="text-xs font-medium text-muted-foreground">
+                            Manpower effect
+                          </span>
+                          <PlanImpactTable impact={b.impact} />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </CardContent>

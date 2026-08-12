@@ -236,7 +236,8 @@ describe("night-break sub-rung", () => {
     // Default filler (team C) is on A the following day, leaving that Morning bare.
     const option = breakOption();
     expect(option.rung).toBe(2);
-    expect(option.rationale).toMatch(/both days/i);
+    // Names the shift each duty lands on, which is not always the target shift.
+    expect(option.rationale).toBe(`Relieves M on ${TARGET} and M on ${NEXT_DAY}`);
   });
 
   it("is demoted within the rung when the second day does not need the body", () => {
@@ -296,6 +297,37 @@ describe("fairness rotates within a rung and never across one", () => {
     for (const soft of [-1000, 0, 25, 1000]) {
       expect(compareOptions(option(1, 5, -1000), option(2, 0, soft))).toBeLessThan(0);
       expect(compareOptions(option(1, 0, -1000), option(1, 1, soft))).toBeLessThan(0);
+    }
+  });
+});
+
+describe("donor resilience breaks the tie under fairness", () => {
+  const option = (rung: number, load: number, margin: number | null, name = "x"): CoverOption =>
+    ({
+      rung,
+      fairnessLoad: load,
+      softScore: 0,
+      name,
+      impact: { safetyMargin: margin },
+    }) as CoverOption;
+
+  it("prefers the plan that leaves more room in the shift it takes from", () => {
+    expect(compareOptions(option(1, 0, 5), option(1, 0, 1))).toBeLessThan(0);
+    expect(compareOptions(option(1, 0, 0), option(1, 0, 3))).toBeGreaterThan(0);
+  });
+
+  it("ranks a plan that depletes nothing above every plan that does", () => {
+    for (const margin of [0, 1, 50]) {
+      expect(compareOptions(option(1, 0, null), option(1, 0, margin))).toBeLessThan(0);
+    }
+    // Two such plans are indistinguishable here and fall through to the next step.
+    expect(compareOptions(option(1, 0, null, "a"), option(1, 0, null, "b"))).toBeLessThan(0);
+  });
+
+  it("PROPERTY: no margin can promote a worse rung or outrank better fairness", () => {
+    for (const margin of [0, 1, 50, null]) {
+      expect(compareOptions(option(1, 5, 0), option(2, 0, margin))).toBeLessThan(0);
+      expect(compareOptions(option(1, 0, 0), option(1, 1, margin))).toBeLessThan(0);
     }
   });
 });

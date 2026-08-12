@@ -17,8 +17,6 @@ import {
   OCC_RATING_CATEGORIES,
   OCC_SHIFT_MINIMUMS,
   RATING_GROUPS,
-  buildMembersByCell,
-  countUniqueMembers,
   matchesSummaryCategory,
   type GroupNum,
   type SummaryScheduleMember,
@@ -73,23 +71,61 @@ export function shiftsOf(dutyCode: string | null | undefined): ShiftCode[] {
   return getDutyShiftMatches(dutyCode).filter((s): s is ShiftCode => s === "M" || s === "A" || s === "N");
 }
 
-/** Current head-count per (date, shift, group) for the given dates. */
+/**
+ * One roster row per employee per date — last row wins, exactly as `buildTimelines`
+ * resolves it.
+ *
+ * A controller is in one place at a time. Two rows for the same person and day (a
+ * re-import that did not replace the original, a hand edit alongside it) would
+ * otherwise put one body on two shifts and inflate both cells, and the chart a
+ * supervisor reads would disagree with the timeline the rules are evaluated against.
+ * Rows with no name are dropped: an anonymous row is not a body anyone can call in.
+ */
+export function dedupeRoster(
+  members: SummaryScheduleMember[],
+  dates: Iterable<string>,
+): SummaryScheduleMember[] {
+  const wanted = new Set(dates);
+  const rows = new Map<string, SummaryScheduleMember>();
+
+  for (const member of members) {
+    if (!wanted.has(member.duty_date)) continue;
+    const name = String(member.employee_name || member.employee_id || "").trim();
+    if (!name) continue;
+    rows.set(`${member.duty_date}::${String(member.employee_id || name).trim().toUpperCase()}`, member);
+  }
+  return [...rows.values()];
+}
+
+/**
+ * Current head-count per (date, shift, group) for the given dates.
+ *
+ * Deliberately built from `groupsOf` + `shiftsOf` — the same two functions
+ * `mutationDelta` uses. Base and delta being computed by one pair of primitives is
+ * what makes `base + delta >= required` a sound test; two independent
+ * implementations of "who counts where" is how a coverage gate quietly starts
+ * enforcing a chart nobody is looking at.
+ */
 export function buildCoverageBase(
   members: SummaryScheduleMember[],
   dates: string[],
 ): Map<CellKey, number> {
-  const byCell = buildMembersByCell(members, dates);
   const base = new Map<CellKey, number>();
 
+  // Seed every cell, so a date with no roster reads 0 rather than being absent —
+  // `deficitsFor` and the breach scan both distinguish those.
   for (const date of dates) {
     for (const shift of SHIFTS) {
-      const cellMembers = byCell.get(`${date}::${shift}`) ?? [];
-      for (const group of GROUP_KEYS) {
-        const categories = categoriesFor(group);
-        const count = countUniqueMembers(
-          cellMembers.filter((m) => categories.some((c) => matchesSummaryCategory(c, m))),
-        );
-        base.set(cellKey(date, shift, group), count);
+      for (const group of GROUP_KEYS) base.set(cellKey(date, shift, group), 0);
+    }
+  }
+
+  for (const member of dedupeRoster(members, dates)) {
+    const groups = groupsOf(member);
+    for (const shift of shiftsOf(member.duty_code)) {
+      for (const group of groups) {
+        const key = cellKey(member.duty_date, shift, group);
+        base.set(key, (base.get(key) ?? 0) + 1);
       }
     }
   }

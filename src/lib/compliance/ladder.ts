@@ -14,6 +14,7 @@
  */
 import { addDays, format, parseISO } from "date-fns";
 
+import { isOpeCode } from "@/lib/dutyConfig";
 import type { SummaryScheduleMember } from "@/lib/supervisorAvailability";
 import {
   buildCoverageBase,
@@ -25,6 +26,7 @@ import {
   type CellKey,
   type CoverageShortfall,
 } from "./coverage";
+import { planImpact, safetyRank, type CellImpact, type PlanImpact } from "./manpower";
 import { validatePlan, type DutyMutation } from "./planValidator";
 import { classifyDuty, isClearOff, type EmployeeTimeline, type ShiftCode } from "./rosterState";
 import { toLedgerEntry } from "./rules";
@@ -131,6 +133,10 @@ export interface CoverOption {
   team: string | null;
   rating: string | null;
   currentDutyCode: string | null;
+  /** Duty code the controller ends up on for the target day. */
+  targetDutyCode: string;
+  /** True when the plan puts them on a compound (extra/OPE) duty. */
+  createsOpe: boolean;
   mutations: DutyMutation[];
   ledger: LedgerEntry[];
   blocked: boolean;
@@ -138,7 +144,11 @@ export interface CoverOption {
   warnings: LedgerEntry[];
   coverageDelta: Map<CellKey, number>;
   shortfalls: CoverageShortfall[];
+  /** Per-cell before → after against the minimum, both directions. */
+  impact: PlanImpact;
   fairnessLoad: number;
+  /** Rotation counters behind `fairnessLoad`, for the detail panel. */
+  fairness: FairnessHistory;
   softScore: number;
 }
 
@@ -220,8 +230,11 @@ export function proposeOptions(
           strategy: "NIGHT_BREAK",
           mutations: [at(targetDate, CALLIN_CODE[targetShift]), at(nextDay, secondShift.shift)],
           subRung: relievesBothDays ? 0 : SINGLE_DAY_BREAK_SUBRUNG,
+          // Name the shift the second duty actually lands on: `pickSecondDayShift`
+          // is free to pick the OTHER day shift when that is the one short on D+1,
+          // and reporting the target shift there described a duty nobody works.
           note: relievesBothDays
-            ? `Relieves ${targetShift} on both days`
+            ? `Relieves ${targetShift} on ${targetDate} and ${secondShift.shift} on ${nextDay}`
             : `Second duty on ${nextDay} is surplus to requirement`,
         });
       }
@@ -369,21 +382,11 @@ export function buildOptions({
     const validation = validatePlan(timeline, proposal.mutations);
     const delta = mutationDelta(member, proposal.mutations);
     const shortfalls = coverageShortfalls(base, delta);
-
-    // Depleting a shift below its minimum is a hard operational stop. The OCC
-    // sub-minimum has its own rule so the audit trail names the constraint that
-    // actually failed rather than lumping it in with the parent group.
-    const coverageFailures = shortfalls.map((s) =>
-      toLedgerEntry(s.group === "OCC" ? "COVER.OCCMIN" : "COVER.SOURCE", {
-        verdict: "violated",
-        reason: `Removing them drops ${s.label} on the ${s.shift} of ${s.date} to ${s.after} (minimum ${s.required})`,
-        observed: s.after,
-        threshold: s.required,
-      }),
-    );
+    const impact = planImpact(base, delta);
 
     const soft = softSignals(timeline, member, targetDate, fairness, asOf);
     const baseRung = LADDER[targetShift][proposal.strategy] ?? 99;
+    const targetMutation = proposal.mutations.find((m) => m.date === targetDate);
 
     return {
       id: `${timeline.employeeId}::${proposal.strategy}`,
@@ -396,26 +399,94 @@ export function buildOptions({
       team: timeline.team,
       rating: timeline.rating,
       currentDutyCode: timeline.dutyByDate.get(targetDate) ?? null,
+      targetDutyCode: targetMutation?.to ?? CALLIN_CODE[targetShift],
+      createsOpe: proposal.mutations.some((m) => isOpeCode(m.to)),
       mutations: proposal.mutations,
-      ledger: [...validation.introduced, ...validation.satisfied, ...coverageFailures, ...soft],
-      blocked: validation.blocked || coverageFailures.length > 0,
-      blockingFailures: [...validation.blockingFailures, ...coverageFailures],
+      ledger: [...validation.introduced, ...validation.satisfied, ...sourceLedger(impact), ...soft],
+      blocked: validation.blocked || impact.breaches.length > 0,
+      blockingFailures: [...validation.blockingFailures, ...sourceFailures(impact)],
       warnings: validation.warnings,
       coverageDelta: delta,
       shortfalls,
+      impact,
       fairnessLoad: fairnessLoad(fairness),
+      fairness,
       softScore: soft.reduce((sum, e) => sum + e.points, 0),
     } satisfies CoverOption;
   });
 }
 
 /**
- * Lexicographic: rung, then fairness, then soft signals, then name for stability.
- * No step can be compensated by a later one.
+ * The verdict for one donor cell — the gate this whole feature turns on: taking a
+ * body off the Morning to cover the Afternoon is only permissible while the Morning
+ * still meets its own per-rating minimum without them.
+ *
+ * OCC has its own minimum inside group 3, so it gets its own rule id and the audit
+ * trail names the constraint that actually decided, rather than lumping the two
+ * together under the parent group.
+ */
+function sourceEntry(cell: CellImpact): LedgerEntry {
+  const ruleId = cell.group === "OCC" ? "COVER.OCCMIN" : "COVER.SOURCE";
+  const where = `${cell.label} on the ${cell.shiftLabel} of ${cell.date}`;
+
+  if (cell.status === "breach") {
+    return toLedgerEntry(ruleId, {
+      verdict: "violated",
+      reason: `Moving them off it drops ${where} to ${cell.after}, below the minimum of ${cell.required}`,
+      observed: cell.after,
+      threshold: cell.required,
+    });
+  }
+
+  return toLedgerEntry(ruleId, {
+    verdict: "satisfied",
+    reason:
+      cell.status === "at-minimum"
+        ? `${where} holds at exactly its minimum of ${cell.required} without them — no margin left`
+        : `${where} holds at ${cell.after} without them (minimum ${cell.required}, ${cell.headroomAfter} spare)`,
+    observed: cell.after,
+    threshold: cell.required,
+  });
+}
+
+/** Blocking entries for donor cells the plan would push below their minimum. */
+function sourceFailures(impact: PlanImpact): LedgerEntry[] {
+  return impact.breaches.map(sourceEntry);
+}
+
+/**
+ * The full source-shift verdict — the failures AND the cells that survive.
+ *
+ * A gate that only speaks up to refuse teaches supervisors to read silence as
+ * "not checked". Every donor cell gets an explicit line either way, so the ledger
+ * shows the Morning was tested and passed, not merely that nothing objected.
+ */
+function sourceLedger(impact: PlanImpact): LedgerEntry[] {
+  return impact.releases.map(sourceEntry);
+}
+
+/**
+ * Lexicographic: rung, then fairness, then donor resilience, then soft signals,
+ * then name for stability. No step can be compensated by a later one.
+ *
+ * Resilience sits BELOW fairness deliberately. Every option that reaches the ranked
+ * list has already passed the source-shift gate, so this step is not choosing
+ * between safe and unsafe — it is breaking a tie between two equally legal picks by
+ * preferring the one that leaves the roster with more room to absorb the next
+ * request. Putting it above fairness would let a shift's staffing accident decide
+ * who gets imposed on, which is exactly the coupling the rung/fairness split exists
+ * to prevent.
  */
 export function compareOptions(a: CoverOption, b: CoverOption): number {
   if (a.rung !== b.rung) return a.rung - b.rung;
   if (a.fairnessLoad !== b.fairnessLoad) return a.fairnessLoad - b.fairnessLoad;
+
+  // Higher margin first. `safetyRank` maps "depletes nobody" to +Infinity, so the
+  // difference is compared rather than subtracted — Infinity − Infinity is NaN.
+  const marginA = safetyRank(a.impact?.safetyMargin ?? null);
+  const marginB = safetyRank(b.impact?.safetyMargin ?? null);
+  if (marginA !== marginB) return marginA > marginB ? -1 : 1;
+
   if (a.softScore !== b.softScore) return b.softScore - a.softScore;
   return a.name.localeCompare(b.name);
 }

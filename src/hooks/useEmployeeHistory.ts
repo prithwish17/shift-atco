@@ -4,6 +4,7 @@
  * src/integrations/supabase/types.ts is the real fix.
  */
 import { useQuery } from "@tanstack/react-query";
+import { addDays, format, parseISO } from "date-fns";
 
 import { supabase } from "@/integrations/supabase/client";
 import { OPE_CODES } from "@/lib/dutyConfig";
@@ -18,10 +19,16 @@ function key(code: string | null | undefined) {
 
 const DEAD_STATUSES = new Set(["rejected", "cancelled", "canceled", "declined", "withdrawn"]);
 
+/**
+ * The day after `date`.
+ *
+ * date-fns, not `new Date(…).toISOString()`: the latter reads "yyyy-MM-dd" as local
+ * midnight and prints in UTC, so east of Greenwich the round trip lands back on the
+ * same day. That made the night-break derivation below compare a date against
+ * itself, so no break was ever counted and the rotation load under-reported.
+ */
 function nextDay(date: string): string {
-  const d = new Date(`${date}T00:00:00`);
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
+  return format(addDays(parseISO(date), 1), "yyyy-MM-dd");
 }
 
 /** employee_code → rotation team key, for the night-break derivation. */
