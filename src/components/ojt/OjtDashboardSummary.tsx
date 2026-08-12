@@ -72,11 +72,12 @@ export function OjtDashboardSummary() {
                             <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 text-[11px] text-gray-600 dark:text-gray-300 md:text-xs">
                                 <span className="tabular-nums">
                                     {formatOjtHours(record.performedHours)} / {formatOjtHours(record.requiredHours)} hrs
-                                    {' · '}
-                                    {formatOjtHours(record.hoursLeft)} left
+                                    {record.band !== 'NOT_STARTED' && ` · ${formatOjtHours(record.hoursLeft)} left`}
                                 </span>
                                 <span>
-                                    {formatOjtDate(record.deadline)} · {formatDaysLeft(record.daysLeft)}
+                                    {formatOjtDate(record.deadline)}
+                                    {' · '}
+                                    {record.band === 'NOT_STARTED' ? 'not counted yet' : formatDaysLeft(record.daysLeft)}
                                 </span>
                             </div>
 

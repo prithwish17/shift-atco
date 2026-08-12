@@ -101,8 +101,16 @@ export function resolveBand(params: {
     hoursLeft: number | null;
     daysLeft: number | null;
     ratio: number | null;
+    /** True when nothing has been logged against the cycle yet. */
+    notStarted: boolean;
 }): OjtBand {
-    const { startDate, requiredHours, hoursLeft, daysLeft, ratio } = params;
+    const { startDate, requiredHours, hoursLeft, daysLeft, ratio, notStarted } = params;
+
+    // Ahead of every other rule, including DEADLINE_PASSED: a trainee who has
+    // not logged an hour has not begun the cycle, so the deadline derived from
+    // the sheet's nominal start date is not a clock that can run out on them.
+    // Nothing is calculated from it and the GM (ATM) is never asked to extend.
+    if (notStarted && requiredHours !== null && requiredHours > 0) return 'NOT_STARTED';
 
     if (!startDate || requiredHours === null || hoursLeft === null) return 'AWAITING_START_DATE';
     if (hoursLeft <= 0) return 'HOURS_COMPLETE';
@@ -122,6 +130,7 @@ export function computeProgress(
 
     const months = requiredMonths(requiredHours);
     const deadline = input.deadlineOverride ?? computeDeadline(startDate, requiredHours);
+    const notStarted = (performedHours ?? 0) === 0;
 
     const hoursLeft = requiredHours === null || requiredHours === undefined
         ? null
@@ -143,16 +152,22 @@ export function computeProgress(
         hoursLeft,
         daysLeft,
         ratio,
+        notStarted,
     });
+
+    // A cycle that has not begun reports no derived figures at all. Suppressed
+    // here rather than at each call site so no surface can quietly present a
+    // countdown the band says is not running.
+    const suppressed = band === 'NOT_STARTED';
 
     return {
         requiredMonths: months,
         deadline,
-        hoursLeft,
-        daysLeft,
-        ratio,
+        hoursLeft: suppressed ? null : hoursLeft,
+        daysLeft: suppressed ? null : daysLeft,
+        ratio: suppressed ? null : ratio,
         band,
-        notStarted: (performedHours ?? 0) === 0,
+        notStarted,
         daysRequirementMet:
             performedDays !== null && performedDays !== undefined &&
             requiredDays !== null && requiredDays !== undefined &&
@@ -165,6 +180,7 @@ export function computeProgress(
 /* ─── Presentation ────────────────────────────────────────────────────────── */
 
 export const OJT_BAND_LABELS: Record<OjtBand, string> = {
+    NOT_STARTED: 'OJT Not Started',
     AWAITING_START_DATE: 'Awaiting Start Date',
     HOURS_COMPLETE: 'Hours Completed',
     DEADLINE_PASSED: 'Deadline Passed',
@@ -189,6 +205,7 @@ export function getOjtBandClass(band: OjtBand | null | undefined): string {
             return 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-200 dark:border-rose-900/60';
         case 'DEADLINE_PASSED':
             return 'bg-rose-200 text-rose-900 border-rose-300 dark:bg-rose-950/60 dark:text-rose-100 dark:border-rose-900';
+        case 'NOT_STARTED':
         case 'AWAITING_START_DATE':
         default:
             return 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/70 dark:text-slate-200 dark:border-slate-700';

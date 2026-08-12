@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -32,7 +33,7 @@ import {
 } from '@/hooks/useOjtProgress';
 import {
     computeProgress, formatDaysLeft, formatOjtHours, formatOjtRatio,
-    getOjtBandClass, getOjtBandLabel, getOjtRatioTextClass,
+    getOjtBandClass, getOjtBandLabel, getOjtCompletionPercent, getOjtRatioTextClass,
     parseOjtDaysInput, parseOjtHoursInput,
 } from '@/domain/ojt';
 import type { OjtBand, OjtOverrideUpdate, OjtProgressRecord } from '@/domain/ojt';
@@ -49,8 +50,25 @@ const BAND_FILTERS: Array<{ value: BandFilter; label: string }> = [
     { value: 'CRITICAL', label: 'Critical' },
     { value: 'DEADLINE_PASSED', label: 'Deadline Passed' },
     { value: 'HOURS_COMPLETE', label: 'Completed' },
+    { value: 'NOT_STARTED', label: 'Not Started' },
     { value: 'AWAITING_START_DATE', label: 'No Start Date' },
 ];
+
+/**
+ * Reading order for the list: the bands that need a supervisor today first,
+ * the ones that need nothing last. Within a band the tightest burn rate leads.
+ * Sorting on the rate alone used to bury an overdue trainee — no rate is
+ * computed once the deadline has passed — below everyone still on track.
+ */
+const BAND_RANK: Record<OjtBand, number> = {
+    DEADLINE_PASSED: 0,
+    CRITICAL: 1,
+    WATCH: 2,
+    ON_TRACK: 3,
+    AWAITING_START_DATE: 4,
+    NOT_STARTED: 5,
+    HOURS_COMPLETE: 6,
+};
 
 /* ─── Edit dialog ─────────────────────────────────────────────────────────── */
 
@@ -327,6 +345,158 @@ function EditOjtDialog({
     );
 }
 
+/* ─── List row ────────────────────────────────────────────────────────────── */
+
+/**
+ * One trainee, as a row of four readings: how far through the hours they are,
+ * how long they have, the rate that implies, and what that adds up to. Every
+ * cell pairs one primary figure with its context underneath, so a supervisor
+ * scanning the column reads down a single number, not across four of them.
+ */
+function OjtProgressRow({
+    record,
+    onEdit,
+}: {
+    record: OjtProgressRecord;
+    onEdit: () => void;
+}) {
+    const percent = getOjtCompletionPercent(record.requiredHours, record.performedHours);
+    const notStarted = record.band === 'NOT_STARTED';
+    const complete = record.band === 'HOURS_COMPLETE';
+    // A trainee who finished their hours late is not overdue, they are done.
+    const overdue = !complete && record.daysLeft !== null && record.daysLeft < 0;
+
+    return (
+        <TableRow
+            className={`align-top ${
+                record.requiresGmExtension
+                    ? 'bg-rose-50/60 dark:bg-rose-950/20'
+                    : 'even:bg-muted/20'
+            } ${notStarted ? 'text-muted-foreground' : ''}`}
+        >
+            {/* Who */}
+            <TableCell className="py-2.5">
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                    <span className="text-[13px] font-medium text-foreground">{record.employeeName}</span>
+                    {/* Outline, not the solid secondary of the card: one dark pill
+                        per row over a hundred rows is all the eye sees. */}
+                    <Badge variant="outline" className="rounded-full px-1.5 py-0 text-[10px] font-medium text-muted-foreground">
+                        {record.unit}
+                    </Badge>
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                    <span className="font-mono">{record.empId}</span>
+                    {record.designation ? ` · ${record.designation}` : ''}
+                </div>
+            </TableCell>
+
+            {/* Hours */}
+            <TableCell className="py-2.5">
+                <div className="text-xs tabular-nums">
+                    <span className={notStarted ? '' : 'font-medium text-foreground'}>
+                        {formatOjtHours(record.performedHours)}
+                    </span>
+                    <span className="text-muted-foreground"> / {formatOjtHours(record.requiredHours)}</span>
+                </div>
+                {/* bg-muted over the default bg-secondary: at 1px tall a dark
+                    track reads as a filled bar on a row that has logged nothing. */}
+                <Progress
+                    value={percent}
+                    className="mt-1.5 h-1 bg-muted"
+                    indicatorClassName="bg-emerald-500 dark:bg-emerald-400"
+                />
+                <div className="mt-1 text-[11px] text-muted-foreground">
+                    {notStarted
+                        ? 'No hours logged'
+                        : `${Math.round(percent)}% · ${formatOjtHours(record.hoursLeft)} left`}
+                </div>
+            </TableCell>
+
+            {/* Duty days */}
+            <TableCell className="py-2.5 whitespace-nowrap text-right text-xs tabular-nums">
+                <span className={record.daysRequirementMet ? 'font-medium text-emerald-600 dark:text-emerald-400' : ''}>
+                    {record.performedDays ?? '—'}
+                </span>
+                <span className="text-muted-foreground"> / {record.requiredDays ?? '—'}</span>
+            </TableCell>
+
+            {/* Deadline */}
+            <TableCell className="py-2.5 whitespace-nowrap">
+                <div className={`text-xs ${notStarted ? '' : 'font-medium text-foreground'}`}>
+                    {formatOjtDate(record.deadline)}
+                </div>
+                <div
+                    className={`text-[11px] ${
+                        overdue ? 'font-medium text-rose-600 dark:text-rose-400' : 'text-muted-foreground'
+                    }`}
+                >
+                    {notStarted && 'Not counted yet'}
+                    {complete && 'Requirement met'}
+                    {!notStarted && !complete && formatDaysLeft(record.daysLeft)}
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                    from {formatOjtDate(record.startDate)}
+                    {record.startDateSource === 'app' && (
+                        <span className="ml-1 font-medium text-indigo-600 dark:text-indigo-400">app</span>
+                    )}
+                </div>
+            </TableCell>
+
+            {/* Rate */}
+            <TableCell className="py-2.5 whitespace-nowrap text-right">
+                <div className={`text-sm font-semibold tabular-nums ${getOjtRatioTextClass(record.band)}`}>
+                    {formatOjtRatio(record.ratio)}
+                </div>
+                {record.ratio !== null && (
+                    <div className="text-[10px] text-muted-foreground">hrs / day</div>
+                )}
+            </TableCell>
+
+            {/* Status */}
+            <TableCell className="py-2.5">
+                <div className="flex flex-col items-start gap-1">
+                    <Badge variant="outline" className={`whitespace-nowrap rounded-full text-[10px] ${getOjtBandClass(record.band)}`}>
+                        {getOjtBandLabel(record.band)}
+                    </Badge>
+                    {record.requiresGmExtension && (
+                        <span className="text-[10px] font-medium text-rose-700 dark:text-rose-300">
+                            Needs GM extension
+                        </span>
+                    )}
+                    {record.profileLinked === false && (
+                        <span className="text-[10px] text-amber-700 dark:text-amber-400">No app account</span>
+                    )}
+                </div>
+            </TableCell>
+
+            {/* Milestone, from Trainee Details */}
+            <TableCell className="py-2.5">
+                {record.traineeStatus ? (
+                    <TraineeMilestoneChip
+                        status={record.traineeStatus}
+                        date={record.traineeStatusDate}
+                        className="whitespace-nowrap"
+                    />
+                ) : (
+                    <span className="text-[11px] text-muted-foreground">—</span>
+                )}
+            </TableCell>
+
+            <TableCell className="py-2.5">
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={onEdit}
+                >
+                    Edit
+                </Button>
+            </TableCell>
+        </TableRow>
+    );
+}
+
 /* ─── Page ────────────────────────────────────────────────────────────────── */
 
 export default function OjtProgress() {
@@ -397,11 +567,20 @@ export default function OjtProgress() {
                 ? searchFiltered.filter((r) => r.requiresGmExtension)
                 : searchFiltered.filter((r) => r.band === bandFilter);
 
-        // Escalations first, then the tightest schedules.
+        // Escalations, then the most pressing band, then the tightest schedules.
         return [...filtered].sort((a, b) => {
             if (a.requiresGmExtension !== b.requiresGmExtension) return a.requiresGmExtension ? -1 : 1;
-            if (a.ratio !== null && b.ratio !== null && a.ratio !== b.ratio) return b.ratio - a.ratio;
-            if (a.ratio !== b.ratio) return a.ratio === null ? 1 : -1;
+            if (BAND_RANK[a.band] !== BAND_RANK[b.band]) return BAND_RANK[a.band] - BAND_RANK[b.band];
+            if (a.ratio !== b.ratio) {
+                if (a.ratio === null) return 1;
+                if (b.ratio === null) return -1;
+                return b.ratio - a.ratio;
+            }
+            if (a.deadline !== b.deadline) {
+                if (!a.deadline) return 1;
+                if (!b.deadline) return -1;
+                return a.deadline.localeCompare(b.deadline);
+            }
             return a.employeeName.localeCompare(b.employeeName);
         });
     }, [searchFiltered, bandFilter]);
@@ -540,6 +719,12 @@ export default function OjtProgress() {
                         const count = filter.value === 'all' ? counts.all : (counts[filter.value] || 0);
                         if (filter.value !== 'all' && count === 0) return null;
 
+                        // Each chip wears its own band colour, so the filter row and
+                        // the Status column can be read as the same vocabulary.
+                        const resting = filter.value === 'all'
+                            ? 'border-border bg-background text-muted-foreground hover:bg-muted'
+                            : `${getOjtBandClass(filter.value as OjtBand)} hover:opacity-80`;
+
                         return (
                             <button
                                 key={filter.value}
@@ -548,7 +733,7 @@ export default function OjtProgress() {
                                 className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition ${
                                     bandFilter === filter.value
                                         ? 'border-foreground bg-foreground text-background'
-                                        : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                                        : resting
                                 }`}
                             >
                                 {filter.label}
@@ -583,6 +768,14 @@ export default function OjtProgress() {
                     </Card>
                 )}
 
+                {!isLoading && !error && visible.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                        Showing <span className="font-medium text-foreground tabular-nums">{visible.length}</span>
+                        {visible.length !== records.length && <> of {records.length}</>}
+                        {' '}trainee{records.length === 1 ? '' : 's'}, most pressing first.
+                    </p>
+                )}
+
                 {!isLoading && !error && visible.length > 0 && view === 'card' && (
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                         {visible.map((record) => (
@@ -597,114 +790,39 @@ export default function OjtProgress() {
                 )}
 
                 {!isLoading && !error && visible.length > 0 && view === 'list' && (
-                    <Card>
+                    <Card className="overflow-hidden">
                         <div className="overflow-x-auto">
                             <Table>
                                 <TableHeader>
-                                    <TableRow>
-                                        <TableHead className="min-w-[180px]">Trainee</TableHead>
-                                        <TableHead>Unit</TableHead>
-                                        <TableHead>Start</TableHead>
-                                        <TableHead>Deadline</TableHead>
-                                        <TableHead className="text-right">Hours</TableHead>
-                                        <TableHead className="text-right">Duty days</TableHead>
-                                        <TableHead className="text-right">Hours left</TableHead>
-                                        <TableHead className="text-right">Days left</TableHead>
-                                        <TableHead className="text-right">Rate</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead>Milestone</TableHead>
+                                    <TableRow className="hover:bg-transparent">
+                                        <TableHead className="min-w-[190px]">Trainee</TableHead>
+                                        <TableHead className="min-w-[150px]">OJT hours</TableHead>
+                                        <TableHead className="whitespace-nowrap text-right">Duty days</TableHead>
+                                        <TableHead className="min-w-[130px]">Deadline</TableHead>
+                                        <TableHead className="whitespace-nowrap text-right">Rate</TableHead>
+                                        <TableHead className="min-w-[120px]">Status</TableHead>
+                                        <TableHead className="min-w-[130px]">Milestone</TableHead>
                                         <TableHead className="w-10" />
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
                                     {visible.map((record) => (
-                                        <TableRow
+                                        <OjtProgressRow
                                             key={`${record.empId}|${record.unit}`}
-                                            className={record.requiresGmExtension ? 'bg-rose-50/60 dark:bg-rose-950/20' : undefined}
-                                        >
-                                            <TableCell className="py-2">
-                                                <div className="font-medium">{record.employeeName}</div>
-                                                <div className="font-mono text-[11px] text-muted-foreground">
-                                                    {record.empId}
-                                                    {record.designation ? ` · ${record.designation}` : ''}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="py-2 text-xs">{record.unit}</TableCell>
-                                            <TableCell className="py-2 whitespace-nowrap text-xs">
-                                                {formatOjtDate(record.startDate)}
-                                                {record.startDateSource === 'app' && (
-                                                    <span className="ml-1 text-[10px] font-medium text-indigo-600 dark:text-indigo-400">
-                                                        app
-                                                    </span>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="py-2 whitespace-nowrap text-xs">
-                                                {formatOjtDate(record.deadline)}
-                                            </TableCell>
-                                            <TableCell className="py-2 text-right text-xs tabular-nums">
-                                                {formatOjtHours(record.performedHours)}
-                                                <span className="text-muted-foreground"> / {formatOjtHours(record.requiredHours)}</span>
-                                            </TableCell>
-                                            <TableCell className="py-2 text-right text-xs tabular-nums">
-                                                {record.performedDays ?? '—'}
-                                                <span className="text-muted-foreground"> / {record.requiredDays ?? '—'}</span>
-                                            </TableCell>
-                                            <TableCell className="py-2 text-right text-xs tabular-nums">
-                                                {formatOjtHours(record.hoursLeft)}
-                                            </TableCell>
-                                            <TableCell
-                                                className={`py-2 text-right text-xs tabular-nums ${
-                                                    record.daysLeft !== null && record.daysLeft < 0
-                                                        ? 'text-rose-600 dark:text-rose-400'
-                                                        : ''
-                                                }`}
-                                            >
-                                                {record.daysLeft ?? '—'}
-                                            </TableCell>
-                                            <TableCell className={`py-2 text-right text-xs font-semibold tabular-nums ${getOjtRatioTextClass(record.band)}`}>
-                                                {formatOjtRatio(record.ratio)}
-                                            </TableCell>
-                                            <TableCell className="py-2">
-                                                <div className="flex flex-col items-start gap-1">
-                                                    <Badge variant="outline" className={`rounded-full text-[10px] ${getOjtBandClass(record.band)}`}>
-                                                        {getOjtBandLabel(record.band)}
-                                                    </Badge>
-                                                    {record.requiresGmExtension && (
-                                                        <span className="text-[10px] font-medium text-rose-700 dark:text-rose-300">
-                                                            Needs GM extension
-                                                        </span>
-                                                    )}
-                                                    {record.notStarted && !record.requiresGmExtension && (
-                                                        <span className="text-[10px] text-muted-foreground">No hours logged</span>
-                                                    )}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="py-2">
-                                                {record.traineeStatus ? (
-                                                    <TraineeMilestoneChip
-                                                        status={record.traineeStatus}
-                                                        date={record.traineeStatusDate}
-                                                    />
-                                                ) : (
-                                                    <span className="text-[11px] text-muted-foreground">—</span>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="py-2">
-                                                <Button
-                                                    type="button"
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    className="h-7 px-2 text-xs"
-                                                    onClick={() => setEditing(record)}
-                                                >
-                                                    Edit
-                                                </Button>
-                                            </TableCell>
-                                        </TableRow>
+                                            record={record}
+                                            onEdit={() => setEditing(record)}
+                                        />
                                     ))}
                                 </TableBody>
                             </Table>
                         </div>
+                        <p className="border-t bg-muted/30 px-3 py-2 text-[11px] leading-4 text-muted-foreground">
+                            Rate is the hours per day needed from today to finish by the deadline —
+                            green up to 0.4, amber to 1.0, red above. A trainee with no hours logged is
+                            marked <span className="font-medium text-foreground">OJT Not Started</span>:
+                            nothing is counted against them and no GM (ATM) extension is raised until
+                            their first hour.
+                        </p>
                     </Card>
                 )}
 

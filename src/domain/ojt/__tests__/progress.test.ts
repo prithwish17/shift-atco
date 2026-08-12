@@ -24,6 +24,14 @@ const isException = (row: { empId: string; unit: string }) =>
 
 const run = (row: (typeof OJT_FIXTURES)[number]) => computeProgress(row.input, FIXTURE_TODAY);
 
+/**
+ * The same row with a token hour logged against it, so the date arithmetic of a
+ * NOT_STARTED row can still be held against the sheet oracle. Hours performed
+ * do not enter the deadline or days-left calculation, only the suppression rule.
+ */
+const unmasked = (row: (typeof OJT_FIXTURES)[number]) =>
+    computeProgress({ ...row.input, performedHours: row.input.performedHours || 0.5 }, FIXTURE_TODAY);
+
 describe('OJT engine vs. the live spreadsheet', () => {
     it('covers the whole workbook', () => {
         expect(OJT_FIXTURES).toHaveLength(132);
@@ -41,8 +49,8 @@ describe('OJT engine vs. the live spreadsheet', () => {
     it('reproduces every days-left the sheet computes', () => {
         const mismatches = OJT_FIXTURES
             .filter((row) => !isException(row))
-            .filter((row) => run(row).daysLeft !== row.sheetDaysLeft)
-            .map((row) => `${row.name} (${row.unit}): got ${run(row).daysLeft}, sheet ${row.sheetDaysLeft}`);
+            .filter((row) => unmasked(row).daysLeft !== row.sheetDaysLeft)
+            .map((row) => `${row.name} (${row.unit}): got ${unmasked(row).daysLeft}, sheet ${row.sheetDaysLeft}`);
 
         expect(mismatches).toEqual([]);
     });
@@ -59,23 +67,26 @@ describe('OJT engine vs. the live spreadsheet', () => {
     });
 });
 
+/** The 93 rows with at least one hour logged — the only ones that carry figures. */
+const started = OJT_FIXTURES.filter((row) => row.input.performedHours > 0);
+
 describe('hours left', () => {
     it('is required minus performed, floored at zero', () => {
-        for (const row of OJT_FIXTURES) {
+        for (const row of started) {
             const expected = Math.max(0, row.input.requiredHours - row.input.performedHours);
             expect(run(row).hoursLeft).toBeCloseTo(expected, 2);
         }
     });
 
     it('does not reproduce the sheet 24-hour display wrap', () => {
-        // 54 of 132 rows are affected. If this count moves, the sheet's cell
-        // formatting changed and the rollout note in the plan needs revisiting.
-        const wrapped = OJT_FIXTURES.filter((row) => {
+        // 16 of the 93 started rows are affected. If this count moves, the
+        // sheet's cell formatting changed and the rollout note needs revisiting.
+        const wrapped = started.filter((row) => {
             const ours = run(row).hoursLeft ?? 0;
             return Math.abs(ours - row.sheetHoursLeftDisplay) > 0.01;
         });
 
-        expect(wrapped).toHaveLength(54);
+        expect(wrapped).toHaveLength(16);
 
         // Every one of them is explained by modulo 24, not by an arithmetic bug.
         for (const row of wrapped) {
@@ -95,10 +106,11 @@ describe('banding', () => {
 
         expect(counts).toEqual({
             HOURS_COMPLETE: 43,
+            NOT_STARTED: 39,
             ON_TRACK: 16,
-            WATCH: 47,
-            CRITICAL: 16,
-            DEADLINE_PASSED: 10,
+            WATCH: 29,
+            CRITICAL: 3,
+            DEADLINE_PASSED: 2,
         });
     });
 
@@ -120,7 +132,10 @@ describe('banding', () => {
 
     it('honours the band boundaries inclusively', () => {
         const band = (ratio: number): OjtBand =>
-            resolveBand({ startDate: '2026-01-01', requiredHours: 90, hoursLeft: 10, daysLeft: 10, ratio });
+            resolveBand({
+                startDate: '2026-01-01', requiredHours: 90, hoursLeft: 10, daysLeft: 10, ratio,
+                notStarted: false,
+            });
 
         expect(band(0.39)).toBe('ON_TRACK');
         expect(band(0.4)).toBe('ON_TRACK');
@@ -143,7 +158,7 @@ describe('banding', () => {
     it('flags a missing start date instead of guessing a deadline', () => {
         const progress = computeProgress({
             requiredHours: 90, requiredDays: 45,
-            performedHours: 0, performedDays: 0,
+            performedHours: 12, performedDays: 8,
             startDate: null,
         }, FIXTURE_TODAY);
 
@@ -153,13 +168,65 @@ describe('banding', () => {
     });
 });
 
-describe('not-started flag', () => {
-    it('is a flag, not a band — trainees with zero hours can still be critical', () => {
-        const notStarted = OJT_FIXTURES.filter((row) => run(row).notStarted);
-        expect(notStarted).toHaveLength(39);
+describe('the not-started band', () => {
+    const notStarted = OJT_FIXTURES.filter((row) => row.input.performedHours === 0);
 
-        const criticalAndNotStarted = notStarted.filter((row) => run(row).band === 'CRITICAL');
-        expect(criticalAndNotStarted).toHaveLength(13);
+    it('claims every cycle with no hours logged', () => {
+        expect(notStarted).toHaveLength(39);
+        for (const row of notStarted) {
+            expect(run(row).band).toBe('NOT_STARTED');
+            expect(run(row).notStarted).toBe(true);
+        }
+    });
+
+    it('calculates no hours, days or rate against a clock that is not running', () => {
+        for (const row of notStarted) {
+            const progress = run(row);
+            expect(progress.hoursLeft).toBeNull();
+            expect(progress.daysLeft).toBeNull();
+            expect(progress.ratio).toBeNull();
+        }
+    });
+
+    it('keeps the deadline, which is a fact about the sheet, not a countdown', () => {
+        for (const row of notStarted) {
+            expect(run(row).deadline).not.toBeNull();
+        }
+    });
+
+    it('outranks a deadline that has already passed', () => {
+        // 8 of the 39 have a nominal deadline in the past. Without hours logged
+        // the trainee never entered the cycle, so there was no clock to miss.
+        const overdueOnPaper = notStarted.filter((row) => row.sheetDaysLeft < 0);
+        expect(overdueOnPaper).toHaveLength(8);
+
+        for (const row of overdueOnPaper) {
+            expect(run(row).band).toBe('NOT_STARTED');
+        }
+    });
+
+    it('does not claim a cycle with nothing required of it', () => {
+        // Zero required hours is not "not started", it is nothing to do.
+        const progress = computeProgress({
+            requiredHours: 0, requiredDays: 0,
+            performedHours: 0, performedDays: 0,
+            startDate: '2026-01-01',
+        }, FIXTURE_TODAY);
+
+        expect(progress.band).toBe('HOURS_COMPLETE');
+    });
+
+    it('yields as soon as the first hour is logged', () => {
+        const base = {
+            requiredHours: 45, requiredDays: 30, performedDays: 1, startDate: '2026-05-22',
+        };
+
+        expect(computeProgress({ ...base, performedHours: 0 }, FIXTURE_TODAY).band).toBe('NOT_STARTED');
+
+        const begun = computeProgress({ ...base, performedHours: 5 }, FIXTURE_TODAY);
+        expect(begun.band).toBe('CRITICAL');
+        expect(begun.hoursLeft).toBe(40);
+        expect(begun.daysLeft).toBe(10);
     });
 });
 
@@ -170,7 +237,38 @@ describe('GM (ATM) extension escalation', () => {
             .map((row) => row.name)
             .sort();
 
-        expect(escalations).toEqual(['ALOK SRIVASTAV', 'MANOJ KUMAR YADAV', 'NAGMANI KUMAR']);
+        // Nobody in this cohort. The three rows that used to escalate —
+        // ALOK SRIVASTAV, MANOJ KUMAR YADAV, NAGMANI KUMAR — had zero hours
+        // logged, so the rate that triggered them was the deadline running
+        // against a trainee who had never appeared. See below.
+        expect(escalations).toEqual([]);
+    });
+
+    it('never asks the GM to extend a cycle that has not started', () => {
+        const neverStarted = ['ALOK SRIVASTAV', 'MANOJ KUMAR YADAV', 'NAGMANI KUMAR'];
+
+        for (const name of neverStarted) {
+            const row = OJT_FIXTURES.find((r) => r.name === name);
+            expect(row?.input.performedHours).toBe(0);
+
+            const progress = run(row!);
+            expect(progress.band).toBe('NOT_STARTED');
+            expect(progress.requiresGmExtension).toBe(false);
+        }
+    });
+
+    it('still fires once a trainee has started and fallen behind', () => {
+        // 45 hours over 3 months from 2026-05-22 → deadline 2026-08-21, 10 days
+        // out. 40 hours left at 4 hrs/day is not recoverable without help.
+        const progress = computeProgress({
+            requiredHours: 45, requiredDays: 30,
+            performedHours: 5, performedDays: 4,
+            startDate: '2026-05-22',
+        }, FIXTURE_TODAY);
+
+        expect(progress.daysLeft).toBe(10);
+        expect(progress.band).toBe('CRITICAL');
+        expect(progress.requiresGmExtension).toBe(true);
     });
 
     it('does not fire once the deadline has already passed', () => {
@@ -188,7 +286,7 @@ describe('GM (ATM) extension escalation', () => {
         const base = { requiredDays: 45, performedDays: 10, startDate: '2026-08-01' };
 
         // >1 hr/day but plenty of runway.
-        expect(computeProgress({ ...base, requiredHours: 90, performedHours: 0, startDate: '2026-08-01' }, FIXTURE_TODAY).band)
+        expect(computeProgress({ ...base, requiredHours: 90, performedHours: 1, startDate: '2026-08-01' }, FIXTURE_TODAY).band)
             .toBe('WATCH');
 
         // Under 15 days but a comfortable rate.

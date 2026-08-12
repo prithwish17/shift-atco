@@ -7,11 +7,15 @@
  */
 
 /**
- * Evaluation order matters. DEADLINE_PASSED is resolved before any ratio
- * comparison because a deadline in the past yields a negative days_left, and a
- * negative ratio would otherwise satisfy `ratio <= 0.4` and read as on track.
+ * Evaluation order matters twice over. NOT_STARTED is resolved first: with no
+ * hours logged the cycle has not begun, so the deadline clock is not running
+ * and nothing downstream — days left, rate, GM escalation — may be derived
+ * from it. DEADLINE_PASSED is then resolved before any ratio comparison,
+ * because a deadline in the past yields a negative days_left, and a negative
+ * ratio would otherwise satisfy `ratio <= 0.4` and read as on track.
  */
 export type OjtBand =
+    | 'NOT_STARTED'
     | 'AWAITING_START_DATE'
     | 'HOURS_COMPLETE'
     | 'DEADLINE_PASSED'
@@ -41,14 +45,14 @@ export interface OjtProgress {
     requiredMonths: number | null;
     /** ISO `YYYY-MM-DD`, or null while the start date is unknown. */
     deadline: string | null;
-    /** max(0, required − performed). Never negative, never wrapped at 24h. */
+    /** max(0, required − performed). Never negative, never wrapped at 24h. Null while NOT_STARTED. */
     hoursLeft: number | null;
-    /** Calendar days to the deadline. Negative once the deadline has passed. */
+    /** Calendar days to the deadline. Negative once the deadline has passed. Null while NOT_STARTED. */
     daysLeft: number | null;
-    /** Hours per day needed to finish on time. Null once daysLeft <= 0. */
+    /** Hours per day needed to finish on time. Null once daysLeft <= 0, and while NOT_STARTED. */
     ratio: number | null;
     band: OjtBand;
-    /** No hours logged yet. A flag, never a substitute for the band. */
+    /** No hours logged yet — the same condition that produces the NOT_STARTED band. */
     notStarted: boolean;
     daysRequirementMet: boolean;
     /** Fewer than 15 days left and burning above 1 h/day — escalate to GM (ATM). */

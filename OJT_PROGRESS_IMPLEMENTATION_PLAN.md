@@ -112,10 +112,34 @@ performed-hours disagreements** across the whole file. The join is clean.
 
 ### 2.6 "Not started" must be a flag, never a status
 
+> **Reversed on 2026-08-12 — see §2.6a.** Kept here because it records what the
+> data looked like under the original rule.
+
 39 rows have 0 performed hours. **13 of them are already in the critical band** —
 ALOK SRIVASTAV needs 45 h in 14 days (3.2 h/day). If "OJT not started" replaces
 the band (as it does in the sheet's `Current status` column), those 13 people
 become invisible. `not_started` is a badge alongside the band, not instead of it.
+
+### 2.6a "Not started" is a status after all (2026-08-12)
+
+The training section rejected §2.6. A trainee with 0 performed hours has not
+begun the OJT, so the sheet's start date is a plan, not a clock: the rate those
+13 rows were "critical" on measured the calendar running out, not a trainee
+falling behind. The proof is the escalation list — all three trainees the
+original rule sent to the GM (ATM) had **never logged an hour**. Asking for an
+extension to a cycle nobody has started is noise that costs the real
+escalations their credibility.
+
+`NOT_STARTED` is therefore a band, resolved **first** — ahead of
+`DEADLINE_PASSED`, since a trainee who never entered the cycle cannot have
+missed it — and `hours_left`, `days_left` and `ratio` are all `NULL` while it
+holds. `requires_gm_extension` follows for free: it tests for `CRITICAL`, which
+a `NOT_STARTED` row can no longer be. The `not_started` boolean survives
+unchanged as the raw flag, which is what Trainee Details filters on.
+
+`deadline` is deliberately *not* suppressed. It is a fact derived from the sheet
+(start date + required months), not a countdown, and the supervisor edit dialog
+needs it to preview the effect of entering a start date.
 
 ### 2.7 Negative-ratio trap
 
@@ -127,16 +151,18 @@ track"**. `DEADLINE_PASSED` must be evaluated *before* any ratio comparison, and
 
 ### 2.8 Today's cohort under the specified rules
 
-| Band | Rows |
-| --- | --- |
-| `HOURS_COMPLETE` | 43 |
-| `ON_TRACK` (≤ 0.4) | 16 |
-| `WATCH` (0.4–1] | 47 |
-| `CRITICAL` (> 1) | 16 |
-| `DEADLINE_PASSED` | 10 |
+| Band | Rows (original) | Rows (with §2.6a) |
+| --- | --- | --- |
+| `HOURS_COMPLETE` | 43 | 43 |
+| `NOT_STARTED` | — | 39 |
+| `ON_TRACK` (≤ 0.4) | 16 | 16 |
+| `WATCH` (0.4–1] | 47 | 29 |
+| `CRITICAL` (> 1) | 16 | 3 |
+| `DEADLINE_PASSED` | 10 | 2 |
 
-**GM (ATM) extension prompts firing today: 3** — ALOK SRIVASTAV (45 h / 14 d),
-MANOJ KUMAR YADAV (30 h / 5 d), NAGMANI KUMAR (45 h / 14 d).
+**GM (ATM) extension prompts firing today: 3 → 0.** All three — ALOK SRIVASTAV
+(45 h / 14 d), MANOJ KUMAR YADAV (30 h / 5 d), NAGMANI KUMAR (45 h / 14 d) —
+had zero performed hours, and are `NOT_STARTED` under §2.6a.
 
 ---
 
@@ -239,6 +265,9 @@ keeps every read correct and lets supervisors filter and sort server-side.
 Evaluated **in order** — the guard ordering is what prevents §2.7.
 
 ```
+0. NOT_STARTED           performed_hours = 0 AND required_hours > 0
+                                                              → slate (terminal;
+                                                hours_left = days_left = ratio = NULL)
 1. AWAITING_START_DATE   resolved_start_date IS NULL          → slate
 2. HOURS_COMPLETE        hours_left <= 0                      → emerald
 3. DEADLINE_PASSED       days_left <= 0 AND hours_left > 0    → rose (terminal, ratio = NULL)
@@ -252,7 +281,9 @@ matching "below 0.4 and below" / "above 0.4 and below 1".
 
 Cross-cutting flags, rendered as chips **alongside** the band:
 
-- `not_started` — `performed_hours = 0` (39 rows; see §2.6)
+- `not_started` — `performed_hours = 0` (39 rows). Since §2.6a this is also the
+  `NOT_STARTED` band, so the UI shows the chip only where the band says
+  something else — i.e. never, unless `required_hours` is missing.
 - `requires_gm_extension` — `days_left < 15 AND ratio > 1` (3 rows)
 - `days_requirement_met` — `performed_days >= required_days`
 
@@ -407,15 +438,24 @@ Kept **separate** from `/supervisor/trainees`, which tracks a different concern
 each page to the other.
 
 **Header** — counts as filter chips, driven by §3.4:
-`All · On Track · Watch · Critical · Deadline Passed · Completed · ⚠ Needs GM Extension`.
-The GM chip is styled as the alert and sorts to the top by default when non-zero.
+`All · On Track · Watch · Critical · Deadline Passed · Completed · Not Started ·
+No Start Date · ⚠ Needs GM Extension`. Each chip wears its own band colour, so
+the filter row and the Status column read as one vocabulary. The GM chip is
+styled as the alert and sorts to the top by default when non-zero.
 
 **View toggle — list ⇄ card**, persisted to `localStorage`, defaulting to card on
 mobile and list on desktop:
 
-- **List** — dense table: Name · Emp ID · Unit · Start · Deadline · Hours
-  (performed/required) · Duty days (performed/required) · Hours left · Days left
-  · **Ratio badge** · Status · Edit. Sortable on ratio, days left, deadline.
+- **List** — eight columns, each pairing one primary figure with its context
+  underneath, so a supervisor scanning reads down a single number rather than
+  across four: Trainee (name · unit · emp id · designation) · OJT hours
+  (performed/required, completion bar, % and hours left) · Duty days ·
+  Deadline (date, days left, start date) · Rate · Status (band, GM warning,
+  account warning) · Milestone · Edit.
+
+  Ordered escalations → band severity → burn rate → deadline. Band severity is
+  load-bearing: `DEADLINE_PASSED` and `NOT_STARTED` both carry a `NULL` ratio,
+  so ordering on the rate alone buried the overdue below the on-track.
 - **Card** — one card per cycle: name and unit header, a hours-progress bar,
   the ratio as the dominant coloured figure with `hrs/day` beneath it, deadline
   with countdown, flag chips, and the GM banner inline when it fires.
@@ -515,6 +555,7 @@ supabase/migrations/
   20260811100000_employee_ojt_progress.sql      table, RLS, indexes
   20260811110000_ojt_sync_cron.sql              sync_jobs, 2 cron jobs, v_use_queue
   20260811120000_ojt_progress_rpcs.sql          resolution + progress views, 2 RPCs
+  20260812090000_ojt_not_started_band.sql       NOT_STARTED band (§2.6a)
 supabase/functions/
   fetch-ojt-data/index.ts                       twice-daily scrape + join + upsert
   update-ojt-progress/index.ts                  override writes, role-gated

@@ -48,6 +48,9 @@ export function OjtProgressCard({
 }) {
     const percent = getOjtCompletionPercent(record.requiredHours, record.performedHours);
     const showRatio = record.ratio !== null;
+    // Nothing logged yet: the countdown has not begun, so every derived figure
+    // on this card is deliberately blank rather than zero.
+    const notStarted = record.band === 'NOT_STARTED';
 
     return (
         <Card className="overflow-hidden">
@@ -112,7 +115,9 @@ export function OjtProgressCard({
                     />
                     <div className="flex items-baseline justify-between text-[11px] text-muted-foreground">
                         <span>{Math.round(percent)}% complete</span>
-                        <span className="tabular-nums">{formatOjtHours(record.hoursLeft)} left</span>
+                        <span className="tabular-nums">
+                            {notStarted ? 'Not started' : `${formatOjtHours(record.hoursLeft)} left`}
+                        </span>
                     </div>
                 </div>
 
@@ -129,7 +134,9 @@ export function OjtProgressCard({
                             </>
                         ) : (
                             <p className="pt-1 text-sm font-medium text-muted-foreground">
-                                {record.band === 'HOURS_COMPLETE' ? 'Requirement met' : 'Not applicable'}
+                                {record.band === 'HOURS_COMPLETE' && 'Requirement met'}
+                                {record.band === 'NOT_STARTED' && 'Not started'}
+                                {record.band !== 'HOURS_COMPLETE' && record.band !== 'NOT_STARTED' && 'Not applicable'}
                             </p>
                         )}
                     </div>
@@ -144,7 +151,7 @@ export function OjtProgressCard({
                                     : 'text-muted-foreground'
                             }`}
                         >
-                            {formatDaysLeft(record.daysLeft)}
+                            {notStarted ? 'Not counted yet' : formatDaysLeft(record.daysLeft)}
                         </p>
                     </div>
                 </div>
@@ -173,9 +180,10 @@ export function OjtProgressCard({
                 )}
 
                 {/* Flags — never a replacement for the band */}
-                {(record.notStarted || record.daysRequirementMet || record.profileLinked === false) && (
+                {((record.notStarted && !notStarted) || record.daysRequirementMet || record.profileLinked === false) && (
                     <div className="flex flex-wrap gap-1.5">
-                        {record.notStarted && (
+                        {/* Only when the band says something else; otherwise it repeats it. */}
+                        {record.notStarted && !notStarted && (
                             <Badge variant="outline" className="rounded-full border-slate-300 text-[10px] font-normal text-slate-600 dark:border-slate-700 dark:text-slate-300">
                                 <Clock className="mr-1 h-3 w-3" />
                                 No hours logged
