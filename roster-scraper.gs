@@ -234,14 +234,19 @@ function unitForCell_(scan, r, c) {
   const span = scan.spans[r + ',' + c];
   if (!span) return scan.unitAt[r];
 
+  // De-duplication has to work on individual sectors, not whole labels: a row
+  // label can itself be composite, so a merge covering "UKN" and "UKN+UKW"
+  // would otherwise join to "UKN+UKN+UKW".  The answer is the union of the
+  // sectors covered, in the order the sheet lists them — "UKN+UKW".
   const parts = [];
   for (let i = r; i < r + span && i < scan.unitAt.length; i++) {
     const label = scan.unitAt[i];
     if (!label || !label.toString().trim()) continue;
-    const text = label.toString().trim();
-    // A merge can start on a row whose label already names several sectors
-    // ("UKN" then "UKN+UKW"), which would otherwise yield "UKN+UKN+UKW".
-    if (parts.indexOf(text) === -1) parts.push(text);
+
+    label.toString().split('+').forEach(function (piece) {
+      const text = piece.trim();
+      if (text && parts.indexOf(text) === -1) parts.push(text);
+    });
   }
 
   return parts.length > 1 ? parts.join('+') : scan.unitAt[r];
