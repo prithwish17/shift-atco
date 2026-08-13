@@ -294,28 +294,32 @@ function applyBandSpans(
     if (columnIndex === -1) return;
 
     const anchorRow = anchorKey.split("|")[0];
+    const anchorIndex = rows.findIndex((row) => row.key === anchorRow);
+    if (anchorIndex === -1) return;
+
     const indices = covers.map((unit) =>
       rows.findIndex((row) => row.units.length === 1 && row.units[0] === unit),
     );
-    // The anchor row must itself be one of the covered sectors, or the cell is
-    // sitting somewhere the span cannot start from.
     if (indices.some((index) => index === -1)) return;
-    if (rows[indices[0]].key !== anchorRow) return;
 
     const ordered = [...indices].sort((left, right) => left - right);
     const isAdjacent = ordered.every(
       (index, position) => position === 0 || index === ordered[position - 1] + 1,
     );
     if (!isAdjacent) return;
-    if (ordered[0] !== indices[0]) return;
 
+    const source = rows[anchorIndex].cells[columnIndex];
+    if (source.people.length === 0) return;
+
+    // The band is parked on the sector its label names first, which is not
+    // always the topmost row once the grid is in sheet order — a span has to
+    // start at the top, so move the cell up rather than giving up on it.
     const top = ordered[0];
-    if (rows[top].cells[columnIndex].people.length === 0) return;
+    if (top !== anchorIndex) {
+      rows[anchorIndex].cells[columnIndex] = { people: [], rowSpan: 1, covered: false };
+    }
 
-    rows[top].cells[columnIndex] = {
-      ...rows[top].cells[columnIndex],
-      rowSpan: ordered.length,
-    };
+    rows[top].cells[columnIndex] = { ...source, rowSpan: ordered.length };
     ordered.slice(1).forEach((index) => {
       rows[index].cells[columnIndex] = { people: [], rowSpan: 1, covered: true };
     });
@@ -412,6 +416,22 @@ export function buildRosterGrid(
       // times and emoji separators that must not be reformatted.
       bucket.lines.push(person.raw);
       notesByKey.set(unitKey, bucket);
+      return;
+    }
+
+    // A note merged down the side of the sheet gets attributed to every row it
+    // covers, so its unit label runs from the unit block clean through SAR,
+    // LEAVE and TRAINING.  Nobody is simultaneously on duty and on the LEAVE
+    // row, so a label reaching into those bands is a banner, not a controller.
+    //
+    // The scraper anchors the REMARK column to its own row and no longer
+    // produces these; this keeps the grid right when it is running against an
+    // older deployment, which is the common case during a rollout.
+    const parts = splitUnits(unit);
+    if (parts.length > 1 && parts.some((part) => CHIP_BANDS.has(part) || NOTE_BANDS.has(part))) {
+      const bucket = notesByKey.get("REMARKS") || { key: "REMARKS", label: "REMARKS", lines: [] };
+      bucket.lines.push(person.raw);
+      notesByKey.set("REMARKS", bucket);
       return;
     }
 

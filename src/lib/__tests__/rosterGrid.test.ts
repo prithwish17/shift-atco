@@ -413,6 +413,55 @@ describe("buildRosterGrid", () => {
       expect(countMatches(model, "SULAGNA")).toBe(1);
     });
 
+    it("treats a label spanning into SAR/LEAVE/TRAINING as a banner, not a controller", () => {
+      // What an unpatched scraper emits for the sheet's merged REMARK banner:
+      // it is attributed to every row the merge covers, right through the bands.
+      const banner = "GO THROUGH TRAINING & REMARKS FOR DUTY AND DB  PLAN";
+      const model = buildRosterGrid(
+        [
+          row({ unit: "UBN", position: "RSR" }),
+          row({
+            unit: "IATS+OCCN & OCC-S+ARR+DEP & SEQ+TSO+TWR+CLD+ARO+FMP+WSO-A+SAR+LEAVE+TRAINING",
+            position: "Duty",
+            employee_name: banner,
+          }),
+        ],
+        DATE,
+        "M",
+        "Morning",
+      );
+
+      expect(model.notes).toEqual([{ key: "REMARKS", label: "REMARKS", lines: [banner] }]);
+      const labels = model.sections.flatMap((s) => s.rows.map((r) => r.label));
+      expect(labels.some((label) => label.includes("+SAR+"))).toBe(false);
+      expect(model.total).toBe(2);
+    });
+
+    it("still spans a genuine multi-sector covering assignment", () => {
+      // The guard must not catch real bands: these name only sectors.
+      const model = buildRosterGrid(
+        [
+          row({ unit: "UBS", position: "RSR" }),
+          row({ unit: "URP", position: "RSR" }),
+          row({ unit: "UGT", position: "RSR" }),
+          row({
+            unit: "UBS+URP+UGT",
+            position: "RSR",
+            employee_name: "SANJIV KUMAR YADAV/ JGM - RSR+UBN-SAR",
+          }),
+        ],
+        DATE,
+        "M",
+        "Morning",
+      );
+
+      expect(model.notes).toEqual([]);
+      const units = model.sections.find((section) => section.key === "units")!;
+      const spanning = units.rows[0].cells.find((cell) => cell.rowSpan > 1);
+      expect(spanning?.rowSpan).toBe(3);
+      expect(spanning?.people[0].name).toBe("SANJIV KUMAR YADAV");
+    });
+
     it("puts the REMARK column last, after the rating columns", () => {
       const model = buildRosterGrid(
         [
