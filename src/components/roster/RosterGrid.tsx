@@ -31,17 +31,22 @@ const STICKY_CORNER = "sticky left-0 top-0 z-30 bg-muted";
 
 function PersonCell({ person, search }: { person: RosterPerson; search?: string }) {
   const isMatch = search ? personMatchesSearch(person, search) : false;
+
+  // Grade and rating are deliberately not rendered — the grid reads as names.
+  // They stay on the model (they drive the SAR flag, search and the rating
+  // checks) and are one hover away, which also explains why a search for a
+  // rating highlights a cell showing only a name.
   const detail = [person.grade, person.rating].filter(Boolean).join(" · ");
 
   return (
     <div
+      title={detail || undefined}
       className={cn(
         "rounded px-1 py-0.5",
         isMatch && "bg-amber-200 ring-1 ring-amber-500 dark:bg-amber-500/30 dark:ring-amber-400",
       )}
     >
       <p className="font-medium leading-tight">{person.name || person.raw}</p>
-      {detail && <p className="leading-tight text-muted-foreground">{detail}</p>}
       <div className="flex flex-wrap gap-1">
         {person.timeWindow && (
           <span className="font-mono text-[10px] text-muted-foreground">{person.timeWindow}</span>
