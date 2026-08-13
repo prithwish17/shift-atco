@@ -145,7 +145,13 @@ Deno.serve(async (req) => {
     });
 
     if (!response.ok) {
-      throw new Error(`Apps Script returned ${response.status}`);
+      // Redeploying an Apps Script project mints a NEW /exec URL; the old one
+      // starts answering 404.  Naming that here saves a long hunt, because the
+      // symptom is simply that the roster stops updating.
+      const hint = response.status === 404
+        ? ` — this deployment URL is dead. A new Apps Script deployment gets a new /exec URL, so update app_settings.roster_webapp_url (currently ${appsScriptUrl === DEFAULT_APPS_SCRIPT_URL ? "unset, using the built-in default" : "set"}).`
+        : "";
+      throw new Error(`Apps Script returned ${response.status}${hint}`);
     }
 
     const body = await response.text();
@@ -202,11 +208,14 @@ Deno.serve(async (req) => {
       let skippedDates = 0;
 
       const toInsert = rows.reduce((acc: Record<string, string>[], row: Record<string, string>) => {
-        // Parse employee name: strip designation/rating after "/"
-        // and trailing designation codes like "-AM", "-JE", "-SM"
-        let empName = (row.employee_name || "").split("/")[0].trim();
-        empName = empName.replace(/-(SM|DGM|MGR|JE|AM|AGM)$/i, "").trim();
-        empName = empName.replace(/-+$/, "").trim();
+        // The sheet writes each cell as "NAME/ GRADE - RATING-[SAR]", e.g.
+        // "BIBHAS SARKAR/ JGM - RSR+UBN-".  This used to be cut down to the bare
+        // name, which threw away the grade and the rating — the two things
+        // printed under every name on the published roster, and what the grid
+        // view renders beneath each person.  The full cell is stored instead;
+        // `parsePersonCell` in src/lib/rosterGrid.ts splits it for display and
+        // tolerates the bare names that older rows still hold.
+        const empName = (row.employee_name || "").trim().replace(/\s+/g, " ");
 
         // The webapp may return the position/half info under different field names
         // Check: position, mark, remark, half (in order of priority)
@@ -226,6 +235,9 @@ Deno.serve(async (req) => {
           unit: (row.unit || "").toUpperCase().trim() === "HQ" ? "WSO" : (row.unit || ""),
           employee_name: empName,
           position: positionValue,
+          // Absent from supervision and special rows, and from any deployment
+          // older than the merge-aware scraper — stored as NULL, never guessed.
+          row_index: Number.isInteger(row.row_index) ? row.row_index : null,
         });
         return acc;
       }, []);

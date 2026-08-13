@@ -16,6 +16,13 @@ export interface RosterEntry {
   unit: string;
   employee_name: string;
   position: string;
+  /**
+   * Row the cell was read from in the sheet's grid block, so the duty grid can
+   * reproduce the roster's own unit ordering — which differs from roster to
+   * roster.  Null on supervision and special rows, and on anything synced
+   * before the scraper started emitting it.
+   */
+  row_index?: number | null;
   created_at?: string;
 }
 
@@ -111,6 +118,10 @@ export function useFetchRoster() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rosters"] });
       queryClient.invalidateQueries({ queryKey: ["my-roster"] });
+      queryClient.invalidateQueries({ queryKey: ["shift-roster"] });
+      // Lets an already-open duty grid notice the new roster rows and run its
+      // automatic sync, instead of waiting for the count query to go stale.
+      queryClient.invalidateQueries({ queryKey: ["roster-row-count"] });
     },
   });
 }

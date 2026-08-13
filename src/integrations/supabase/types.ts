@@ -463,6 +463,7 @@ export type Database = {
           employee_name: string
           id: string
           position: string
+          row_index: number | null
           shift: string
           team: string
           unit: string
@@ -473,6 +474,7 @@ export type Database = {
           employee_name: string
           id?: string
           position: string
+          row_index?: number | null
           shift: string
           team: string
           unit: string
@@ -483,6 +485,7 @@ export type Database = {
           employee_name?: string
           id?: string
           position?: string
+          row_index?: number | null
           shift?: string
           team?: string
           unit?: string

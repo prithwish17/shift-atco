@@ -15,6 +15,8 @@ type RosterRecord = {
   unit:          string
   employee_name: string
   position:      string
+  /** Row the cell was read from, so the grid can reproduce the sheet's order. */
+  row_index:     number | null
 }
 
 // Normalise shift values to title-case ("NIGHT" → "Night") so queries
@@ -199,10 +201,13 @@ async function fetchTeamRosterOnce(
   const records: RosterRecord[] = []
 
   for (const row of raw) {
-    // Strip designation suffixes from employee name (matches fetch-roster logic)
-    let empName = (row.employee_name ?? row.name ?? '').split('/')[0].trim()
-    empName = empName.replace(/-(SM|DGM|MGR|JE|AM|AGM)$/i, '').trim()
-    empName = empName.replace(/-+$/, '').trim()
+    // The sheet writes each cell as "NAME/ GRADE - RATING-[SAR]", e.g.
+    // "BIBHAS SARKAR/ JGM - RSR+UBN-".  This used to be cut down to the bare
+    // name, throwing away the grade and rating printed under every name on the
+    // published roster.  The full cell is stored instead and split for display
+    // by parsePersonCell in src/lib/rosterGrid.ts, which also tolerates the bare
+    // names older rows still hold.  Kept in step with fetch-roster.
+    const empName = (row.employee_name ?? row.name ?? '').trim().replace(/\s+/g, ' ')
 
     const unit = (row.unit ?? '').toUpperCase().trim() === 'HQ' ? 'WSO' : (row.unit ?? '')
 
@@ -223,6 +228,9 @@ async function fetchTeamRosterOnce(
       unit,
       employee_name: empName,
       position:      row.position ?? row.mark ?? row.remark ?? row.half ?? '',
+      // Absent from supervision and special rows, and from any deployment older
+      // than the merge-aware scraper — stored as NULL rather than guessed.
+      row_index:     Number.isInteger(row.row_index) ? row.row_index : null,
     })
   }
 
