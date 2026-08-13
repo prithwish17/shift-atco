@@ -315,7 +315,9 @@ const employeeNav: NavGroup[] = [
       { title: "My Duty Schedule", url: "/employee/schedule", icon: Calendar },
       { title: "Duty Marked", url: "/employee/duty-marked", icon: ClipboardCheck },
       { title: "My Attendance", url: "/employee/attendance", icon: ClipboardList },
-      { title: "Shift Duty Roster", url: "/employee/atc-duties", icon: Table2 },
+      // "Shift Duty Roster" (/employee/atc-duties) is deliberately absent from
+      // the employee sidebar.  The route still exists and stays reachable by
+      // direct link and for the other roles.
       {
         title: "Shift Roster",
         url: "/employee/roster",
