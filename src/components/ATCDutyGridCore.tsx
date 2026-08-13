@@ -162,7 +162,7 @@ export function ATCDutyGridCore({
     const grid = useATCGridState({ canEdit });
 
     const {
-        date, setDate, shift, setShift, team, setTeam,
+        date, setDate, shift, setShift, team,
         positionLabels, setPositionLabels,
         isNight, dateStr,
         employees, roster,
@@ -231,16 +231,12 @@ export function ATCDutyGridCore({
                             </div>
                         )}
 
-                        {canEdit && (
-                            <Select value={team} onValueChange={setTeam}>
-                                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Team" /></SelectTrigger>
-                                <SelectContent>
-                                    {['A', 'B', 'C', 'D', 'E'].map((t) => (
-                                        <SelectItem key={t} value={t}>Team {t}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        )}
+                        {/* Team is derived from the duty rotation for the chosen
+                            date and shift, so it is shown, not selected. */}
+                        <div className="flex items-center gap-1.5 rounded-md border border-input bg-muted/40 px-3 py-1.5">
+                            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">On duty</span>
+                            <span className="text-sm font-bold">{team ? `Team ${team}` : '—'}</span>
+                        </div>
 
                         <Button variant="outline" size="sm" onClick={() => refetchEdge()} disabled={edgeLoading}>
                             <RefreshCw className={`h-4 w-4 mr-1 ${edgeLoading ? 'animate-spin' : ''}`} /> Sync
@@ -252,7 +248,7 @@ export function ATCDutyGridCore({
                                 size="sm"
                                 disabled={!team || syncFromRoster.isPending}
                                 onClick={async () => {
-                                    if (!team) { toast.error('Select a team first'); return; }
+                                    if (!team) { toast.error('No team on duty for this date and shift'); return; }
                                     try {
                                         const result = await syncFromRoster.mutateAsync({ date: dateStr, shift, team });
                                         const msg = `Synced ${result.synced} assignments` + (result.compOffsGenerated ? ` • ${result.compOffsGenerated} comp-offs generated` : '');

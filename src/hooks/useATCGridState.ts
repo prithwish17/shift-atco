@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 import { POSITION_ROWS, DEPARTMENTS, ALL_NIGHT_DEPARTMENTS } from '@/lib/atcConstants';
 import {
     useDutyRoster,
@@ -12,9 +13,11 @@ import {
     useDeleteExtraDuty,
     useGridEmployees,
     useSyncRosterToGrid,
+    useRosterRowCount,
     useRosterStatusEntries,
 } from '@/hooks/useDutyGrid';
 import { useATCAssignments } from '@/hooks/useATCAssignments';
+import { getTeamForDateAndShift } from '@/lib/shiftRoster';
 import type { GridEmployee, RosterAssignment } from '@/hooks/useDutyGrid';
 
 type PositionRowType = (typeof POSITION_ROWS)[number];
@@ -37,20 +40,25 @@ export function useATCGridState(options: {
     const { canEdit, enableEdgeFunc = false } = options;
 
     // --------------- State ---------------
+    // Only date and shift are chosen. The team is not state: the duty rotation
+    // already determines which team works a given shift on a given date, so
+    // deriving it removes a selector that could contradict the roster.
     const [date, setDate] = useState<Date>(new Date());
     const [shift, setShift] = useState('Morning');
-    const [team, setTeam] = useState('');
     const [positionLabels, setPositionLabels] = useState<Record<string, string>>({});
 
     const isNight = shift === 'Night';
     const dateStr = format(date, 'yyyy-MM-dd');
+
+    const team = useMemo(() => getTeamForDateAndShift(dateStr, shift), [dateStr, shift]);
 
     // --------------- Queries ---------------
     const { isLoading: edgeLoading, refetch: refetchEdge } = useATCAssignments(dateStr, shift || undefined, enableEdgeFunc);
     const { data: employees = [] } = useGridEmployees();
     const { data: roster, isLoading: rosterLoading } = useDutyRoster(date, shift, team);
     const createOrGetRoster = useCreateOrGetRoster();
-    const { data: rawAssignments = [] } = useRosterAssignments(roster?.id);
+    const { data: rawAssignments = [], isLoading: assignmentsLoading } = useRosterAssignments(roster?.id);
+    const { data: rosterRowCount = 0, isLoading: rosterRowCountLoading } = useRosterRowCount(dateStr, shift, team);
     const upsertAssignment = useUpsertAssignment();
     const { data: rawLeaveRecords = [] } = useGridLeaveRecords(date);
     const { data: rawExtraDuties = [] } = useGridExtraDuties(roster?.id);
@@ -112,6 +120,54 @@ export function useATCGridState(options: {
             createOrGetRoster.mutate({ date: format(date, 'yyyy-MM-dd'), shift, team });
         }
     }, [dateStr, shift, team, rosterLoading, createOrGetRoster.isPending]);
+
+    // --------------- Auto-sync from roster ---------------
+    // The duty grid is what employees see, so it must not depend on a
+    // supervisor remembering to press "Sync from Roster".  Once roster rows
+    // exist for this date/shift/team, the grid fills itself.
+    //
+    // This only ever runs into an EMPTY grid.  syncRosterToGrid deletes every
+    // existing assignment before rebuilding ("clean slate"), so auto-running it
+    // over a populated grid would silently discard manual assignments — the
+    // supervisor keeps the button for that case, where the overwrite is
+    // deliberate.
+    //
+    // Each date/shift/team is attempted at most once per session whether it
+    // succeeds or fails, so a date whose names cannot be matched does not sit
+    // in a retry loop burning free-tier requests.
+    const autoSyncedKeys = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        if (!canEdit || !team || !roster?.id) return;
+        // Wait until every input is settled, otherwise "no assignments yet"
+        // cannot be told apart from "assignments still loading".
+        if (rosterLoading || assignmentsLoading || rosterRowCountLoading) return;
+        if (syncFromRoster.isPending) return;
+        if (rawAssignments.length > 0) return; // never overwrite existing work
+        if (rosterRowCount === 0) return; // nothing published to sync yet
+
+        const key = `${dateStr}::${shift}::${team}`;
+        if (autoSyncedKeys.current.has(key)) return;
+        autoSyncedKeys.current.add(key);
+
+        syncFromRoster.mutate(
+            { date: dateStr, shift, team },
+            {
+                onSuccess: (result) => {
+                    if (result.synced > 0) {
+                        toast.success(`Duty grid filled from roster — ${result.synced} assignments`);
+                    }
+                },
+                // Stay quiet on failure. This runs without being asked, so it
+                // must not throw error toasts at whoever opens the page; the
+                // "Sync from Roster" button reports properly when used.
+                onError: (err) => console.warn('[ATC grid] auto-sync skipped:', err),
+            },
+        );
+    }, [
+        canEdit, team, roster?.id, dateStr, shift,
+        rosterLoading, assignmentsLoading, rosterRowCountLoading,
+        rawAssignments.length, rosterRowCount, syncFromRoster.isPending,
+    ]);
 
     // --------------- Computed sets ---------------
     const assignedEmployeeIds = useMemo(() => {
@@ -227,8 +283,8 @@ export function useATCGridState(options: {
     const totalPositions = activeRows.length * activeDepts.length;
 
     return {
-        // State setters
-        date, setDate, shift, setShift, team, setTeam,
+        // State setters — no setTeam: the team is derived from date + shift.
+        date, setDate, shift, setShift, team,
         positionLabels, setPositionLabels,
 
         // Derived state

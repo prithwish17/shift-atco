@@ -18,16 +18,19 @@ import {
   useGridExtraDuties,
 } from '@/hooks/useDutyGrid';
 import { useATCAssignments } from '@/hooks/useATCAssignments';
+import { getTeamForDateAndShift } from '@/lib/shiftRoster';
 
 export default function EmployeeATCDuties() {
+  // Only date and shift are chosen. The team comes from the duty rotation,
+  // which already fixes which team works which shift on a given date.
   const [date, setDate] = useState<Date>(new Date());
   const [shift, setShift] = useState('Morning');
-  const [team, setTeam] = useState('');
   const [positionLabels, setPositionLabels] = useState<Record<string, string>>({});
 
   const isNight = shift === 'Night';
 
   const dateStr = format(date, 'yyyy-MM-dd');
+  const team = useMemo(() => getTeamForDateAndShift(dateStr, shift), [dateStr, shift]);
   const { isLoading: edgeLoading, refetch: refetchEdge } = useATCAssignments(dateStr, shift || undefined);
 
   const { data: roster } = useDutyRoster(date, shift, team);
@@ -88,14 +91,11 @@ export default function EmployeeATCDuties() {
                   {ATC_SHIFTS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Select value={team} onValueChange={setTeam}>
-                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Team" /></SelectTrigger>
-                <SelectContent>
-                  {['A', 'B', 'C', 'D', 'E'].map((t) => (
-                    <SelectItem key={t} value={t}>Team {t}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* Team is derived from the duty rotation, so it is shown, not selected. */}
+              <div className="flex items-center gap-1.5 rounded-md border border-input bg-muted/40 px-3 py-1.5">
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">On duty</span>
+                <span className="text-sm font-bold">{team ? `Team ${team}` : '—'}</span>
+              </div>
               <Button variant="outline" size="sm" onClick={() => refetchEdge()} disabled={edgeLoading}>
                 <RefreshCw className={`h-4 w-4 mr-1 ${edgeLoading ? 'animate-spin' : ''}`} /> Sync
               </Button>

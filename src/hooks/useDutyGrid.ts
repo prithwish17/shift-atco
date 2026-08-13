@@ -443,6 +443,36 @@ export function useGridEmployees() {
 
 // ---------- Sync Roster → Grid ----------
 
+/**
+ * How many flat roster rows exist for a date/shift/team.
+ *
+ * Used to decide whether an automatic grid sync is worth attempting: syncing
+ * with no rows throws, so the auto-sync checks here first.  `head: true` means
+ * the server returns only the count and no row payload, which keeps this cheap
+ * enough to run on every grid view.
+ */
+export function useRosterRowCount(dateStr: string, shift: string, team: string) {
+    const normalizedTeam = normalizeRosterTeamKey(team);
+    // Roster rows are stored title-cased by fetch-roster/sync-roster.
+    const normalizedShift = shift ? shift.charAt(0).toUpperCase() + shift.slice(1).toLowerCase() : '';
+
+    return useQuery({
+        queryKey: ['roster-row-count', dateStr, normalizedShift, normalizedTeam],
+        enabled: !!dateStr && !!normalizedShift && !!normalizedTeam,
+        staleTime: 5 * 60 * 1000,
+        gcTime: 30 * 60 * 1000,
+        queryFn: async () => {
+            const { count, error } = await (supabase.from('rosters' as any) as any)
+                .select('id', { count: 'exact', head: true })
+                .in('date', getRosterDateQueryValues(dateStr))
+                .eq('shift', normalizedShift)
+                .in('team', getRosterTeamQueryValues(normalizedTeam));
+            if (error) throw error;
+            return (count ?? 0) as number;
+        },
+    });
+}
+
 export function useSyncRosterToGrid() {
     const qc = useQueryClient();
     return useMutation({
