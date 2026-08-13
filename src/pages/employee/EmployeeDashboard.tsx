@@ -115,6 +115,58 @@ function getRosterDetailLabel(entry: { unit?: string; position?: string; team?: 
   ].filter(Boolean).join(" · ");
 }
 
+interface RosterLike {
+  shift: string;
+  unit?: string;
+  position?: string;
+}
+
+/**
+ * Collapses a day's roster rows to one line per shift.
+ *
+ * A single shift can produce several rows: the real assignment, plus markers
+ * such as Duty Change or Extra Duty that the sheet keeps in their own lists and
+ * the scraper emits separately.  They describe the same shift, so listing them
+ * side by side read as two duties —
+ *
+ *   Afternoon - SMC-N & SMC-S - Duty
+ *   Afternoon - Duty Change
+ *
+ * The substantive assignment leads and the markers qualify it, which is how the
+ * roster reads on paper.  A shift carrying nothing but a marker keeps showing
+ * the marker as its label, so a day whose only entry is an extra duty still
+ * appears rather than falling through to "No assignment".
+ */
+function mergeRosterEntriesByShift<T extends RosterLike>(entries: T[]): { entry: T; markers: string[] }[] {
+  const order: string[] = [];
+  const groups = new Map<string, T[]>();
+
+  entries.forEach((entry) => {
+    const key = (entry.shift || "").trim().toUpperCase();
+    if (!groups.has(key)) {
+      groups.set(key, []);
+      order.push(key);
+    }
+    groups.get(key)!.push(entry);
+  });
+
+  return order.map((key) => {
+    const group = groups.get(key)!;
+    const entry = group.find((item) => !getSpecialRosterLabel(item.unit, item.position)) ?? group[0];
+    const subjectMarker = getSpecialRosterLabel(entry.unit, entry.position);
+
+    const markers = [
+      ...new Set(
+        group
+          .map((item) => getSpecialRosterLabel(item.unit, item.position))
+          .filter((label): label is string => Boolean(label) && label !== subjectMarker),
+      ),
+    ];
+
+    return { entry, markers };
+  });
+}
+
 function sortRosterEntriesByShift<T extends { shift: string }>(entries: T[]): T[] {
   const shiftOrder: Record<string, number> = {
     MORNING: 0,
@@ -268,10 +320,20 @@ export default function EmployeeDashboard() {
   }));
   const todaySchedule = mySchedule.find(s => s.duty_date === today);
   const tomorrowSchedule = mySchedule.find(s => s.duty_date === tomorrowStr);
-  const shouldShowTodayRosterList = todayRosters.length > 1 || (todaySchedule && isDoubleDuty(todaySchedule.duty_code) && todayRosters.length > 0);
-  const shouldShowTomorrowRosterList = tomorrowRosters.length > 1 || (tomorrowSchedule && isDoubleDuty(tomorrowSchedule.duty_code) && tomorrowRosters.length > 0);
-  const todayRoster = todayRosters[0];
-  const tomorrowRoster = tomorrowRosters[0];
+
+  // One line per shift: the markers a shift carries belong on its assignment,
+  // not on a second line of their own.
+  const todayRosterLines = mergeRosterEntriesByShift(todayRosters);
+  const tomorrowRosterLines = mergeRosterEntriesByShift(tomorrowRosters);
+
+  // The list form is for genuinely separate duties, so it keys off the merged
+  // count — two rows describing one shift are no longer two duties.
+  const shouldShowTodayRosterList = todayRosterLines.length > 1 || (todaySchedule && isDoubleDuty(todaySchedule.duty_code) && todayRosterLines.length > 0);
+  const shouldShowTomorrowRosterList = tomorrowRosterLines.length > 1 || (tomorrowSchedule && isDoubleDuty(tomorrowSchedule.duty_code) && tomorrowRosterLines.length > 0);
+  const todayRoster = todayRosterLines[0]?.entry;
+  const tomorrowRoster = tomorrowRosterLines[0]?.entry;
+  const todayRosterMarkers = todayRosterLines[0]?.markers ?? [];
+  const tomorrowRosterMarkers = tomorrowRosterLines[0]?.markers ?? [];
 
   // The roster and schedule queries stay disabled until the profile resolves, and
   // a disabled query reports isLoading === false.  Without folding the profile in,
@@ -487,12 +549,17 @@ export default function EmployeeDashboard() {
                 <p className="text-sm text-purple-600 dark:text-purple-400">Loading…</p>
               ) : shouldShowTodayRosterList ? (
                 <div className="space-y-1">
-                  {todayRosters.map((roster, idx) => (
+                  {todayRosterLines.map(({ entry, markers }, idx) => (
                     <div
-                      key={`${roster.date}-${roster.shift}-${roster.position}-${roster.unit}-${idx}`}
+                      key={`${entry.date}-${entry.shift}-${entry.position}-${entry.unit}-${idx}`}
                       className="text-sm font-medium text-purple-800 dark:text-purple-200"
                     >
-                      {getRosterAssignmentLabel(roster.shift, roster.unit, roster.position)}
+                      {getRosterAssignmentLabel(entry.shift, entry.unit, entry.position)}
+                      {markers.length > 0 && (
+                        <span className="font-normal text-purple-600 dark:text-purple-400">
+                          {" · "}{markers.join(" · ")}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -503,6 +570,11 @@ export default function EmployeeDashboard() {
                   </div>
                   <div className="text-sm font-medium text-purple-800 dark:text-purple-200">
                     {getRosterDetailLabel(todayRoster)}
+                    {todayRosterMarkers.length > 0 && (
+                      <span className="font-normal text-purple-600 dark:text-purple-400">
+                        {" · "}{todayRosterMarkers.join(" · ")}
+                      </span>
+                    )}
                   </div>
                 </div>
               ) : todaySchedule ? (
@@ -524,12 +596,17 @@ export default function EmployeeDashboard() {
                 <p className="text-sm text-blue-600 dark:text-blue-400">Loading…</p>
               ) : shouldShowTomorrowRosterList ? (
                 <div className="space-y-1">
-                  {tomorrowRosters.map((roster, idx) => (
+                  {tomorrowRosterLines.map(({ entry, markers }, idx) => (
                     <div
-                      key={`${roster.date}-${roster.shift}-${roster.position}-${roster.unit}-${idx}`}
+                      key={`${entry.date}-${entry.shift}-${entry.position}-${entry.unit}-${idx}`}
                       className="text-sm font-medium text-blue-800 dark:text-blue-200"
                     >
-                      {getRosterAssignmentLabel(roster.shift, roster.unit, roster.position)}
+                      {getRosterAssignmentLabel(entry.shift, entry.unit, entry.position)}
+                      {markers.length > 0 && (
+                        <span className="font-normal text-blue-600 dark:text-blue-400">
+                          {" · "}{markers.join(" · ")}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -540,6 +617,11 @@ export default function EmployeeDashboard() {
                   </div>
                   <div className="text-sm font-medium text-blue-800 dark:text-blue-200">
                     {getRosterDetailLabel(tomorrowRoster)}
+                    {tomorrowRosterMarkers.length > 0 && (
+                      <span className="font-normal text-blue-600 dark:text-blue-400">
+                        {" · "}{tomorrowRosterMarkers.join(" · ")}
+                      </span>
+                    )}
                   </div>
                 </div>
               ) : tomorrowSchedule ? (
