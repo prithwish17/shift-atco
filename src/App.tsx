@@ -68,6 +68,7 @@ const RatingsManagement = lazy(() => import("./pages/supervisor/RatingsManagemen
 const ProficiencyList = lazy(() => import("./pages/supervisor/ProficiencyList"));
 const TraineeDetails = lazy(() => import("./pages/supervisor/TraineeDetails"));
 const SupervisorOjtProgress = lazy(() => import("./pages/supervisor/OjtProgress"));
+const StressAllowanceRecovery = lazy(() => import("./pages/supervisor/StressAllowanceRecovery"));
 const SupervisorRosterView = lazy(() => import("./pages/supervisor/SupervisorRosterView"));
 const SupervisorAvailabilityReport = lazy(() => import("./pages/supervisor/SupervisorAvailabilityReport"));
 const WorkingHours = lazy(() => import("./pages/supervisor/WorkingHours"));
@@ -352,6 +353,7 @@ function App() {
                     <Route path="/supervisor/ratings/proficiency-list" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><ProficiencyList /></ProtectedRoute>} />
                     <Route path="/supervisor/trainees" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><TraineeDetails /></ProtectedRoute>} />
                     <Route path="/supervisor/ojt-progress" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><SupervisorOjtProgress /></ProtectedRoute>} />
+                    <Route path="/supervisor/stress-allowance-recovery" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><StressAllowanceRecovery /></ProtectedRoute>} />
                     <Route path="/supervisor/email-logs" element={<ProtectedRoute allowedRoles={['supervisor']}><EmailLogs portalRole="supervisor" /></ProtectedRoute>} />
                     <Route path="/supervisor/working-hours" element={<ProtectedRoute allowedRoles={['supervisor']}><WorkingHours /></ProtectedRoute>} />
                     <Route path="/supervisor/duty-report" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyReport /></ProtectedRoute>} />

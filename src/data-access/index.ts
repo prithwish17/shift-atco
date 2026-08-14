@@ -7,3 +7,14 @@ export { scheduleSyncRepository } from './schedule-sync.repository';
 export { externalLeaveAPI } from './external-leave.api';
 
 export type { LeaveApiResponse } from './external-leave.api';
+
+export {
+  fetchRoster,
+  fetchEmployeeMetadata,
+  fetchSarcSources,
+  listSarcRuns,
+  saveSarcRun,
+  fetchSarcRun,
+} from './sarc.repository';
+
+export type { SarcSources, SarcRunSummary } from './sarc.repository';

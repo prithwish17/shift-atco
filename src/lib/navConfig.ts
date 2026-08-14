@@ -5,6 +5,7 @@ import {
   Award,
   BarChart3,
   BookLock,
+  Calculator,
   Calendar,
   CalendarCheck,
   CalendarDays,
@@ -157,6 +158,12 @@ const supervisorNav: NavGroup[] = [
       { title: "View Attendance", url: "/supervisor/attendance-view", icon: CalendarCheck },
       { title: "Duty Report", url: "/supervisor/duty-report", icon: FileBarChart },
       { title: "Working Hours", url: "/supervisor/working-hours", icon: Clock },
+      {
+        title: "Stress Allowance Recovery",
+        url: "/supervisor/stress-allowance-recovery",
+        icon: Calculator,
+        keywords: ["sarc", "annexure", "allowance", "recovery", "iamatc", "hours"],
+      },
       { title: "OPE Duty", url: "/supervisor/ope-assignments", icon: Activity, keywords: ["ope"] },
     ],
   },
@@ -234,6 +241,20 @@ const adminNav: NavGroup[] = [
       { title: "User Management", url: "/admin/users", icon: Users },
       { title: "Authenticated Users", url: "/admin/authenticated-users", icon: Shield },
       { title: "Change Password", url: "/admin/change-password", icon: Shield },
+    ],
+  },
+  {
+    id: "reports",
+    label: "Reports",
+    icon: FileBarChart,
+    defaultOpen: true,
+    items: [
+      {
+        title: "Stress Allowance Recovery",
+        url: "/supervisor/stress-allowance-recovery",
+        icon: Calculator,
+        keywords: ["sarc", "annexure", "allowance", "recovery", "iamatc", "hours"],
+      },
     ],
   },
   {

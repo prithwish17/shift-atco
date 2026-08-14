@@ -28,6 +28,7 @@ export default function AdminSettings() {
     const [elpaUrl, setElpaUrl] = useState("");
     const [medicalUrl, setMedicalUrl] = useState("");
     const [ratingUrl, setRatingUrl] = useState("");
+    const [atcoMasterUrl, setAtcoMasterUrl] = useState("");
     const [traineeUrl, setTraineeUrl] = useState("");
     const [ojtUrl, setOjtUrl] = useState("");
     const [elUrl, setElUrl] = useState("");
@@ -81,6 +82,8 @@ export default function AdminSettings() {
             if (auditLog) setAuditLogUrl(auditLog.value);
             const baTest = settings.find((s) => s.key === "ba_test_sheet_url");
             if (baTest) setBaTestSheetUrl(baTest.value);
+            const atcoMaster = settings.find((s) => s.key === "atco_master_webapp_url");
+            if (atcoMaster) setAtcoMasterUrl(atcoMaster.value);
         }
     }, [settings]);
 
@@ -172,6 +175,18 @@ export default function AdminSettings() {
             key: "medical_data_webapp_url",
             value: medicalUrl.trim(),
             label: "Medical Data Webapp URL",
+        });
+    };
+
+    const handleSaveAtcoMasterUrl = () => {
+        if (!atcoMasterUrl.trim()) {
+            toast({ title: "Error", description: "URL cannot be empty", variant: "destructive" });
+            return;
+        }
+        updateSetting.mutate({
+            key: "atco_master_webapp_url",
+            value: atcoMasterUrl.trim(),
+            label: "ATCO Master Webapp URL",
         });
     };
 
@@ -619,6 +634,45 @@ export default function AdminSettings() {
                         </div>
                         <Button
                             onClick={handleSaveEmployeeDataUrl}
+                            disabled={updateSetting.isPending || isLoading}
+                        >
+                            {updateSetting.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <Save className="h-4 w-4 mr-2" />
+                            )}
+                            Save URL
+                        </Button>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>ATCO Master Integration</CardTitle>
+                        <CardDescription>
+                            Configure the webapp URL used to fetch the CAP Kolkata Master ATCO list.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="atco-master-url">ATCO Master Webapp URL</Label>
+                            <Input
+                                id="atco-master-url"
+                                type="url"
+                                placeholder="https://script.google.com/macros/s/.../exec"
+                                value={atcoMasterUrl}
+                                onChange={(e) => setAtcoMasterUrl(e.target.value)}
+                                className="font-mono text-sm"
+                                disabled={isLoading}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Returns each controller&apos;s Kolkata joining date and AAI joining date as JSON.
+                                Synced every Sunday. Stress Allowance Recovery uses the Kolkata date to decide
+                                which ratings count, so without it nobody carries a requirement.
+                            </p>
+                        </div>
+                        <Button
+                            onClick={handleSaveAtcoMasterUrl}
                             disabled={updateSetting.isPending || isLoading}
                         >
                             {updateSetting.isPending ? (
