@@ -137,9 +137,30 @@ const GROUP_LABELS: Record<ColumnGroupKey, string> = {
   remark: "Remark",
 };
 
-/** Positions that are not grid columns at all. */
-const SUPERVISION_POSITION = "SUPERVISION";
+/**
+ * The command block: two distinct jobs, not one list.
+ *
+ * The scraper reads row 10 as WSO and row 11 as CMD.  "SUPERVISION" is what it
+ * emitted while both rows were read together, and is kept so rows synced before
+ * the split still render — under their own label, since which of the two a name
+ * held cannot be recovered after the fact.
+ */
+const COMMAND_POSITIONS: Record<string, string> = {
+  WSO: "WSO",
+  CMD: "CMD",
+  SUPERVISION: "Supervision",
+};
+
 const SPECIAL_POSITIONS = ["EXTRA DUTY", "DUTY CHANGE"];
+
+/**
+ * A command row that is not a person.
+ *
+ * Alpha's night roster repurposes the CMD row as the shift's time bands —
+ * "1st HALF: 1330-1530 1730-2130" — which would otherwise be rendered as the
+ * name of whoever is commanding.
+ */
+const TIME_BAND_RE = /\bHALF\s*:/i;
 
 /**
  * Rows the sheet keeps inside the scanned block that are not units.
@@ -274,7 +295,8 @@ export interface RosterGridModel {
   shiftCode: ShiftCode;
   /** Night rosters split every column into a 1st and 2nd half. */
   isSplit: boolean;
-  supervision: RosterPerson[];
+  /** WSO and CMD, in that order — separate positions, never merged. */
+  supervision: { key: string; label: string; people: RosterPerson[] }[];
   sections: GridSection[];
   special: { key: string; label: string; people: RosterPerson[] }[];
   /** SAR and LEAVE — name chips, no rating. */
@@ -407,7 +429,7 @@ export function buildRosterGrid(
   /** Signed-in employee, so the grid can mark and jump to their cells. */
   currentUserName?: string | null,
 ): RosterGridModel {
-  const supervision: RosterPerson[] = [];
+  const supervisionByKey = new Map<string, { key: string; label: string; people: RosterPerson[] }>();
   const unplaced: RosterPerson[] = [];
   const specialByKey = new Map<string, { key: string; label: string; people: RosterPerson[] }>();
   const chipsByKey = new Map<string, { key: string; label: string; people: RosterPerson[] }>();
@@ -443,8 +465,28 @@ export function buildRosterGrid(
     const position = normalize(entry.position);
     const unit = String(entry.unit || "").trim();
 
-    if (position === SUPERVISION_POSITION) {
-      supervision.push(person);
+    const commandLabel = COMMAND_POSITIONS[position];
+    if (commandLabel) {
+      // The sheet's own time bands live on the CMD row on some templates; they
+      // are shift metadata, not the officer in command.
+      if (TIME_BAND_RE.test(person.raw)) {
+        const bucket = notesByKey.get("SHIFT TIMES") || {
+          key: "SHIFT TIMES",
+          label: "SHIFT TIMES",
+          lines: [],
+        };
+        bucket.lines.push(person.raw);
+        notesByKey.set("SHIFT TIMES", bucket);
+        return;
+      }
+
+      const bucket = supervisionByKey.get(position) || {
+        key: position,
+        label: commandLabel,
+        people: [],
+      };
+      bucket.people.push(person);
+      supervisionByKey.set(position, bucket);
       return;
     }
 
@@ -688,7 +730,9 @@ export function buildRosterGrid(
     isoDate,
     shiftCode,
     isSplit,
-    supervision,
+    supervision: ["WSO", "CMD", "SUPERVISION"]
+      .map((key) => supervisionByKey.get(key))
+      .filter((band): band is NonNullable<typeof band> => Boolean(band)),
     sections,
     special: [...specialByKey.values()],
     chips: [...chipsByKey.values()],
@@ -718,7 +762,7 @@ export function countMatches(model: RosterGridModel, search: string) {
     });
   };
 
-  tally(model.supervision);
+  model.supervision.forEach((band) => tally(band.people));
   tally(model.unplaced);
   model.special.forEach((bucket) => tally(bucket.people));
   model.chips.forEach((bucket) => tally(bucket.people));

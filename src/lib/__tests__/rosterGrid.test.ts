@@ -355,7 +355,7 @@ describe("buildRosterGrid", () => {
     });
   });
 
-  it("routes supervision and special rows out of the matrix", () => {
+  it("routes the command block and special rows out of the matrix", () => {
     const model = buildRosterGrid(
       [
         row({ unit: "WSO", position: "SUPERVISION", employee_name: "W/ JGM - RSR+UBN-SAR" }),
@@ -367,9 +367,50 @@ describe("buildRosterGrid", () => {
       "Morning",
     );
 
-    expect(model.supervision.map((person) => person.name)).toEqual(["W"]);
-    expect(model.supervision[0].flags).toEqual(["SAR"]);
+    // Rows synced before the WSO/CMD split keep their own label, since which of
+    // the two a name held cannot be recovered after the fact.
+    expect(model.supervision).toHaveLength(1);
+    expect(model.supervision[0].label).toBe("Supervision");
+    expect(model.supervision[0].people.map((person) => person.name)).toEqual(["W"]);
+    expect(model.supervision[0].people[0].flags).toEqual(["SAR"]);
     expect(model.special[0].people.map((person) => person.name)).toEqual(["E"]);
+  });
+
+  describe("the command block", () => {
+    it("keeps WSO and CMD apart, WSO first", () => {
+      const model = buildRosterGrid(
+        [
+          row({ unit: "WSO", position: "CMD", employee_name: "VIPIN KUMAR/ JGM - RSR+UBN-" }),
+          row({ unit: "WSO", position: "WSO", employee_name: "SUSHIL KUMAR MANDAL/ JGM - ASR+APP-" }),
+          row({ unit: "UBN", position: "RSR" }),
+        ],
+        DATE,
+        "M",
+        "Morning",
+      );
+
+      expect(model.supervision.map((band) => [band.label, band.people[0].name])).toEqual([
+        ["WSO", "SUSHIL KUMAR MANDAL"],
+        ["CMD", "VIPIN KUMAR"],
+      ]);
+    });
+
+    it("does not render the sheet's time bands as the officer in command", () => {
+      // Alpha's night roster repurposes the CMD row as the shift's time bands.
+      const model = buildRosterGrid(
+        [
+          row({ unit: "WSO", position: "WSO", employee_name: "SUSHIL KUMAR MANDAL/ JGM - ASR+APP-" }),
+          row({ unit: "WSO", position: "CMD", employee_name: "1st HALF:      1330-1530      1730-2130" }),
+          row({ unit: "WSO", position: "CMD", employee_name: "2nd HALF:     1530-1730     2130-0130" }),
+        ],
+        DATE,
+        "M",
+        "Morning",
+      );
+
+      expect(model.supervision.map((band) => band.label)).toEqual(["WSO"]);
+      expect(model.notes.find((note) => note.key === "SHIFT TIMES")?.lines).toHaveLength(2);
+    });
   });
 
   // SAR / LEAVE / TRAINING / REMARKS live inside the scanned rectangle, so they

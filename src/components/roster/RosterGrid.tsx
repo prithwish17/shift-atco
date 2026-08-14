@@ -355,12 +355,16 @@ export default function RosterGrid({ model, search }: Props) {
         </div>
       )}
 
-      <PeopleBand
-        title="WSO"
-        people={model.supervision}
-        search={search}
-        tone="bg-muted/40"
-      />
+      {/* WSO and CMD are two different jobs, so they get a band each. */}
+      {model.supervision.map((band) => (
+        <PeopleBand
+          key={band.key}
+          title={band.label}
+          people={band.people}
+          search={search}
+          tone="bg-muted/40"
+        />
+      ))}
 
       {model.sections.map((section) => (
         <SectionTable

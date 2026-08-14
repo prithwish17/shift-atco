@@ -114,8 +114,9 @@ function doGet(e) {
  *   I(5) J(6) K(7)  =  RSR / ACC-PLR / ACC-ALPHA, 2nd half
  */
 function parseNightShift(sheet, meta, results) {
-  // 1. Supervision (WSO/CMD)
-  extractRange(sheet, "E10:K11", "SUPERVISION", "HQ", results, meta);
+  // 1. Command block — two separate positions, read a row each (see extractRange)
+  extractRange(sheet, "E10:K10", "WSO", "HQ", results, meta);
+  extractRange(sheet, "E11:K11", "CMD", "HQ", results, meta);
 
   // 2. Main grid
   const scan = readGrid_(sheet, GRID_RANGE);
@@ -153,7 +154,9 @@ function parseNightShift(sheet, meta, results) {
  *   K(7)       =  REMARK       (not currently emitted)
  */
 function parseDayShift(sheet, meta, results) {
-  extractRange(sheet, "E10:K11", "SUPERVISION", "HQ", results, meta);
+  // Command block — two separate positions, read a row each (see extractRange).
+  extractRange(sheet, "E10:K10", "WSO", "HQ", results, meta);
+  extractRange(sheet, "E11:K11", "CMD", "HQ", results, meta);
 
   const scan = readGrid_(sheet, GRID_RANGE);
 
@@ -299,8 +302,13 @@ function isAccUnit(unitStr) {
 }
 
 /**
- * Flat ranges with a fixed unit — supervision and the special-duty lists.
+ * Flat ranges with a fixed unit — the command rows and the special-duty lists.
  * These carry no unit column and no meaningful merges, so they stay simple.
+ *
+ * Row 10 is the WSO and row 11 is the CMD.  They used to be read together as
+ * one "SUPERVISION" block, which merged two different jobs into one list and
+ * left the app unable to say which name held which.  A row each keeps them
+ * apart.
  */
 function extractRange(sheet, rangeStr, pos, unit, targetArray, meta) {
   const values = sheet.getRange(rangeStr).getValues();
