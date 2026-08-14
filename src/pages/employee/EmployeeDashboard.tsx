@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Calendar, CalendarDays, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye, Phone, MapPin, Hash, FileCheck, Globe, Star, ChevronLeft, ChevronRight, ArrowLeftRight, FlaskConical, X } from "lucide-react";
+import { Calendar, CalendarDays, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye, Phone, MapPin, Hash, FileCheck, Globe, Star, ChevronLeft, ChevronRight, ArrowLeftRight, FlaskConical, X, Palmtree } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
@@ -12,6 +12,7 @@ import { useMySchedule, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
 import { isFinalLeaveApproved, useMyLeaveRequests } from "@/hooks/useLeaveRequests";
 import { useDutyExchanges } from "@/hooks/useDutyExchanges";
 import { buildEmployeeLicenseHealth, type LicenseWithExtras } from "@/hooks/useLicenseDashboard";
+import { useHolidaysByYear, useNextHoliday } from "@/hooks/useHolidayDashboard";
 import { extractTraineeMilestone, getScheduledTraineeMilestone } from "@/lib/traineeMilestones";
 import { OjtDashboardSummary } from "@/components/ojt/OjtDashboardSummary";
 import { format, addDays, isSameDay, parse, parseISO, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, isAfter, isBefore } from "date-fns";
@@ -305,6 +306,11 @@ export default function EmployeeDashboard() {
   const yearBalances = balances?.filter(b => b.year === currentYear) || [];
   const compOff = yearBalances.find(b => b.leave_type === "comp_off");
 
+  // Holidays quick action: the same year query the Holidays page uses, so the
+  // two share one cache entry instead of each paying for a fetch.
+  const { data: yearHolidays = [] } = useHolidaysByYear(currentYear);
+  const nextHoliday = useNextHoliday(yearHolidays);
+
   // 2-day roster + schedule lookup
   const now = new Date();
   const tomorrow = addDays(now, 1);
@@ -556,9 +562,9 @@ export default function EmployeeDashboard() {
                     >
                       {getRosterAssignmentLabel(entry.shift, entry.unit, entry.position)}
                       {markers.length > 0 && (
-                        <span className="font-normal text-purple-600 dark:text-purple-400">
-                          {" · "}{markers.join(" · ")}
-                        </span>
+                        <div className="font-normal text-purple-600 dark:text-purple-400">
+                          {markers.join(" · ")}
+                        </div>
                       )}
                     </div>
                   ))}
@@ -571,9 +577,9 @@ export default function EmployeeDashboard() {
                   <div className="text-sm font-medium text-purple-800 dark:text-purple-200">
                     {getRosterDetailLabel(todayRoster)}
                     {todayRosterMarkers.length > 0 && (
-                      <span className="font-normal text-purple-600 dark:text-purple-400">
-                        {" · "}{todayRosterMarkers.join(" · ")}
-                      </span>
+                      <div className="font-normal text-purple-600 dark:text-purple-400">
+                        {todayRosterMarkers.join(" · ")}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -603,9 +609,9 @@ export default function EmployeeDashboard() {
                     >
                       {getRosterAssignmentLabel(entry.shift, entry.unit, entry.position)}
                       {markers.length > 0 && (
-                        <span className="font-normal text-blue-600 dark:text-blue-400">
-                          {" · "}{markers.join(" · ")}
-                        </span>
+                        <div className="font-normal text-blue-600 dark:text-blue-400">
+                          {markers.join(" · ")}
+                        </div>
                       )}
                     </div>
                   ))}
@@ -618,9 +624,9 @@ export default function EmployeeDashboard() {
                   <div className="text-sm font-medium text-blue-800 dark:text-blue-200">
                     {getRosterDetailLabel(tomorrowRoster)}
                     {tomorrowRosterMarkers.length > 0 && (
-                      <span className="font-normal text-blue-600 dark:text-blue-400">
-                        {" · "}{tomorrowRosterMarkers.join(" · ")}
-                      </span>
+                      <div className="font-normal text-blue-600 dark:text-blue-400">
+                        {tomorrowRosterMarkers.join(" · ")}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -675,22 +681,23 @@ export default function EmployeeDashboard() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+          {/* Six tiles: three columns keep the desktop rows even (3 + 3) where
+              four would leave a stranded pair on the second row. */}
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
             <Link
-              to="/employee/leave-dashboard"
-              className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+              to="/employee/roster"
+              className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
             >
             <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
               <div className="flex items-center justify-between mb-2 md:mb-3">
                 <div>
-                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Leave Overview</span>
-                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Apply for leave and leave summary</div>
+                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Shift Roster</span>
+                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">See who is on each shift today</div>
                 </div>
-                <div className="size-6 md:size-8 bg-blue-100 dark:bg-blue-900/40 rounded-lg flex items-center justify-center">
-                  <FileText className="size-3 md:size-4 text-blue-600 dark:text-blue-400" />
+                <div className="size-6 md:size-8 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg flex items-center justify-center">
+                  <Users className="size-3 md:size-4 text-indigo-600 dark:text-indigo-400" />
                 </div>
               </div>
-
             </div>
             </Link>
 
@@ -717,6 +724,24 @@ export default function EmployeeDashboard() {
                   {baTestRows.length} listed today
                 </div>
               ) : null}
+            </div>
+            </Link>
+
+            <Link
+              to="/employee/leave-dashboard"
+              className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+            >
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
+              <div className="flex items-center justify-between mb-2 md:mb-3">
+                <div>
+                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Leave Overview</span>
+                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Apply for leave and leave summary</div>
+                </div>
+                <div className="size-6 md:size-8 bg-blue-100 dark:bg-blue-900/40 rounded-lg flex items-center justify-center">
+                  <FileText className="size-3 md:size-4 text-blue-600 dark:text-blue-400" />
+                </div>
+              </div>
+
             </div>
             </Link>
 
@@ -759,6 +784,30 @@ export default function EmployeeDashboard() {
                 </div>
               </div>
               <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{compOff ? compOff.balance : ""}</div>
+            </div>
+            </Link>
+
+            <Link
+              to="/employee/holidays"
+              className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+            >
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
+              <div className="flex items-center justify-between mb-2 md:mb-3">
+                <div>
+                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Holidays</span>
+                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Holiday calendar and restricted holidays</div>
+                </div>
+                <div className="size-6 md:size-8 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg flex items-center justify-center">
+                  <Palmtree className="size-3 md:size-4 text-emerald-600 dark:text-emerald-400" />
+                </div>
+              </div>
+              {nextHoliday && (
+                <div className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400">
+                  {nextHoliday.daysUntil === 0
+                    ? `${nextHoliday.name} — today`
+                    : `${nextHoliday.name} in ${nextHoliday.daysUntil} day${nextHoliday.daysUntil > 1 ? "s" : ""}`}
+                </div>
+              )}
             </div>
             </Link>
           </div>

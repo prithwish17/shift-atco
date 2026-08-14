@@ -393,8 +393,11 @@ export function AppSidebar({ role }: SidebarProps) {
         <Menu className="size-5" />
       </button>
 
+      {/* Desktop: sticky (not static) with a viewport-height cap, so the rail
+          stays pinned while the page scrolls instead of stretching to the
+          content's height and scrolling away with it. */}
       <div
-        className={`fixed inset-y-0 left-0 z-50 flex w-[262px] transform flex-col bg-[#151A2D] text-white transition-all duration-300 ease-in-out lg:static lg:transform-none ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[262px] transform flex-col bg-[#151A2D] text-white transition-all duration-300 ease-in-out lg:sticky lg:top-0 lg:bottom-auto lg:h-screen lg:shrink-0 lg:transform-none ${
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         } ${collapsed ? "lg:w-[68px]" : "lg:w-[262px]"}`}
       >

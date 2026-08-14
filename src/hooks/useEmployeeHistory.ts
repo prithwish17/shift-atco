@@ -31,6 +31,18 @@ function nextDay(date: string): string {
   return format(addDays(parseISO(date), 1), "yyyy-MM-dd");
 }
 
+/**
+ * 1 January of the year containing `targetDateISO` — the start of the window every
+ * rotation counter (OPE, night-breaks, exchanges) is queried over.
+ *
+ * Pulled out as its own pure function so "extra duty is counted from January" is
+ * something the test suite can assert directly, rather than a claim about a
+ * Supabase-calling function nothing here can run against a fake network.
+ */
+export function yearStart(targetDateISO: string): string {
+  return `${parseISO(targetDateISO).getFullYear()}-01-01`;
+}
+
 /** employee_code → rotation team key, for the night-break derivation. */
 async function fetchTeams(): Promise<Map<string, string>> {
   const { data, error } = await supabase.from("profiles").select("employee_id, current_shift");
@@ -57,8 +69,7 @@ async function fetchTeams(): Promise<Map<string, string>> {
  * rosters a night, with the following night-off also worked, is a night-break.
  */
 export async function fetchEmployeeHistory(targetDateISO: string): Promise<EmployeeHistoryMap> {
-  const year = new Date(`${targetDateISO}T00:00:00`).getFullYear();
-  const ytdStart = `${year}-01-01`;
+  const ytdStart = yearStart(targetDateISO);
   const monthPrefix = targetDateISO.slice(0, 7); // yyyy-MM
 
   const map: EmployeeHistoryMap = new Map();

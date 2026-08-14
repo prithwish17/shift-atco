@@ -5,6 +5,7 @@ import {
   ArrowRight,
   CalendarIcon,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Info,
   Loader2,
@@ -26,6 +27,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -74,6 +76,14 @@ const SHIFT_ORDER: Record<ShiftCode, number> = { M: 0, A: 1, N: 2 };
  * cumulative gates, because absent dates count as zero hours.
  */
 const VALIDATION_RADIUS_DAYS = 31;
+
+/**
+ * Gap rows shown before the "Manpower gaps" card is expanded. A 14-day scan can run
+ * to dozens of rows on a short-staffed roster, and a supervisor opening the finder
+ * needs to see there IS a problem, not read the whole worklist before doing anything
+ * else — the card starts collapsed and this is what stays visible either way.
+ */
+const BREACH_PREVIEW_COUNT = 3;
 
 /** Short on the day: 3+ below minimum is critical, 1–2 is a lighter "watch". */
 function breachSeverity(deficit: number): "critical" | "watch" {
@@ -252,12 +262,72 @@ function OptionRow({
   );
 }
 
+/**
+ * One manpower gap. Used in three places: the collapsed preview, where nothing else
+ * says which day it is; the expanded day-grouped list, where a section header
+ * already does (`showDate={false}`); and as the inert "teaser" row blurred out
+ * beneath the collapsed preview (`interactive={false}`) — hence the two flags
+ * rather than three near-identical rows.
+ */
+function BreachRow({
+  breach,
+  onClick,
+  showDate = true,
+  interactive = true,
+}: {
+  breach: ShiftBreach;
+  onClick: (b: ShiftBreach) => void;
+  showDate?: boolean;
+  interactive?: boolean;
+}) {
+  const critical = breachSeverity(breach.deficit) === "critical";
+  return (
+    <button
+      type="button"
+      tabIndex={interactive ? 0 : -1}
+      aria-hidden={interactive ? undefined : true}
+      onClick={interactive ? () => onClick(breach) : undefined}
+      className={cn(
+        "group flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors",
+        critical
+          ? "border-rose-500/40 bg-rose-500/5 hover:bg-rose-500/15"
+          : "border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/15",
+        !interactive && "pointer-events-none select-none",
+      )}
+    >
+      <span className="flex items-center gap-2.5">
+        <span
+          className={cn("mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full", critical ? "bg-rose-500" : "bg-amber-500")}
+          aria-hidden
+        />
+        <span className="space-y-0.5">
+          <span className="block text-sm font-medium">
+            {showDate && <>{friendlyDateLabel(breach.date)} · </>}
+            {shiftLabel(breach.shift)} · {breach.label}
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            {breach.available} of {breach.required} on duty —{" "}
+            <span className={critical ? "font-medium text-rose-700 dark:text-rose-300" : "font-medium text-amber-700 dark:text-amber-300"}>
+              need {breach.deficit} more
+            </span>
+          </span>
+        </span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground group-hover:text-foreground">
+        Find cover
+        <ChevronRight className="h-3.5 w-3.5" />
+      </span>
+    </button>
+  );
+}
+
 export default function AvailabilityFinder() {
   const [date, setDate] = useState<Date>(new Date());
   const [shift, setShift] = useState<ShiftCode>("N");
   const [rating, setRating] = useState<RatingFilter>("ALL");
   const [query, setQuery] = useState<{ date: string; shift: ShiftCode; rating: RatingFilter } | null>(null);
   const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [breachesExpanded, setBreachesExpanded] = useState(false);
 
   // Wide enough that the 7-day and 30-day caps and the consecutive-day rules see
   // real history. The previous D-2 … D+1 window made all three unfireable.
@@ -309,6 +379,19 @@ export default function AvailabilityFinder() {
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [breaches]);
+
+  // The same date → shift → deficit ordering as breachesByDate, just not grouped
+  // into day sections — what the collapsed card shows before anyone expands it.
+  const flatBreaches = useMemo(
+    () => breachesByDate.flatMap(([, dateBreaches]) => dateBreaches),
+    [breachesByDate],
+  );
+  const breachPreview = flatBreaches.slice(0, BREACH_PREVIEW_COUNT);
+  const hiddenBreachCount = flatBreaches.length - breachPreview.length;
+  // The first hidden gap, shown blurred beneath the preview as the "there's more"
+  // cue — a real row rather than an empty band, so the blur reads as a cut-off
+  // list rather than decoration.
+  const nextHiddenBreach = flatBreaches[breachPreview.length];
 
   const breachSummary = useMemo(() => {
     let critical = 0;
@@ -477,61 +560,83 @@ export default function AvailabilityFinder() {
                 minimum. Tap any gap to see who can cover it.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {breachesByDate.map(([breachDate, dateBreaches]) => (
-                <div key={breachDate} className="space-y-2">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-sm font-semibold">{friendlyDateLabel(breachDate)}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {format(parseISO(breachDate), "d MMM yyyy")} · {dateBreaches.length}{" "}
-                      {dateBreaches.length === 1 ? "gap" : "gaps"}
-                    </span>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {dateBreaches.map((b) => {
-                      const critical = breachSeverity(b.deficit) === "critical";
-                      return (
-                        <button
-                          key={`${b.date}-${b.shift}-${b.key}`}
-                          type="button"
-                          onClick={() => applyBreach(b)}
-                          className={cn(
-                            "group flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors",
-                            critical
-                              ? "border-rose-500/40 bg-rose-500/5 hover:bg-rose-500/15"
-                              : "border-amber-500/40 bg-amber-500/5 hover:bg-amber-500/15",
-                          )}
-                        >
-                          <span className="flex items-center gap-2.5">
-                            <span
-                              className={cn(
-                                "mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full",
-                                critical ? "bg-rose-500" : "bg-amber-500",
-                              )}
-                              aria-hidden
-                            />
-                            <span className="space-y-0.5">
-                              <span className="block text-sm font-medium">
-                                {shiftLabel(b.shift)} · {b.label}
-                              </span>
-                              <span className="block text-xs text-muted-foreground">
-                                {b.available} of {b.required} on duty —{" "}
-                                <span className={critical ? "font-medium text-rose-700 dark:text-rose-300" : "font-medium text-amber-700 dark:text-amber-300"}>
-                                  need {b.deficit} more
-                                </span>
-                              </span>
+            <CardContent>
+              <Collapsible open={breachesExpanded} onOpenChange={setBreachesExpanded}>
+                {/*
+                  Collapsed: the top few gaps in full, then one real (but inert and
+                  blurred) row underneath as a "there's more" cue, with the expand
+                  control sitting right on top of it — a supervisor should be able to
+                  tell at a glance that the list is cut off, not just that a button
+                  exists somewhere below.
+                  Expanded: the original day-by-day breakdown, swapped in rather than
+                  layered underneath, so nothing is ever shown twice.
+                */}
+                {!breachesExpanded && (
+                  <div className="space-y-2">
+                    {breachPreview.map((b) => (
+                      <BreachRow key={`${b.date}-${b.shift}-${b.key}`} breach={b} onClick={applyBreach} />
+                    ))}
+
+                    {hiddenBreachCount > 0 && nextHiddenBreach && (
+                      <div className="relative overflow-hidden rounded-lg">
+                        <BreachRow breach={nextHiddenBreach} onClick={applyBreach} interactive={false} />
+                        <CollapsibleTrigger asChild>
+                          <button
+                            type="button"
+                            // A tint matching the card (bg-background) read as barely-there
+                            // frosting in the rose-tinted card background. Inverting it —
+                            // dark scrim on the light theme, light scrim on the dark theme —
+                            // is what actually reads as glass over content rather than a
+                            // faint colour shift.
+                            className="group absolute inset-0 flex items-center justify-center rounded-lg bg-slate-950/10 backdrop-blur-sm transition-colors hover:bg-slate-950/[0.15] dark:bg-white/10 dark:hover:bg-white/[0.15]"
+                          >
+                            <span className="flex items-center gap-1.5 rounded-full border bg-background px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm group-hover:text-foreground">
+                              Show all {flatBreaches.length} gaps across {breachSummary.days}{" "}
+                              {breachSummary.days === 1 ? "day" : "days"}
+                              <ChevronDown className="h-3.5 w-3.5" />
                             </span>
-                          </span>
-                          <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-muted-foreground group-hover:text-foreground">
-                            Find cover
-                            <ChevronRight className="h-3.5 w-3.5" />
-                          </span>
-                        </button>
-                      );
-                    })}
+                          </button>
+                        </CollapsibleTrigger>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                )}
+
+                <CollapsibleContent className="space-y-4">
+                  {breachesByDate.map(([breachDate, dateBreaches]) => (
+                    <div key={breachDate} className="space-y-2">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-sm font-semibold">{friendlyDateLabel(breachDate)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {format(parseISO(breachDate), "d MMM yyyy")} · {dateBreaches.length}{" "}
+                          {dateBreaches.length === 1 ? "gap" : "gaps"}
+                        </span>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {dateBreaches.map((b) => (
+                          <BreachRow
+                            key={`${b.date}-${b.shift}-${b.key}`}
+                            breach={b}
+                            onClick={applyBreach}
+                            showDate={false}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  <CollapsibleTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Show fewer
+                      <ChevronDown className="h-3.5 w-3.5 rotate-180 transition-transform" />
+                    </Button>
+                  </CollapsibleTrigger>
+                </CollapsibleContent>
+              </Collapsible>
             </CardContent>
           </Card>
         )}

@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ShieldAlert, Search, X } from "lucide-react";
+import { ShieldAlert, Search, X, CalendarDays, Users, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { eachDayOfInterval, endOfMonth, format, parseISO } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
@@ -34,6 +34,30 @@ const COMP_OFF_CATEGORIES = ["COMP_OFF", "COMP_OFF_USED", "OPE_COMP_OFF", "LAST_
 const NON_COMPOFF_LEAVE_CATEGORIES = ["CL", "EL", "RH", "HPL", "NEE", "COMM"];
 
 type DiscrepancyKind = "schedule_no_request" | "approved_no_schedule" | "record_no_schedule";
+
+const KIND_ORDER: DiscrepancyKind[] = [
+  "schedule_no_request",
+  "approved_no_schedule",
+  "record_no_schedule",
+];
+
+const KIND_META: Record<DiscrepancyKind, { label: string; short: string; badge: string }> = {
+  schedule_no_request: {
+    label: "In schedule · no data",
+    short: "in schedule",
+    badge: "bg-orange-100 text-orange-800",
+  },
+  approved_no_schedule: {
+    label: "Approved · not in schedule",
+    short: "approved",
+    badge: "bg-blue-100 text-blue-800",
+  },
+  record_no_schedule: {
+    label: "Record · not in schedule",
+    short: "record",
+    badge: "bg-green-100 text-green-800",
+  },
+};
 
 type DiscrepancyRow = {
   employeeCode: string;
@@ -262,6 +286,9 @@ export default function LeaveDiscrepancyPage() {
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR);
   const [search, setSearch] = useState("");
+  const [groupBy, setGroupBy] = useState<"date" | "employee">("date");
+  // Tracks the collapsed employees, so groups start expanded.
+  const [collapsedCodes, setCollapsedCodes] = useState<Set<string>>(new Set());
 
   const monthStart = format(new Date(selectedYear, selectedMonth, 1), "yyyy-MM-dd");
   const monthEnd = format(endOfMonth(new Date(selectedYear, selectedMonth, 1)), "yyyy-MM-dd");
@@ -272,15 +299,57 @@ export default function LeaveDiscrepancyPage() {
     queryFn: () => fetchDiscrepancies(monthStart, monthEnd),
   });
 
-  const filtered = discrepancies.filter((row) => {
+  const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      row.employeeName.toLowerCase().includes(q) ||
-      row.employeeCode.toLowerCase().includes(q) ||
-      row.team.toLowerCase().includes(q)
+    if (!q) return discrepancies;
+    return discrepancies.filter(
+      (row) =>
+        row.employeeName.toLowerCase().includes(q) ||
+        row.employeeCode.toLowerCase().includes(q) ||
+        row.team.toLowerCase().includes(q),
     );
-  });
+  }, [discrepancies, search]);
+
+  // One entry per person, their dates ascending, busiest people first.
+  const employeeGroups = useMemo(() => {
+    const map = new Map<string, { code: string; name: string; team: string; rows: DiscrepancyRow[] }>();
+    for (const row of filtered) {
+      let group = map.get(row.employeeCode);
+      if (!group) {
+        group = { code: row.employeeCode, name: row.employeeName, team: row.team, rows: [] };
+        map.set(row.employeeCode, group);
+      }
+      group.rows.push(row);
+    }
+    return [...map.values()]
+      .map((group) => ({
+        ...group,
+        rows: [...group.rows].sort(
+          (a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind),
+        ),
+        counts: KIND_ORDER.reduce(
+          (acc, kind) => {
+            acc[kind] = group.rows.filter((r) => r.kind === kind).length;
+            return acc;
+          },
+          {} as Record<DiscrepancyKind, number>,
+        ),
+      }))
+      .sort((a, b) => b.rows.length - a.rows.length || a.name.localeCompare(b.name));
+  }, [filtered]);
+
+  const allCollapsed = employeeGroups.length > 0 && collapsedCodes.size >= employeeGroups.length;
+
+  const toggleGroup = (code: string) =>
+    setCollapsedCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+
+  const toggleAllGroups = () =>
+    setCollapsedCodes(allCollapsed ? new Set() : new Set(employeeGroups.map((g) => g.code)));
 
   const scheduleNoRequest = filtered.filter((r) => r.kind === "schedule_no_request");
   const approvedNoSchedule = filtered.filter((r) => r.kind === "approved_no_schedule");
@@ -403,27 +472,56 @@ export default function LeaveDiscrepancyPage() {
               <CardDescription>
                 Showing {filtered.length} of {discrepancies.length} record
                 {discrepancies.length !== 1 ? "s" : ""}
+                {groupBy === "employee" &&
+                  ` across ${employeeGroups.length} ${
+                    employeeGroups.length === 1 ? "employee" : "employees"
+                  }`}
               </CardDescription>
             </div>
-            <div className="relative w-full sm:w-[260px]">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="pl-9 pr-8"
-                placeholder="Search by name, ID or team…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              {search && (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 text-muted-foreground hover:text-foreground"
-                  onClick={() => setSearch("")}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
-              )}
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+              {/* Group-by toggle */}
+              <div className="inline-flex shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                {([
+                  ["date", "By date", CalendarDays],
+                  ["employee", "By employee", Users],
+                ] as const).map(([mode, label, Icon]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setGroupBy(mode)}
+                    aria-pressed={groupBy === mode}
+                    className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      groupBy === mode
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative w-full sm:w-[260px]">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="pl-9 pr-8"
+                  placeholder="Search by name, ID or team…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                {search && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 text-muted-foreground hover:text-foreground"
+                    onClick={() => setSearch("")}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -436,6 +534,80 @@ export default function LeaveDiscrepancyPage() {
                 <ShieldAlert className="h-8 w-8 text-green-400" />
                 <span className="font-medium text-green-700">No discrepancies found</span>
                 <span>Schedule and leave records are in sync for this period.</span>
+              </div>
+            ) : groupBy === "employee" ? (
+              <div className="space-y-3">
+                <div className="flex justify-end">
+                  <Button type="button" variant="ghost" size="sm" onClick={toggleAllGroups}>
+                    {allCollapsed ? "Expand all" : "Collapse all"}
+                  </Button>
+                </div>
+
+                {employeeGroups.map((group) => {
+                  const isOpen = !collapsedCodes.has(group.code);
+                  return (
+                    <div key={group.code} className="overflow-hidden rounded-xl border border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(group.code)}
+                        aria-expanded={isOpen}
+                        className="flex w-full items-center gap-3 bg-slate-50 px-4 py-3 text-left transition-colors hover:bg-slate-100"
+                      >
+                        {isOpen ? (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-semibold text-slate-900">{group.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {group.code} · Team {group.team}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                          {KIND_ORDER.filter((kind) => group.counts[kind] > 0).map((kind) => (
+                            <Badge key={kind} className={`text-[10px] ${KIND_META[kind].badge}`}>
+                              {group.counts[kind]} {KIND_META[kind].short}
+                            </Badge>
+                          ))}
+                          <Badge variant="secondary" className="text-xs">
+                            {group.rows.length} {group.rows.length === 1 ? "day" : "days"}
+                          </Badge>
+                        </div>
+                      </button>
+
+                      {isOpen && (
+                        <ul className="divide-y">
+                          {group.rows.map((row) => (
+                            <li
+                              key={`${row.date}-${row.kind}`}
+                              className="flex flex-col gap-1.5 px-4 py-2.5 sm:flex-row sm:items-center sm:gap-3"
+                            >
+                              <span className="shrink-0 text-sm font-medium text-slate-800 sm:w-[110px]">
+                                {format(parseISO(row.date), "dd MMM yyyy")}
+                              </span>
+                              <span className="shrink-0 sm:w-[80px]">
+                                {row.leaveType ? (
+                                  <Badge className={`text-xs ${leaveTypeBadgeClass(row.leaveType)}`}>
+                                    {getLeaveTypeLabel(row.leaveType)}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                )}
+                              </span>
+                              <Badge className={`w-fit shrink-0 text-xs ${KIND_META[row.kind].badge}`}>
+                                {KIND_META[row.kind].label}
+                              </Badge>
+                              <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+                                {row.detail}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -483,20 +655,8 @@ export default function LeaveDiscrepancyPage() {
                           )}
                         </td>
                         <td className="px-3 py-3">
-                          <Badge
-                            className={`text-xs ${
-                              row.kind === "schedule_no_request"
-                                ? "bg-orange-100 text-orange-800"
-                                : row.kind === "approved_no_schedule"
-                                ? "bg-blue-100 text-blue-800"
-                                : "bg-green-100 text-green-800"
-                            }`}
-                          >
-                            {row.kind === "schedule_no_request"
-                              ? "In schedule · no data"
-                              : row.kind === "approved_no_schedule"
-                              ? "Approved · not in schedule"
-                              : "Record · not in schedule"}
+                          <Badge className={`text-xs ${KIND_META[row.kind].badge}`}>
+                            {KIND_META[row.kind].label}
                           </Badge>
                         </td>
                         <td className="px-3 py-3 text-xs text-muted-foreground">
