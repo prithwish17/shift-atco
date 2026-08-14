@@ -5,6 +5,7 @@ import {
   classifyPosition,
   countMatches,
   parsePersonCell,
+  splitTimedNames,
 } from "@/lib/rosterGrid";
 import type { RosterEntry } from "@/hooks/useRosters";
 
@@ -393,6 +394,67 @@ describe("buildRosterGrid", () => {
         ["WSO", "SUSHIL KUMAR MANDAL"],
         ["CMD", "VIPIN KUMAR"],
       ]);
+    });
+
+    it("splits a handover written into one cell", () => {
+      const model = buildRosterGrid(
+        [
+          row({
+            unit: "WSO",
+            position: "WSO",
+            employee_name: "SAMAR PATRA(0830-1230) BIBHAS SARKAR(0730-0830)(1230-1330)",
+          }),
+        ],
+        DATE,
+        "M",
+        "Morning",
+      );
+
+      const wso = model.supervision[0];
+      expect(wso.people.map((person) => person.name)).toEqual(["SAMAR PATRA", "BIBHAS SARKAR"]);
+      expect(wso.people[0].timeWindow).toBe("0830-1230");
+      // The last window wins for display; the full text stays on `raw`.
+      expect(wso.people[1].raw).toBe("BIBHAS SARKAR(0730-0830)(1230-1330)");
+      expect(model.total).toBe(2);
+    });
+
+    it("leaves an ordinary cell and a single timed name alone", () => {
+      expect(splitTimedNames("SAMAR PATRA/ JGM - RSR+UBN-SAR")).toEqual([
+        "SAMAR PATRA/ JGM - RSR+UBN-SAR",
+      ]);
+      expect(splitTimedNames("ABHISHEK KUMAR (0830 TO 1230)")).toEqual([
+        "ABHISHEK KUMAR (0830 TO 1230)",
+      ]);
+      expect(splitTimedNames("BRAJ MOHAN")).toEqual(["BRAJ MOHAN"]);
+    });
+
+    it("treats a sector code as a note on the officer, not a second officer", () => {
+      const model = buildRosterGrid(
+        [
+          row({ unit: "WSO", position: "CMD", employee_name: "VIPIN KUMAR/ JGM - RSR+UBN-" }),
+          row({ unit: "WSO", position: "CMD", employee_name: "UBS-RSR (0130-0330)" }),
+        ],
+        DATE,
+        "M",
+        "Morning",
+      );
+
+      const cmd = model.supervision[0];
+      expect(cmd.label).toBe("CMD");
+      expect(cmd.people.map((person) => person.name)).toEqual(["VIPIN KUMAR"]);
+      expect(cmd.notes).toEqual(["UBS-RSR (0130-0330)"]);
+    });
+
+    it("does not mistake a name that merely starts like a sector for a note", () => {
+      const model = buildRosterGrid(
+        [row({ unit: "WSO", position: "CMD", employee_name: "UKESH RAJ/ JGM - RSR+UBN-" })],
+        DATE,
+        "M",
+        "Morning",
+      );
+
+      expect(model.supervision[0].people.map((person) => person.name)).toEqual(["UKESH RAJ"]);
+      expect(model.supervision[0].notes).toEqual([]);
     });
 
     it("does not render the sheet's time bands as the officer in command", () => {

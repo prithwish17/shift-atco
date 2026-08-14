@@ -80,13 +80,18 @@ export function parsePersonCell(raw: string): {
 } {
   const flags: string[] = [];
   let text = String(raw || "").trim();
-  let timeWindow: string | undefined;
 
-  const windowMatch = text.match(TIME_WINDOW_RE);
-  if (windowMatch) {
-    timeWindow = `${windowMatch[1]}-${windowMatch[2]}`;
+  // A person can cover several windows — "BIBHAS SARKAR(0730-0830)(1230-1330)"
+  // — so they are peeled off until none remain.  Stripping only the last left
+  // the earlier ones stuck on the end of the name.
+  const windows: string[] = [];
+  for (;;) {
+    const windowMatch = text.match(TIME_WINDOW_RE);
+    if (!windowMatch) break;
+    windows.unshift(`${windowMatch[1]}-${windowMatch[2]}`);
     text = text.slice(0, windowMatch.index).trim();
   }
+  const timeWindow = windows.length > 0 ? windows.join(" ") : undefined;
 
   const slash = text.indexOf("/");
   if (slash === -1) {
@@ -117,7 +122,8 @@ export function parsePersonCell(raw: string): {
 
 // ── Columns ──────────────────────────────────────────────────────────────────
 
-export type ColumnGroupKey = "rsr" | "acc-plr" | "acc-alpha" | "duty" | "remark";
+export type ColumnGroupKey =
+  "rsr" | "acc-plr" | "acc-alpha" | "duty" | "remark";
 export type Half = "1st" | "2nd";
 
 export interface GridColumn {
@@ -162,6 +168,65 @@ const SPECIAL_POSITIONS = ["EXTRA DUTY", "DUTY CHANGE"];
  */
 const TIME_BAND_RE = /\bHALF\s*:/i;
 
+/** Sector codes, so a position note can be told from somebody's name. */
+const SECTOR_CODES = [
+  "UBN",
+  "UKE",
+  "UKW",
+  "URP",
+  "UKN",
+  "UBS",
+  "UGT",
+  "UKJ",
+  "OCCN",
+  "OCC-S",
+  "OCC",
+];
+
+/**
+ * A command cell that names a position rather than a person — "UBS-RSR
+ * (0130-0330)", meaning the officer on that row also works UBS-RSR for that
+ * window.  Anchored to the start and matched against the known sectors, so it
+ * cannot swallow somebody called, say, Ubsraj.
+ */
+const POSITION_NOTE_RE = new RegExp(
+  `^(?:${SECTOR_CODES.join("|")})\\s*[-/]\\s*[A-Z]`,
+  "i",
+);
+
+/** One name followed by the window(s) it covers. */
+const TIMED_NAME_RE =
+  /([A-Za-z][A-Za-z.'\-\s]*?)((?:\s*\(\s*\d{3,4}\s*(?:-|–|—|to|TO|To)\s*\d{3,4}\s*\))+)/g;
+
+/**
+ * Splits a handover written into a single cell.
+ *
+ * The WSO row can carry a shift split between two officers —
+ * "SAMAR PATRA(0830-1230) BIBHAS SARKAR(0730-0830)(1230-1330)" — which read as
+ * one absurdly long name.  Each name keeps the windows that follow it.
+ *
+ * Returns the original text untouched unless it genuinely holds several timed
+ * names, so an ordinary cell and a lone "NAME (0830-1230)" are unaffected.
+ */
+export function splitTimedNames(raw: string): string[] {
+  const text = String(raw || "").trim();
+  const matches = [...text.matchAll(TIMED_NAME_RE)];
+  if (matches.length < 2) return [text];
+
+  // Anything outside the matches means the shape is not understood; splitting
+  // on a partial read would lose whatever sits between them.
+  const covered = matches.reduce(
+    (sum, match) => sum + match[0].trim().length,
+    0,
+  );
+  if (covered < text.replace(/\s+/g, " ").length - matches.length)
+    return [text];
+
+  return matches.map(
+    (match) => `${match[1].trim()}${match[2].replace(/\s+/g, "")}`,
+  );
+}
+
 /**
  * Rows the sheet keeps inside the scanned block that are not units.
  *
@@ -171,10 +236,18 @@ const TIME_BAND_RE = /\bHALF\s*:/i;
  * called "LEAVE" and "TRAINING".
  */
 const CHIP_BANDS = new Set(["SAR", "LEAVE", "LEAVES"]);
-const NOTE_BANDS = new Set(["TRAINING", "REMARK", "REMARKS", "TRAINING & REMARKS"]);
+const NOTE_BANDS = new Set([
+  "TRAINING",
+  "REMARK",
+  "REMARKS",
+  "TRAINING & REMARKS",
+]);
 
 function normalize(value?: string | null) {
-  return String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
 }
 
 /**
@@ -188,15 +261,24 @@ export function classifyPosition(
   if (!text) return null;
 
   const halfMatch = text.match(/\((1ST|2ND)\s*HALF\)/);
-  const half: Half | undefined = halfMatch ? (halfMatch[1] === "1ST" ? "1st" : "2nd") : undefined;
+  const half: Half | undefined = halfMatch
+    ? halfMatch[1] === "1ST"
+      ? "1st"
+      : "2nd"
+    : undefined;
 
-  const base = text.replace(/\((1ST|2ND)\s*HALF\)/, "").replace(/[-\s]+/g, " ").trim();
+  const base = text
+    .replace(/\((1ST|2ND)\s*HALF\)/, "")
+    .replace(/[-\s]+/g, " ")
+    .trim();
 
   if (base === "RSR") return { group: "rsr", half };
   if (base === "ACC PLR") return { group: "acc-plr", half };
-  if (base === "ACC ALPHA" || base === "ACC A") return { group: "acc-alpha", half };
+  if (base === "ACC ALPHA" || base === "ACC A")
+    return { group: "acc-alpha", half };
   if (base === "DUTY") return { group: "duty", half };
-  if (base === "REMARK" || base === "REMARKS") return { group: "remark", half: undefined };
+  if (base === "REMARK" || base === "REMARKS")
+    return { group: "remark", half: undefined };
   // Night's non-ACC rows carry the half alone as their position.
   if (base === "1ST HALF") return { group: "duty", half: "1st" };
   if (base === "2ND HALF") return { group: "duty", half: "2nd" };
@@ -231,17 +313,48 @@ function columnLabel(group: ColumnGroupKey, half?: Half) {
  * it.  This list only orders rows synced before that column existed.
  */
 const UNIT_ORDER = [
-  "UBN", "UKE", "UKW", "URP", "UKN", "UBS", "UGT", "UKJ",
-  "UGT+UKE", "UKN+UKW", "UKE+UKW",
-  "IATS", "RELIEVER", "NIGHT RELIEVER-1", "NIGHT RELIEVER-2",
-  "OCCN & OCC-S", "OCCN& OCC-S", "OCC/ADS", "OCCN", "OCC-S",
+  "UBN",
+  "UKE",
+  "UKW",
+  "URP",
+  "UKN",
+  "UBS",
+  "UGT",
+  "UKJ",
+  "UGT+UKE",
+  "UKN+UKW",
+  "UKE+UKW",
+  "IATS",
+  "RELIEVER",
+  "NIGHT RELIEVER-1",
+  "NIGHT RELIEVER-2",
+  "OCCN & OCC-S",
+  "OCCN& OCC-S",
+  "OCC/ADS",
+  "OCCN",
+  "OCC-S",
 ];
 
 /** Sheet order for the tower / support block. */
 const POSITION_ORDER = [
-  "ARR+DEP & SEQ", "TSO", "TWR", "SMC", "SMC-N & SMC-S", "CLD",
-  "TWR-A/ AIMS", "TWR-A/AIMS", "AIMS", "ARO", "AIS", "MCD",
-  "FMP", "WSO-A", "WSO-A+FMP", "FMP+WSO-A", "WSO-A+FMP/FIC", "CORR /APP-A",
+  "ARR+DEP & SEQ",
+  "TSO",
+  "TWR",
+  "SMC",
+  "SMC-N & SMC-S",
+  "CLD",
+  "TWR-A/ AIMS",
+  "TWR-A/AIMS",
+  "AIMS",
+  "ARO",
+  "AIS",
+  "MCD",
+  "FMP",
+  "WSO-A",
+  "WSO-A+FMP",
+  "FMP+WSO-A",
+  "WSO-A+FMP/FIC",
+  "CORR /APP-A",
 ];
 
 function orderIndex(order: string[], row: { label: string; units: string[] }) {
@@ -295,8 +408,17 @@ export interface RosterGridModel {
   shiftCode: ShiftCode;
   /** Night rosters split every column into a 1st and 2nd half. */
   isSplit: boolean;
-  /** WSO and CMD, in that order — separate positions, never merged. */
-  supervision: { key: string; label: string; people: RosterPerson[] }[];
+  /**
+   * WSO and CMD, in that order — separate positions, never merged.  `notes`
+   * holds anything on that row describing the officer's duty rather than
+   * naming somebody, such as "UBS-RSR (0130-0330)".
+   */
+  supervision: {
+    key: string;
+    label: string;
+    people: RosterPerson[];
+    notes: string[];
+  }[];
   sections: GridSection[];
   special: { key: string; label: string; people: RosterPerson[] }[];
   /** SAR and LEAVE — name chips, no rating. */
@@ -343,7 +465,8 @@ function applyBandSpans(
 
     const ordered = [...indices].sort((left, right) => left - right);
     const isAdjacent = ordered.every(
-      (index, position) => position === 0 || index === ordered[position - 1] + 1,
+      (index, position) =>
+        position === 0 || index === ordered[position - 1] + 1,
     );
     if (!isAdjacent) return;
 
@@ -355,12 +478,20 @@ function applyBandSpans(
     // start at the top, so move the cell up rather than giving up on it.
     const top = ordered[0];
     if (top !== anchorIndex) {
-      rows[anchorIndex].cells[columnIndex] = { people: [], rowSpan: 1, covered: false };
+      rows[anchorIndex].cells[columnIndex] = {
+        people: [],
+        rowSpan: 1,
+        covered: false,
+      };
     }
 
     rows[top].cells[columnIndex] = { ...source, rowSpan: ordered.length };
     ordered.slice(1).forEach((index) => {
-      rows[index].cells[columnIndex] = { people: [], rowSpan: 1, covered: true };
+      rows[index].cells[columnIndex] = {
+        people: [],
+        rowSpan: 1,
+        covered: true,
+      };
     });
   });
 }
@@ -398,7 +529,11 @@ function annotateCrossPostings(sections: GridSection[]) {
     if (entries.length < 2) return;
     entries.forEach(({ person, where }) => {
       person.alsoAt = [
-        ...new Set(entries.map((other) => other.where).filter((other) => other !== where)),
+        ...new Set(
+          entries
+            .map((other) => other.where)
+            .filter((other) => other !== where),
+        ),
       ];
     });
   });
@@ -429,11 +564,23 @@ export function buildRosterGrid(
   /** Signed-in employee, so the grid can mark and jump to their cells. */
   currentUserName?: string | null,
 ): RosterGridModel {
-  const supervisionByKey = new Map<string, { key: string; label: string; people: RosterPerson[] }>();
+  const supervisionByKey = new Map<
+    string,
+    { key: string; label: string; people: RosterPerson[]; notes: string[] }
+  >();
   const unplaced: RosterPerson[] = [];
-  const specialByKey = new Map<string, { key: string; label: string; people: RosterPerson[] }>();
-  const chipsByKey = new Map<string, { key: string; label: string; people: RosterPerson[] }>();
-  const notesByKey = new Map<string, { key: string; label: string; lines: string[] }>();
+  const specialByKey = new Map<
+    string,
+    { key: string; label: string; people: RosterPerson[] }
+  >();
+  const chipsByKey = new Map<
+    string,
+    { key: string; label: string; people: RosterPerson[] }
+  >();
+  const notesByKey = new Map<
+    string,
+    { key: string; label: string; lines: string[] }
+  >();
   const placements: Placement[] = [];
 
   let total = 0;
@@ -443,113 +590,142 @@ export function buildRosterGrid(
     if (!parsed || format(parsed, "yyyy-MM-dd") !== isoDate) return;
     if (normalize(entry.shift) !== normalize(shiftName)) return;
 
-    const raw = String(entry.employee_name || "").trim();
-    if (!raw) return;
+    const cell = String(entry.employee_name || "").trim();
+    if (!cell) return;
 
-    const team = normalizeTeamKey(entry.team);
-    const details = parsePersonCell(raw);
-    const person: RosterPerson = {
-      key: entry.id || `${shiftCode}-${index}-${raw}`,
-      raw,
-      ...details,
-      team,
-      isOffTeam: team !== "G" && teams.length > 0 && !teams.includes(team),
-      // Matched on the raw cell, which namesMatch already strips of the grade
-      // and rating before comparing.
-      isMe: Boolean(currentUserName) && namesMatch(raw, currentUserName),
-      alsoAt: [],
-    };
+    // A single cell can hold a shift split between two officers, each with the
+    // windows they cover.
+    const segments = splitTimedNames(cell);
 
-    total += 1;
+    segments.forEach((raw, segment) => {
+      const team = normalizeTeamKey(entry.team);
+      const details = parsePersonCell(raw);
+      const person: RosterPerson = {
+        key: `${entry.id || `${shiftCode}-${index}`}-${segment}-${raw}`,
+        raw,
+        ...details,
+        team,
+        isOffTeam: team !== "G" && teams.length > 0 && !teams.includes(team),
+        // Matched on the raw cell, which namesMatch already strips of the grade
+        // and rating before comparing.
+        isMe: Boolean(currentUserName) && namesMatch(raw, currentUserName),
+        alsoAt: [],
+      };
 
-    const position = normalize(entry.position);
-    const unit = String(entry.unit || "").trim();
+      total += 1;
 
-    const commandLabel = COMMAND_POSITIONS[position];
-    if (commandLabel) {
-      // The sheet's own time bands live on the CMD row on some templates; they
-      // are shift metadata, not the officer in command.
-      if (TIME_BAND_RE.test(person.raw)) {
-        const bucket = notesByKey.get("SHIFT TIMES") || {
-          key: "SHIFT TIMES",
-          label: "SHIFT TIMES",
-          lines: [],
+      const position = normalize(entry.position);
+      const unit = String(entry.unit || "").trim();
+
+      const commandLabel = COMMAND_POSITIONS[position];
+      if (commandLabel) {
+        // The sheet's own time bands live on the CMD row on some templates; they
+        // are shift metadata, not the officer in command.
+        if (TIME_BAND_RE.test(person.raw)) {
+          const bucket = notesByKey.get("SHIFT TIMES") || {
+            key: "SHIFT TIMES",
+            label: "SHIFT TIMES",
+            lines: [],
+          };
+          bucket.lines.push(person.raw);
+          notesByKey.set("SHIFT TIMES", bucket);
+          return;
+        }
+
+        const bucket = supervisionByKey.get(position) || {
+          key: position,
+          label: commandLabel,
+          people: [],
+          notes: [],
         };
-        bucket.lines.push(person.raw);
-        notesByKey.set("SHIFT TIMES", bucket);
+
+        // "UBS-RSR (0130-0330)" says what else the officer on this row works; it
+        // is not a second person in command.
+        if (POSITION_NOTE_RE.test(person.raw)) bucket.notes.push(person.raw);
+        else bucket.people.push(person);
+
+        supervisionByKey.set(position, bucket);
         return;
       }
 
-      const bucket = supervisionByKey.get(position) || {
-        key: position,
-        label: commandLabel,
-        people: [],
-      };
-      bucket.people.push(person);
-      supervisionByKey.set(position, bucket);
-      return;
-    }
+      if (SPECIAL_POSITIONS.includes(position)) {
+        const key = position;
+        const bucket = specialByKey.get(key) || {
+          key,
+          label: String(entry.position || "").trim(),
+          people: [],
+        };
+        bucket.people.push(person);
+        specialByKey.set(key, bucket);
+        return;
+      }
 
-    if (SPECIAL_POSITIONS.includes(position)) {
-      const key = position;
-      const bucket = specialByKey.get(key) || {
-        key,
-        label: String(entry.position || "").trim(),
-        people: [],
-      };
-      bucket.people.push(person);
-      specialByKey.set(key, bucket);
-      return;
-    }
+      // SAR / LEAVE / TRAINING / REMARKS sit inside the scanned rectangle, so they
+      // arrive looking like units on duty.  Routed by their row label, before any
+      // column classification, so they never enter the matrix.
+      const unitKey = normalize(unit);
 
-    // SAR / LEAVE / TRAINING / REMARKS sit inside the scanned rectangle, so they
-    // arrive looking like units on duty.  Routed by their row label, before any
-    // column classification, so they never enter the matrix.
-    const unitKey = normalize(unit);
+      if (CHIP_BANDS.has(unitKey)) {
+        const bucket = chipsByKey.get(unitKey) || {
+          key: unitKey,
+          label: unit,
+          people: [],
+        };
+        bucket.people.push(person);
+        chipsByKey.set(unitKey, bucket);
+        return;
+      }
 
-    if (CHIP_BANDS.has(unitKey)) {
-      const bucket = chipsByKey.get(unitKey) || { key: unitKey, label: unit, people: [] };
-      bucket.people.push(person);
-      chipsByKey.set(unitKey, bucket);
-      return;
-    }
+      if (NOTE_BANDS.has(unitKey)) {
+        const bucket = notesByKey.get(unitKey) || {
+          key: unitKey,
+          label: unit,
+          lines: [],
+        };
+        // Free text, kept exactly as written — the training and remark lines carry
+        // times and emoji separators that must not be reformatted.
+        bucket.lines.push(person.raw);
+        notesByKey.set(unitKey, bucket);
+        return;
+      }
 
-    if (NOTE_BANDS.has(unitKey)) {
-      const bucket = notesByKey.get(unitKey) || { key: unitKey, label: unit, lines: [] };
-      // Free text, kept exactly as written — the training and remark lines carry
-      // times and emoji separators that must not be reformatted.
-      bucket.lines.push(person.raw);
-      notesByKey.set(unitKey, bucket);
-      return;
-    }
+      // A note merged down the side of the sheet gets attributed to every row it
+      // covers, so its unit label runs from the unit block clean through SAR,
+      // LEAVE and TRAINING.  Nobody is simultaneously on duty and on the LEAVE
+      // row, so a label reaching into those bands is a banner, not a controller.
+      //
+      // The scraper anchors the REMARK column to its own row and no longer
+      // produces these; this keeps the grid right when it is running against an
+      // older deployment, which is the common case during a rollout.
+      const parts = splitUnits(unit);
+      if (
+        parts.length > 1 &&
+        parts.some((part) => CHIP_BANDS.has(part) || NOTE_BANDS.has(part))
+      ) {
+        const bucket = notesByKey.get("REMARKS") || {
+          key: "REMARKS",
+          label: "REMARKS",
+          lines: [],
+        };
+        bucket.lines.push(person.raw);
+        notesByKey.set("REMARKS", bucket);
+        return;
+      }
 
-    // A note merged down the side of the sheet gets attributed to every row it
-    // covers, so its unit label runs from the unit block clean through SAR,
-    // LEAVE and TRAINING.  Nobody is simultaneously on duty and on the LEAVE
-    // row, so a label reaching into those bands is a banner, not a controller.
-    //
-    // The scraper anchors the REMARK column to its own row and no longer
-    // produces these; this keeps the grid right when it is running against an
-    // older deployment, which is the common case during a rollout.
-    const parts = splitUnits(unit);
-    if (parts.length > 1 && parts.some((part) => CHIP_BANDS.has(part) || NOTE_BANDS.has(part))) {
-      const bucket = notesByKey.get("REMARKS") || { key: "REMARKS", label: "REMARKS", lines: [] };
-      bucket.lines.push(person.raw);
-      notesByKey.set("REMARKS", bucket);
-      return;
-    }
+      const column = classifyPosition(entry.position);
+      if (!column || !unit) {
+        unplaced.push(person);
+        return;
+      }
 
-    const column = classifyPosition(entry.position);
-    if (!column || !unit) {
-      unplaced.push(person);
-      return;
-    }
-
-    placements.push({
-      unit,
-      column,
-      person,
-      rowIndex: Number.isInteger(entry.row_index) ? (entry.row_index as number) : undefined,
+      placements.push({
+        unit,
+        column,
+        person,
+        rowIndex: Number.isInteger(entry.row_index)
+          ? (entry.row_index as number)
+          : undefined,
+      });
     });
   });
 
@@ -569,7 +745,9 @@ export function buildRosterGrid(
   const isUnitRow = (unit: string) => {
     const groups = rowGroups.get(normalize(unit));
     if (!groups) return false;
-    return groups.has("rsr") || groups.has("acc-plr") || groups.has("acc-alpha");
+    return (
+      groups.has("rsr") || groups.has("acc-plr") || groups.has("acc-alpha")
+    );
   };
 
   const buildSection = (
@@ -595,7 +773,9 @@ export function buildRosterGrid(
     // They are told apart by whether every named sector also exists on its own:
     // only then is there anything to span.
     const singleUnits = new Set(
-      rows.filter(({ unit }) => splitUnits(unit).length <= 1).map(({ unit }) => normalize(unit)),
+      rows
+        .filter(({ unit }) => splitUnits(unit).length <= 1)
+        .map(({ unit }) => normalize(unit)),
     );
     const isCovering = ({ unit }: Placement) => {
       const parts = splitUnits(unit);
@@ -606,9 +786,8 @@ export function buildRosterGrid(
     const singles = rows.filter((placement) => !isCovering(placement));
 
     const columns: GridColumn[] = [];
-    const halves: (Half | undefined)[] = isSplit && !usedHalves.has("none")
-      ? ["1st", "2nd"]
-      : [undefined];
+    const halves: (Half | undefined)[] =
+      isSplit && !usedHalves.has("none") ? ["1st", "2nd"] : [undefined];
 
     // Night rosters read half-by-half: every column of the 1st half, then the
     // 2nd — which is how the sheet lays them out either side of its divider.
@@ -644,7 +823,12 @@ export function buildRosterGrid(
       string,
       { label: string; cells: Map<string, RosterPerson[]>; rowIndex?: number }
     >();
-    const addTo = (unit: string, cellKey: string, person: RosterPerson, rowIndex?: number) => {
+    const addTo = (
+      unit: string,
+      cellKey: string,
+      person: RosterPerson,
+      rowIndex?: number,
+    ) => {
       const unitKey = normalize(unit);
       const row = byUnit.get(unitKey) || { label: unit, cells: new Map() };
       const cell = row.cells.get(cellKey) || [];
@@ -652,24 +836,34 @@ export function buildRosterGrid(
       row.cells.set(cellKey, cell);
       // A unit spans several sheet rows once merges are involved; the lowest is
       // where the sheet starts it, and that is what orders the grid.
-      if (rowIndex !== undefined && (row.rowIndex === undefined || rowIndex < row.rowIndex)) {
+      if (
+        rowIndex !== undefined &&
+        (row.rowIndex === undefined || rowIndex < row.rowIndex)
+      ) {
         row.rowIndex = rowIndex;
       }
       byUnit.set(unitKey, row);
     };
 
     singles.forEach(({ unit, column, person, rowIndex }) =>
-      addTo(unit, columnKey(column.group, column.half), person, rowIndex));
+      addTo(unit, columnKey(column.group, column.half), person, rowIndex),
+    );
 
     // Bands are parked on the sector they start at; the span is worked out below
     // once the rows are in sheet order.
-    const bandSpans = new Map<string, { covers: string[]; columnKey: string }>();
+    const bandSpans = new Map<
+      string,
+      { covers: string[]; columnKey: string }
+    >();
     bands.forEach(({ unit, column, person }) => {
       const covers = splitUnits(unit);
       const anchor = covers[0];
       const cellKey = `${columnKey(column.group, column.half)}:covering`;
       addTo(anchor, cellKey, person);
-      bandSpans.set(`${normalize(anchor)}|${cellKey}`, { covers, columnKey: cellKey });
+      bandSpans.set(`${normalize(anchor)}|${cellKey}`, {
+        covers,
+        columnKey: cellKey,
+      });
     });
 
     const unsorted: GridRow[] = [...byUnit.entries()].map(([unitKey, row]) => ({
@@ -696,7 +890,8 @@ export function buildRosterGrid(
 
     const gridRows = unsorted.sort((left, right) => {
       const delta = hasRowIndex
-        ? (left.rowIndex ?? Number.MAX_SAFE_INTEGER) - (right.rowIndex ?? Number.MAX_SAFE_INTEGER)
+        ? (left.rowIndex ?? Number.MAX_SAFE_INTEGER) -
+          (right.rowIndex ?? Number.MAX_SAFE_INTEGER)
         : orderIndex(order, left) - orderIndex(order, right);
       return delta !== 0 ? delta : left.label.localeCompare(right.label);
     });
@@ -747,8 +942,17 @@ export function personMatchesSearch(person: RosterPerson, search: string) {
   const normalized = search.trim().toLowerCase();
   if (!normalized) return false;
 
-  return [person.name, person.rating, person.grade, person.team, person.raw]
-    .some((value) => String(value || "").toLowerCase().includes(normalized));
+  return [
+    person.name,
+    person.rating,
+    person.grade,
+    person.team,
+    person.raw,
+  ].some((value) =>
+    String(value || "")
+      .toLowerCase()
+      .includes(normalized),
+  );
 }
 
 /** How many people in the model match — drives the "n matches" hint. */
@@ -773,7 +977,9 @@ export function countMatches(model: RosterGridModel, search: string) {
     });
   });
   model.sections.forEach((section) =>
-    section.rows.forEach((row) => row.cells.forEach((cell) => tally(cell.people))),
+    section.rows.forEach((row) =>
+      row.cells.forEach((cell) => tally(cell.people)),
+    ),
   );
 
   return count;

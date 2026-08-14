@@ -253,6 +253,66 @@ function PeopleBand({
 }
 
 /**
+ * The command block, laid out the way the sheet does it: a labelled row per
+ * position, the label in its own column beside the name.
+ *
+ * Rendered as one table rather than a box each, because two similar boxes
+ * stacked did not read as two different jobs — which is the whole point of
+ * keeping WSO and CMD apart.
+ */
+function CommandBand({
+  bands,
+  search,
+  registerMe,
+}: {
+  bands: RosterGridModel["supervision"];
+  search?: string;
+  registerMe?: (key: string, node: HTMLDivElement | null) => void;
+}) {
+  if (bands.length === 0) return null;
+
+  return (
+    <div className="overflow-hidden rounded-lg border">
+      <table className="w-full border-collapse text-xs">
+        <tbody>
+          {bands.map((band) => (
+            <tr key={band.key} className="border-b last:border-b-0">
+              <th
+                scope="row"
+                // Matches the grid's unit column, so the command block and the
+                // matrix below it line up.
+                className="w-[6.5rem] border-r bg-muted px-2 py-1.5 text-left align-top font-bold"
+              >
+                {band.label}
+              </th>
+              <td className="px-2 py-1.5">
+                {band.people.length > 0 && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {band.people.map((person) => (
+                      <PersonCell
+                        key={person.key}
+                        person={person}
+                        search={search}
+                        registerMe={registerMe}
+                      />
+                    ))}
+                  </div>
+                )}
+                {band.notes.map((note) => (
+                  <p key={note} className="text-[11px] text-muted-foreground">
+                    also {note}
+                  </p>
+                ))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
  * TRAINING and REMARKS. Rendered verbatim — these lines carry duty timelines,
  * UTC times and emoji separators that must survive exactly as written.
  */
@@ -355,16 +415,7 @@ export default function RosterGrid({ model, search }: Props) {
         </div>
       )}
 
-      {/* WSO and CMD are two different jobs, so they get a band each. */}
-      {model.supervision.map((band) => (
-        <PeopleBand
-          key={band.key}
-          title={band.label}
-          people={band.people}
-          search={search}
-          tone="bg-muted/40"
-        />
-      ))}
+      <CommandBand bands={model.supervision} search={search} registerMe={registerMe} />
 
       {model.sections.map((section) => (
         <SectionTable
