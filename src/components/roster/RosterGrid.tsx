@@ -356,7 +356,7 @@ export default function RosterGrid({ model, search }: Props) {
       )}
 
       <PeopleBand
-        title="Supervision"
+        title="WSO"
         people={model.supervision}
         search={search}
         tone="bg-muted/40"
