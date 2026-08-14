@@ -9,6 +9,8 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
+        "npm:@aws-sdk/client-s3@^3.1038.0",
+        "npm:@aws-sdk/s3-request-presigner@^3.1038.0",
         "npm:@eslint/js@^9.32.0",
         "npm:@getbrevo/brevo@^5.0.3",
         "npm:@hookform/resolvers@^3.10.0",
@@ -45,9 +47,11 @@
         "npm:@tailwindcss/typography@~0.5.16",
         "npm:@tanstack/react-query@^5.83.0",
         "npm:@tanstack/react-virtual@^3.13.23",
+        "npm:@types/formidable@^3.5.1",
         "npm:@types/node@^22.16.5",
         "npm:@types/react-dom@^18.3.7",
         "npm:@types/react@^18.3.23",
+        "npm:@upstash/redis@^1.37.0",
         "npm:@vercel/node@^5.6.11",
         "npm:@vitejs/plugin-react-swc@^3.11.0",
         "npm:autoprefixer@^10.4.21",
@@ -59,6 +63,7 @@
         "npm:eslint-plugin-react-hooks@^5.2.0",
         "npm:eslint-plugin-react-refresh@~0.4.20",
         "npm:eslint@^9.32.0",
+        "npm:formidable@^3.5.4",
         "npm:globals@^15.15.0",
         "npm:heic2any@^0.0.4",
         "npm:input-otp@^1.4.2",
@@ -82,10 +87,13 @@
         "npm:tailwind-merge@^2.6.0",
         "npm:tailwindcss-animate@^1.0.7",
         "npm:tailwindcss@^3.4.17",
+        "npm:tsx@^4.21.0",
         "npm:typescript-eslint@^8.38.0",
         "npm:typescript@^5.8.3",
+        "npm:use-debounce@^10.1.1",
         "npm:vaul@~0.9.9",
         "npm:vite@^5.4.19",
+        "npm:vitest@^2.1.9",
         "npm:zod@^3.25.76"
       ]
     }
