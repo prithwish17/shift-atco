@@ -7,6 +7,8 @@ export const DEFAULT_CL_BALANCE = 12;
 export const DEFAULT_RH_BALANCE = 2;
 /** Number of days after duty date before comp-off expires */
 export const COMP_OFF_EXPIRY_DAYS = 89;
+/** How close to its expiry a still-unused comp-off starts being warned about */
+export const COMP_OFF_EXPIRY_WARNING_DAYS = 30;
 /** Minimum OPE duties in a month before comp-off is earned (comp-off from Nth duty onwards) */
 export const OPE_COMP_OFF_MIN_DUTIES = 3;
 /** Year-month (YYYY-MM) from which the OPE threshold rule takes effect */
