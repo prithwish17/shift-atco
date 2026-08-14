@@ -5,6 +5,7 @@ import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
 import { logCriticalEvent } from "@/lib/sentryHelpers";
 import { getRosterDateQueryValues, getRosterDateRangeQueryValues, parseRosterDate } from "@/lib/rosterDate";
 import { getRosterTeamQueryValues, normalizeRosterTeamKey } from "@/lib/rosterTeam";
+import { namesMatch } from "@/lib/nameMatching";
 
 export { parseRosterDate } from "@/lib/rosterDate";
 
@@ -221,6 +222,21 @@ export function useRosters(filters?: {
 }
 
 /**
+ * True when a roster row's `employee_name` cell names this employee.
+ *
+ * The sheet almost never writes a bare name.  Most cells carry the designation
+ * and ratings — "RANJIT KUMAR/ DGM - RSR+UBN-" — which `namesMatch` strips.
+ * Duty-change and extra-duty rows instead spell the assignment out after a
+ * colon — "RANJIT KUMAR: UBN-PLR (1330-1530)" — so those match on the name in
+ * front of it.  Comparing whole names either side of the separator is what
+ * stops "RANJIT KUMAR" claiming "RANJIT KUMAR DAS"'s duties.
+ */
+export function rosterRowBelongsTo(rowName: string | null | undefined, employeeName: string) {
+  if (namesMatch(rowName, employeeName)) return true;
+  return namesMatch(String(rowName || "").split(":")[0], employeeName);
+}
+
+/**
  * Roster entries for one employee, optionally narrowed to [from, to] (ISO dates).
  *
  * Always pass a range when the caller only cares about a window.  `rosters.date`
@@ -238,9 +254,17 @@ export function useMyRoster(employeeName?: string, from?: string, to?: string) {
     enabled: !!normalizedName,
     staleTime: 60_000,
     queryFn: async () => {
+      // The scraper stores the sheet cell verbatim, and the sheet appends the
+      // designation and ratings to the name: `profiles.full_name` is a prefix of
+      // `employee_name`, not equal to it.  Matching the two exactly is why an
+      // employee whose duties are sitting in the table sees "No assignment" —
+      // only the handful of people whose cell happens to hold a bare name ever
+      // matched.  So narrow on the prefix here and settle it with
+      // `rosterRowBelongsTo` below, which is how the rest of the app compares
+      // roster names to profiles.
       let query = (supabase.from("rosters" as any) as any)
         .select("*")
-        .ilike("employee_name", normalizedName);
+        .ilike("employee_name", `${normalizedName}%`);
 
       // Narrow windows are matched spelling-by-spelling so legacy rows still
       // hit; wider ones fall back to a range over the canonical ISO form.
@@ -253,7 +277,13 @@ export function useMyRoster(employeeName?: string, from?: string, to?: string) {
 
       const { data, error } = await query.order("date", { ascending: false }).limit(2000);
       if (error) throw error;
-      return (data || []) as unknown as RosterEntry[];
+
+      // The prefix deliberately over-fetches — it also pulls in longer names
+      // that start the same way ("RANJIT KUMAR" → "RANJIT KUMAR DAS").  Drop
+      // those here.
+      return ((data || []) as unknown as RosterEntry[]).filter((entry) =>
+        rosterRowBelongsTo(entry.employee_name, normalizedName),
+      );
     },
   });
 }
