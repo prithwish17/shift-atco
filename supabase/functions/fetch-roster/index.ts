@@ -62,6 +62,81 @@ function toIsoRosterDate(value: string): string | null {
   return null;
 }
 
+/** The Apps Script serves one tab per (team, shift); a bare date matches none. */
+const ALL_TEAMS = ["A", "B", "C", "D", "E"];
+const ALL_SHIFTS = ["Morning", "Afternoon", "Night"];
+
+/** Sequential requests with a gap: Apps Script drops some when they overlap. */
+const REQUEST_GAP_MS = 400;
+/** Leaves room to write the rows before the function's wall clock runs out. */
+const FETCH_BUDGET_MS = 90_000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Fetches one team/shift tab.
+ *
+ * Throws rather than returning nothing on failure — an empty array and a failed
+ * request look identical to the caller otherwise, which is how a roster that
+ * has stopped syncing goes unnoticed.
+ */
+async function fetchRosterTab(
+  appsScriptUrl: string,
+  team: string,
+  shift: string,
+  date: string,
+  // deno-lint-ignore no-explicit-any
+): Promise<any[]> {
+  const scriptUrl = new URL(appsScriptUrl);
+  scriptUrl.searchParams.set("team", team);
+  scriptUrl.searchParams.set("shift", shift);
+  if (date) scriptUrl.searchParams.set("date", date);
+
+  console.log(`[fetch-roster] ${team}/${shift}`);
+
+  const response = await fetch(scriptUrl.toString(), { method: "GET", redirect: "follow" });
+
+  if (!response.ok) {
+    // Redeploying an Apps Script project mints a NEW /exec URL; the old one
+    // starts answering 404.  Naming that here saves a long hunt, because the
+    // symptom is simply that the roster stops updating.
+    const hint = response.status === 404
+      ? " — this deployment URL is dead. A new Apps Script deployment gets a new /exec URL, so update app_settings.roster_webapp_url"
+      : "";
+    throw new Error(`Apps Script returned ${response.status}${hint}`);
+  }
+
+  const body = await response.text();
+
+  // Apps Script signals failures (e.g. a spreadsheet the deployment owner can
+  // no longer open) with an HTML error page and HTTP 200.  Report the real
+  // cause rather than a confusing "Unexpected token '<'" JSON error.
+  if (body.trim().startsWith("<")) {
+    const detail = /do not have permission/i.test(body)
+      ? "permission denied on the source spreadsheet"
+      : "an HTML error page";
+    throw new Error(`Apps Script returned ${detail}`);
+  }
+
+  // deno-lint-ignore no-explicit-any
+  let data: any;
+  try {
+    data = JSON.parse(body);
+  } catch {
+    throw new Error(`Apps Script returned a non-JSON response: ${body.slice(0, 120)}`);
+  }
+
+  // An error payload is JSON too, and coercing it to [] made a failed request
+  // indistinguishable from an empty roster — the bug that let "Fetch Latest"
+  // report success while doing nothing at all.
+  if (data && !Array.isArray(data) && data.error) {
+    throw new Error(String(data.error));
+  }
+
+  // Some Apps Script deployments return { data: [...] }.
+  return Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -131,53 +206,47 @@ Deno.serve(async (req) => {
       // Table may not exist yet — use default
     }
 
-    // Fetch from Google Apps Script
-    const scriptUrl = new URL(appsScriptUrl);
-    if (team) scriptUrl.searchParams.set("team", team);
-    if (shift) scriptUrl.searchParams.set("shift", shift);
-    if (date) scriptUrl.searchParams.set("date", date); // ← forward selected date
-
-    console.log(`Fetching roster from: ${scriptUrl.toString()}`);
-
-    const response = await fetch(scriptUrl.toString(), {
-      method: "GET",
-      redirect: "follow",
-    });
-
-    if (!response.ok) {
-      // Redeploying an Apps Script project mints a NEW /exec URL; the old one
-      // starts answering 404.  Naming that here saves a long hunt, because the
-      // symptom is simply that the roster stops updating.
-      const hint = response.status === 404
-        ? ` — this deployment URL is dead. A new Apps Script deployment gets a new /exec URL, so update app_settings.roster_webapp_url (currently ${appsScriptUrl === DEFAULT_APPS_SCRIPT_URL ? "unset, using the built-in default" : "set"}).`
-        : "";
-      throw new Error(`Apps Script returned ${response.status}${hint}`);
-    }
-
-    const body = await response.text();
-
-    // Apps Script signals failures (e.g. a spreadsheet the deployment owner can
-    // no longer open) with an HTML error page and HTTP 200.  Report the real
-    // cause rather than a confusing "Unexpected token '<'" JSON error.
-    if (body.trim().startsWith("<")) {
-      const detail = /do not have permission/i.test(body)
-        ? "permission denied on the source spreadsheet"
-        : "an HTML error page";
-      throw new Error(
-        `Apps Script returned ${detail}${team ? ` for team ${team}` : ""}`,
-      );
-    }
+    // The Apps Script serves one (team, shift) tab per request — it answers
+    // "No match for Team: | Shift:" when either is missing.  A caller that only
+    // knows the date therefore has to be expanded into the combinations it
+    // meant, or the request quietly fetches nothing.
+    const teamsToFetch = team ? [team] : ALL_TEAMS;
+    const shiftsToFetch = shift ? [shift] : ALL_SHIFTS;
 
     // deno-lint-ignore no-explicit-any
-    let data: any;
-    try {
-      data = JSON.parse(body);
-    } catch {
-      throw new Error(`Apps Script returned a non-JSON response: ${body.slice(0, 120)}`);
+    const rows: any[] = [];
+    const fetchErrors: string[] = [];
+    const deadline = Date.now() + FETCH_BUDGET_MS;
+    let firstRequest = true;
+
+    for (const t of teamsToFetch) {
+      for (const s of shiftsToFetch) {
+        if (Date.now() > deadline) {
+          fetchErrors.push(`${t}/${s}: skipped, time budget spent`);
+          continue;
+        }
+
+        // Firing these at once makes Apps Script drop requests, which is how a
+        // team silently syncs nothing.  Sequential, with a gap.
+        if (!firstRequest) await sleep(REQUEST_GAP_MS);
+        firstRequest = false;
+
+        try {
+          rows.push(...await fetchRosterTab(appsScriptUrl, t, s, date));
+        } catch (error) {
+          fetchErrors.push(`${t}/${s}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
     }
 
-    // Ensure data is an array. Some Apps Script deployments return { data: [...] }.
-    const rows = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+    // Reporting success while every request failed is how a broken sync hides:
+    // the caller sees HTTP 200 with zero rows and assumes the roster is empty.
+    if (rows.length === 0 && fetchErrors.length > 0) {
+      throw new Error(`Roster fetch failed — ${fetchErrors.join("; ")}`);
+    }
+    if (fetchErrors.length > 0) {
+      console.warn(`[fetch-roster] partial fetch: ${fetchErrors.join("; ")}`);
+    }
 
     // Normalise shift values to title-case ("NIGHT" → "Night") so queries
     // and the frontend work consistently regardless of the API's casing.
@@ -207,7 +276,18 @@ Deno.serve(async (req) => {
 
       let skippedDates = 0;
 
-      const toInsert = rows.reduce((acc: Record<string, string>[], row: Record<string, string>) => {
+      /** A row as written to `rosters`; row_index is null when the scrape omits it. */
+      type RosterInsert = {
+        date: string;
+        shift: string;
+        team: string;
+        unit: string;
+        employee_name: string;
+        position: string;
+        row_index: number | null;
+      };
+
+      const toInsert = rows.reduce((acc: RosterInsert[], row: Record<string, string>) => {
         // The sheet writes each cell as "NAME/ GRADE - RATING-[SAR]", e.g.
         // "BIBHAS SARKAR/ JGM - RSR+UBN-".  This used to be cut down to the bare
         // name, which threw away the grade and the rating — the two things
@@ -220,6 +300,14 @@ Deno.serve(async (req) => {
         // The webapp may return the position/half info under different field names
         // Check: position, mark, remark, half (in order of priority)
         const positionValue = row.position || row.mark || row.remark || row.half || "";
+
+        // `row` is typed as string fields for convenience, but the scrape sends
+        // row_index as a number — read it through the wider type rather than
+        // narrowing a value TypeScript believes is a string.
+        const rawIndex = (row as Record<string, unknown>).row_index;
+        const rawRowIndex = typeof rawIndex === "number" && Number.isInteger(rawIndex)
+          ? rawIndex
+          : null;
 
         // Store one canonical date format so the frontend filters can match it.
         const isoDate = toIsoRosterDate(row.date) ?? toIsoRosterDate(date);
@@ -237,7 +325,7 @@ Deno.serve(async (req) => {
           position: positionValue,
           // Absent from supervision and special rows, and from any deployment
           // older than the merge-aware scraper — stored as NULL, never guessed.
-          row_index: Number.isInteger(row.row_index) ? row.row_index : null,
+          row_index: rawRowIndex,
         });
         return acc;
       }, []);

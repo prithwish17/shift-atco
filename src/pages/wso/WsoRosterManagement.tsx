@@ -13,11 +13,12 @@ export default function WsoRosterManagement() {
   const [lastFetched, setLastFetched] = useState<Date | null>(null);
   const fetchRoster = useFetchRoster();
 
-  // Team and shift are derived from the rotation, so the sync only needs the
-  // date on screen — the external fetch returns every team for that day.
-  const handleFetchLatest = async (isoDate: string) => {
+  // The scraper serves one tab per team and shift, so the sync is told which
+  // shift is on screen and left to fan out across the five teams itself.
+  const handleFetchLatest = async (isoDate: string, shift: string) => {
     try {
-      await fetchRoster.mutateAsync({ team: "", shift: "", date: isoDate });
+      // Team is left blank so every team on that shift is refreshed.
+      await fetchRoster.mutateAsync({ team: "", shift, date: isoDate });
       setLastFetched(new Date());
       toast.success("Roster data synced successfully");
     } catch (err: any) {
@@ -36,10 +37,10 @@ export default function WsoRosterManagement() {
         <TabsContent value="current">
           <ShiftRosterView
             description="Who is on each shift, with teams set automatically by the duty rotation."
-            actions={({ isoDate }) => (
+            actions={({ isoDate, shift }) => (
               <div className="flex flex-col items-end gap-1">
                 <Button
-                  onClick={() => handleFetchLatest(isoDate)}
+                  onClick={() => handleFetchLatest(isoDate, shift)}
                   disabled={fetchRoster.isPending}
                   size="sm"
                   className="whitespace-nowrap"

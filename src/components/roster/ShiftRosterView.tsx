@@ -42,9 +42,11 @@ type ViewMode = "grid" | "list";
 interface Props {
   /**
    * Rendered in the header — e.g. the WSO/supervisor "Fetch Latest" button.
-   * Receives the selected date so a sync can target the day on screen.
+   * Receives the selected date and shift so a sync can target exactly the tab
+   * on screen; the scraper serves one tab per team and shift, so a sync given
+   * only a date has to fan out across every shift.
    */
-  actions?: (context: { isoDate: string }) => ReactNode;
+  actions?: (context: { isoDate: string; shift: string }) => ReactNode;
   /** Extra line under the title, for role-specific wording. */
   description?: string;
 }
@@ -320,7 +322,9 @@ export default function ShiftRosterView({ actions, description }: Props) {
           </p>
         </div>
         {actions && (
-          <div className="flex shrink-0 flex-wrap gap-2">{actions({ isoDate: selectedDate })}</div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {actions({ isoDate: selectedDate, shift: activeSlot.name })}
+          </div>
         )}
       </div>
 
