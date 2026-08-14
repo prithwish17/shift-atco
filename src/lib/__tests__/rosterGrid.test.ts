@@ -487,6 +487,110 @@ describe("buildRosterGrid", () => {
     expect(parsePersonCell("DIVYA DEV (0830 to 1230)").timeWindow).toBe("0830-1230");
   });
 
+  describe("finding the signed-in employee", () => {
+    it("marks every cell the current user occupies", () => {
+      const model = buildRosterGrid(
+        [
+          row({ unit: "UBN", position: "RSR", employee_name: "PRITHWISH DAS/ JE - ADC/SMC-" }),
+          row({ unit: "UKE", position: "RSR", employee_name: "SOMEONE ELSE/ SM - RSR+UBN-" }),
+        ],
+        DATE,
+        "M",
+        "Morning",
+        [],
+        "Prithwish Das",
+      );
+
+      const units = model.sections.find((section) => section.key === "units")!;
+      expect(units.rows[0].cells[0].people[0].isMe).toBe(true);
+      expect(units.rows[1].cells[0].people[0].isMe).toBe(false);
+    });
+
+    it("matches through the grade and rating the sheet appends", () => {
+      const model = buildRosterGrid(
+        [row({ unit: "UBN", position: "RSR", employee_name: "KRISHNA KANT/ SM -RSR+UBN-SAR" })],
+        DATE,
+        "M",
+        "Morning",
+        [],
+        "KRISHNA KANT",
+      );
+
+      const units = model.sections.find((section) => section.key === "units")!;
+      expect(units.rows[0].cells[0].people[0].isMe).toBe(true);
+    });
+
+    it("marks nobody when there is no signed-in name", () => {
+      const model = buildRosterGrid([row({})], DATE, "M", "Morning");
+      const units = model.sections.find((section) => section.key === "units")!;
+      expect(units.rows[0].cells[0].people[0].isMe).toBe(false);
+    });
+  });
+
+  describe("cross-postings", () => {
+    it("names the other cells a person also occupies", () => {
+      const model = buildRosterGrid(
+        [
+          row({ unit: "UBS", position: "ACC ALPHA", employee_name: "ASHISH JHA/ JE - ADC/SMC-" }),
+          row({ unit: "TWR", position: "Duty", employee_name: "ASHISH JHA/ JE - ADC/SMC-" }),
+          row({ unit: "UBN", position: "RSR", employee_name: "SOLO PERSON/ SM - RSR+UBN-" }),
+        ],
+        DATE,
+        "M",
+        "Morning",
+      );
+
+      const units = model.sections.find((section) => section.key === "units")!;
+      const tower = model.sections.find((section) => section.key === "positions")!;
+
+      const inUbs = units.rows.find((r) => r.label === "UBS")!.cells.flatMap((c) => c.people)[0];
+      const inTwr = tower.rows.find((r) => r.label === "TWR")!.cells.flatMap((c) => c.people)[0];
+
+      expect(inUbs.alsoAt).toEqual(["TWR · Duty"]);
+      expect(inTwr.alsoAt).toEqual(["UBS · ACC A"]);
+
+      const solo = units.rows.find((r) => r.label === "UBN")!.cells.flatMap((c) => c.people)[0];
+      expect(solo.alsoAt).toEqual([]);
+    });
+
+    it("does not treat a second name in the same cell as a cross-posting", () => {
+      const model = buildRosterGrid(
+        [
+          row({ unit: "UKW", position: "RSR", employee_name: "DEEPAK BHARTI/ AGM - RSR+UBN-" }),
+          row({ unit: "UKW", position: "RSR", employee_name: "JUSTIN MINJ/ SM - RSR+UBN-" }),
+        ],
+        DATE,
+        "M",
+        "Morning",
+      );
+
+      const units = model.sections.find((section) => section.key === "units")!;
+      const people = units.rows[0].cells[0].people;
+      expect(people).toHaveLength(2);
+      expect(people.every((person) => person.alsoAt.length === 0)).toBe(true);
+    });
+  });
+
+  it("gives a covering column the same label as the column it sits beside", () => {
+    // The header collapses the pair under one heading, so both must read alike.
+    const model = buildRosterGrid(
+      [
+        row({ unit: "UBN", position: "RSR" }),
+        row({ unit: "UKE", position: "RSR" }),
+        row({ unit: "UBN+UKE", position: "RSR", employee_name: "COVER/ AGM - RSR+UBN-" }),
+      ],
+      DATE,
+      "M",
+      "Morning",
+    );
+
+    const units = model.sections.find((section) => section.key === "units")!;
+    expect(units.columns.map((column) => [column.key, column.label, column.covering ?? false])).toEqual([
+      ["rsr", "RSR", false],
+      ["rsr:covering", "RSR", true],
+    ]);
+  });
+
   it("keeps rows it cannot place instead of dropping them", () => {
     const model = buildRosterGrid(
       [row({ unit: "UBN", position: "SOMETHING NEW", employee_name: "X/ SM - RSR+UBN-" })],

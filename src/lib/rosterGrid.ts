@@ -1,5 +1,6 @@
 import { format } from "date-fns";
 
+import { namesMatch, normalizeEmployeeMatchName } from "@/lib/nameMatching";
 import { parseRosterDate } from "@/lib/rosterDate";
 import { normalizeTeamKey } from "@/lib/teamDutyRotation";
 import type { ShiftCode } from "@/lib/shiftRoster";
@@ -46,6 +47,16 @@ export interface RosterPerson {
   flags: string[];
   team: string;
   isOffTeam: boolean;
+  /** True when this is the signed-in employee, so the grid can point at them. */
+  isMe: boolean;
+  /**
+   * Other cells the same person occupies, as "UBS · ACC A".
+   *
+   * The sheet marks this with a green fill and an underline and nobody has the
+   * key written down; naming the other posting makes it legible, and a person
+   * booked in two places at once is worth seeing at a glance.
+   */
+  alsoAt: string[];
 }
 
 const GRADE_PATTERN = GRADES.join("|");
@@ -176,6 +187,12 @@ function columnKey(group: ColumnGroupKey, half?: Half) {
   return half ? `${group}:${half}` : group;
 }
 
+/**
+ * Covering columns carry the same label as the column they sit beside — they
+ * are the sheet's second sub-column, not a category of their own.  Repeating the
+ * group name lets the header collapse the pair under one heading, which is what
+ * the sheet does and what keeps the grid narrow enough to read.
+ */
 function columnLabel(group: ColumnGroupKey, half?: Half) {
   const base = GROUP_LABELS[group];
   if (!half) return base;
@@ -326,6 +343,45 @@ function applyBandSpans(
   });
 }
 
+/**
+ * Records, on every person, the other cells the same name occupies.
+ *
+ * The sheet encodes this with a green fill and an underline, which is learned by
+ * folklore rather than written down anywhere.  Only the matrix is considered:
+ * being on the SAR or LEAVE band alongside a duty is ordinary, whereas holding
+ * two operational positions is the thing worth seeing.
+ */
+function annotateCrossPostings(sections: GridSection[]) {
+  const byName = new Map<string, { person: RosterPerson; where: string }[]>();
+
+  sections.forEach((section) => {
+    section.rows.forEach((row) => {
+      row.cells.forEach((cell, index) => {
+        if (cell.covered) return;
+        const column = section.columns[index];
+        if (!column || column.group === "remark") return;
+
+        cell.people.forEach((person) => {
+          const key = normalizeEmployeeMatchName(person.name || person.raw);
+          if (!key) return;
+          const entries = byName.get(key) || [];
+          entries.push({ person, where: `${row.label} · ${column.label}` });
+          byName.set(key, entries);
+        });
+      });
+    });
+  });
+
+  byName.forEach((entries) => {
+    if (entries.length < 2) return;
+    entries.forEach(({ person, where }) => {
+      person.alsoAt = [
+        ...new Set(entries.map((other) => other.where).filter((other) => other !== where)),
+      ];
+    });
+  });
+}
+
 // ── Build ────────────────────────────────────────────────────────────────────
 
 interface Placement {
@@ -348,6 +404,8 @@ export function buildRosterGrid(
   shiftCode: ShiftCode,
   shiftName: string,
   teams: string[] = [],
+  /** Signed-in employee, so the grid can mark and jump to their cells. */
+  currentUserName?: string | null,
 ): RosterGridModel {
   const supervision: RosterPerson[] = [];
   const unplaced: RosterPerson[] = [];
@@ -374,6 +432,10 @@ export function buildRosterGrid(
       ...details,
       team,
       isOffTeam: team !== "G" && teams.length > 0 && !teams.includes(team),
+      // Matched on the raw cell, which namesMatch already strips of the grade
+      // and rating before comparing.
+      isMe: Boolean(currentUserName) && namesMatch(raw, currentUserName),
+      alsoAt: [],
     };
 
     total += 1;
@@ -528,7 +590,7 @@ export function buildRosterGrid(
           columns.push({
             key: `${columnKey(group, half)}:covering`,
             group,
-            label: `${columnLabel(group, half)} · covering`,
+            label: columnLabel(group, half),
             half,
             covering: true,
           });
@@ -619,6 +681,8 @@ export function buildRosterGrid(
       placements.filter(({ unit }) => !isUnitRow(unit)),
     ),
   ].filter((section): section is GridSection => section !== null);
+
+  annotateCrossPostings(sections);
 
   return {
     isoDate,

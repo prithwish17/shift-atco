@@ -1,3 +1,5 @@
+import { useCallback, useMemo, useRef } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import {
   personMatchesSearch,
@@ -29,7 +31,16 @@ const STICKY_HEAD = "sticky top-0 z-20 bg-muted";
 const STICKY_UNIT = "sticky left-0 z-10 bg-background";
 const STICKY_CORNER = "sticky left-0 top-0 z-30 bg-muted";
 
-function PersonCell({ person, search }: { person: RosterPerson; search?: string }) {
+function PersonCell({
+  person,
+  search,
+  registerMe,
+}: {
+  person: RosterPerson;
+  search?: string;
+  /** Lets the "you" bar scroll this cell into view. */
+  registerMe?: (key: string, node: HTMLDivElement | null) => void;
+}) {
   const isMatch = search ? personMatchesSearch(person, search) : false;
 
   // Grade and rating are deliberately not rendered — the grid reads as names.
@@ -37,16 +48,25 @@ function PersonCell({ person, search }: { person: RosterPerson; search?: string 
   // checks) and are one hover away, which also explains why a search for a
   // rating highlights a cell showing only a name.
   const detail = [person.grade, person.rating].filter(Boolean).join(" · ");
+  const title = [detail, person.alsoAt.length ? `Also on ${person.alsoAt.join(", ")}` : ""]
+    .filter(Boolean)
+    .join(" — ");
 
   return (
     <div
-      title={detail || undefined}
+      ref={person.isMe && registerMe ? (node) => registerMe(person.key, node) : undefined}
+      title={title || undefined}
       className={cn(
         "rounded px-1 py-0.5",
+        // The search highlight and the "you" highlight have to stay tellable
+        // apart, since a search for your own name lights up both.
         isMatch && "bg-amber-200 ring-1 ring-amber-500 dark:bg-amber-500/30 dark:ring-amber-400",
+        person.isMe && "bg-primary/10 ring-1 ring-primary",
       )}
     >
-      <p className="font-medium leading-tight">{person.name || person.raw}</p>
+      <p className={cn("font-medium leading-tight", person.isMe && "text-primary")}>
+        {person.name || person.raw}
+      </p>
       <div className="flex flex-wrap gap-1">
         {person.timeWindow && (
           <span className="font-mono text-[10px] text-muted-foreground">{person.timeWindow}</span>
@@ -61,12 +81,54 @@ function PersonCell({ person, search }: { person: RosterPerson; search?: string 
             {person.team}
           </Badge>
         )}
+        {/* Just the unit: "NIGHT Reliever-2 · Duty · 1st half" truncates to
+            nothing useful in a badge, and the full location is on the title. */}
+        {[...new Set(person.alsoAt.map((where) => where.split(" · ")[0]))].map((unit) => (
+          <Badge
+            key={unit}
+            variant="outline"
+            className="h-3.5 max-w-[7rem] truncate border-violet-400 px-1 text-[9px] font-medium text-violet-700 dark:border-violet-600 dark:text-violet-300"
+          >
+            also {unit}
+          </Badge>
+        ))}
       </div>
     </div>
   );
 }
 
-function SectionTable({ section, search }: { section: GridSection; search?: string }) {
+/**
+ * Collapses the covering column into the heading of the column it sits beside,
+ * so a rating group reads as one heading over two sub-columns — the way the
+ * sheet lays it out, and half the header width of labelling both.
+ */
+function headerGroups(columns: GridSection["columns"]) {
+  const groups: { key: string; label: string; span: number }[] = [];
+
+  columns.forEach((column) => {
+    const key = `${column.group}:${column.half ?? ""}`;
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) {
+      last.span += 1;
+      return;
+    }
+    groups.push({ key, label: column.label, span: 1 });
+  });
+
+  return groups;
+}
+
+function SectionTable({
+  section,
+  search,
+  registerMe,
+}: {
+  section: GridSection;
+  search?: string;
+  registerMe?: (key: string, node: HTMLDivElement | null) => void;
+}) {
+  const groups = headerGroups(section.columns);
+
   return (
     <div>
       <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -87,13 +149,14 @@ function SectionTable({ section, search }: { section: GridSection; search?: stri
               >
                 Unit
               </th>
-              {section.columns.map((column) => (
+              {groups.map((group) => (
                 <th
-                  key={column.key}
+                  key={group.key}
                   scope="col"
+                  colSpan={group.span}
                   className={cn(STICKY_HEAD, "min-w-[9rem] border-b border-r px-2 py-1.5 text-left font-semibold last:border-r-0")}
                 >
-                  {column.label}
+                  {group.label}
                 </th>
               ))}
             </tr>
@@ -127,6 +190,7 @@ function SectionTable({ section, search }: { section: GridSection; search?: stri
                     <td
                       key={section.columns[index].key}
                       rowSpan={cell.rowSpan}
+                      title={spans ? `Covers ${cell.covers?.join(" + ") ?? ""}` : undefined}
                       className={cn(
                         "border-b border-r px-1.5 py-1 align-top last:border-r-0",
                         // A controller covering two sectors is the sheet's
@@ -140,13 +204,13 @@ function SectionTable({ section, search }: { section: GridSection; search?: stri
                       ) : (
                         <div className="space-y-1">
                           {cell.people.map((person) => (
-                            <PersonCell key={person.key} person={person} search={search} />
+                            <PersonCell
+                              key={person.key}
+                              person={person}
+                              search={search}
+                              registerMe={registerMe}
+                            />
                           ))}
-                          {spans && (
-                            <p className="text-[9px] font-medium uppercase tracking-wide text-primary/70">
-                              covers {cell.covers?.join(" + ") ?? `${cell.rowSpan} sectors`}
-                            </p>
-                          )}
                         </div>
                       )}
                     </td>
@@ -226,7 +290,44 @@ function NoteBand({
   );
 }
 
+/** Where the signed-in employee sits, so the "you" bar can name and reach it. */
+function findMyPlacements(model: RosterGridModel) {
+  const placements: { key: string; where: string }[] = [];
+
+  model.sections.forEach((section) => {
+    section.rows.forEach((row) => {
+      row.cells.forEach((cell, index) => {
+        if (cell.covered) return;
+        const column = section.columns[index];
+        cell.people.forEach((person) => {
+          if (!person.isMe) return;
+          placements.push({
+            key: person.key,
+            where: column && column.group !== "remark" ? `${row.label} · ${column.label}` : row.label,
+          });
+        });
+      });
+    });
+  });
+
+  return placements;
+}
+
 export default function RosterGrid({ model, search }: Props) {
+  // Callback refs rather than a lookup by id: cells mount and unmount as the
+  // date and shift change, and a stale node would scroll nowhere.
+  const myNodes = useRef(new Map<string, HTMLDivElement>());
+  const registerMe = useCallback((key: string, node: HTMLDivElement | null) => {
+    if (node) myNodes.current.set(key, node);
+    else myNodes.current.delete(key);
+  }, []);
+
+  const myPlacements = useMemo(() => findMyPlacements(model), [model]);
+
+  const scrollToMe = (key: string) => {
+    myNodes.current.get(key)?.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+  };
+
   if (model.total === 0) {
     return (
       <p className="px-2 py-8 text-center text-sm text-muted-foreground">
@@ -237,6 +338,23 @@ export default function RosterGrid({ model, search }: Props) {
 
   return (
     <div className="space-y-3">
+      {/* The one question most people open this page to answer. */}
+      {myPlacements.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-2 py-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-primary">You</span>
+          {myPlacements.map((placement) => (
+            <button
+              key={placement.key}
+              type="button"
+              onClick={() => scrollToMe(placement.key)}
+              className="rounded border border-primary/40 bg-background px-1.5 py-0.5 text-xs font-medium text-primary hover:bg-primary/10"
+            >
+              {placement.where}
+            </button>
+          ))}
+        </div>
+      )}
+
       <PeopleBand
         title="Supervision"
         people={model.supervision}
@@ -245,7 +363,12 @@ export default function RosterGrid({ model, search }: Props) {
       />
 
       {model.sections.map((section) => (
-        <SectionTable key={section.key} section={section} search={search} />
+        <SectionTable
+          key={section.key}
+          section={section}
+          search={search}
+          registerMe={registerMe}
+        />
       ))}
 
       {model.chips.map((bucket) => (

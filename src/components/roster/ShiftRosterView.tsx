@@ -9,7 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import RosterGrid from "@/components/roster/RosterGrid";
+import { useAuth } from "@/contexts/AuthContext";
 import { useShiftRoster } from "@/hooks/useShiftRoster";
+import { useUserProfile } from "@/hooks/useUsers";
 import { buildRosterGrid, countMatches, type RosterGridModel } from "@/lib/rosterGrid";
 import {
   filterShiftRosterDay,
@@ -234,6 +236,12 @@ export default function ShiftRosterView({ actions, description }: Props) {
 
   const { data, isLoading, isFetching } = useShiftRoster(selectedDate);
 
+  // Used only to mark and jump to the signed-in employee's own cells.  Every
+  // role gets it: a WSO looking for themselves has the same problem.
+  const { user } = useAuth();
+  const { profile } = useUserProfile(user?.id);
+  const currentUserName = profile?.full_name ?? "";
+
   const dayStrip = useMemo(
     () =>
       Array.from({ length: DAY_STRIP_RADIUS * 2 + 1 }, (_, index) =>
@@ -272,9 +280,10 @@ export default function ShiftRosterView({ actions, description }: Props) {
       selectedShift,
       activeSlot.name,
       shiftTeams[selectedShift],
+      currentUserName,
     );
     return model.total > 0 ? model : null;
-  }, [dayForSelectedDate, selectedDate, selectedShift, activeSlot.name, shiftTeams]);
+  }, [dayForSelectedDate, selectedDate, selectedShift, activeSlot.name, shiftTeams, currentUserName]);
 
   const gridMatches = useMemo(
     () => (gridModel && search.trim() ? countMatches(gridModel, search) : 0),
