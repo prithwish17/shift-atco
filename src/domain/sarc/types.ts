@@ -23,7 +23,7 @@ export type DayClass =
     | 'general'
     /** `M`, `A`, `N`, `NO`, compounds — anything not otherwise classified. */
     | 'shift'
-    /** Leave, weekends, holidays and training. Bridges a block without counting toward the 5. */
+    /** Leave, weekends and holidays. Bridges a block without counting toward the 5. */
     | 'bridging';
 
 /** Which rate an employee falls back to outside any qualifying block (§1.1). */

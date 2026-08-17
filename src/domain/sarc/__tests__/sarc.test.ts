@@ -7,7 +7,8 @@
  * a fresh export, and if the accepted departures lived there too, a regression
  * would be absorbed the next time somebody regenerated it.
  *
- * A thirteenth accrual difference fails the build.
+ * Historical parity is checked for rosters without training. Training now has
+ * a deliberate, newer rule: it is general duty rather than a bridging day.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -134,6 +135,8 @@ const BY_ID = new Map<string, SarcRow>(ROWS.map((row) => [row.empId, row]));
 const FIXTURE_BY_ID = new Map(SARC_FIXTURES.map((row) => [row.empId, row]));
 
 const secs = (value: string | null) => (value == null ? null : parseDuration(value));
+const hasTrainingDuty = (row: SarcFixtureRow) =>
+    row.dutyCodes.split(',').some((code) => ['T', 'TR'].includes(code.trim().toUpperCase()));
 
 /* ─── Suites ──────────────────────────────────────────────────────────────── */
 
@@ -199,8 +202,9 @@ describe('IAMATC weighted total', () => {
 });
 
 describe('accrual vs the sheet', () => {
-    it('reproduces Hours Required for every employee but the named exceptions', () => {
-        const mismatches = SARC_FIXTURES.filter((row) => !ACCRUAL_EXCEPTION_IDS.has(row.empId))
+    it('reproduces the historical Hours Required baseline where training is absent', () => {
+        const mismatches = SARC_FIXTURES
+            .filter((row) => !hasTrainingDuty(row) && !ACCRUAL_EXCEPTION_IDS.has(row.empId))
             .filter((row) => BY_ID.get(row.empId)!.required !== secs(row.sheetRequired))
             .map(
                 (row) =>
@@ -210,16 +214,18 @@ describe('accrual vs the sheet', () => {
         expect(mismatches).toEqual([]);
     });
 
-    it('departs from the sheet for exactly twelve employees', () => {
+    it('keeps the known non-training departures from the historical baseline', () => {
         const differing = SARC_FIXTURES.filter(
-            (row) => BY_ID.get(row.empId)!.required !== secs(row.sheetRequired),
+            (row) => !hasTrainingDuty(row) && BY_ID.get(row.empId)!.required !== secs(row.sheetRequired),
         ).map((row) => row.empId);
 
-        expect(new Set(differing)).toEqual(ACCRUAL_EXCEPTION_IDS);
-        expect(ACCRUAL_EXCEPTIONS).toHaveLength(12);
+        const nonTrainingExceptions = ACCRUAL_EXCEPTIONS
+            .filter((exception) => !hasTrainingDuty(FIXTURE_BY_ID.get(exception.empId)!))
+            .map((exception) => exception.empId);
+        expect(new Set(differing)).toEqual(new Set(nonTrainingExceptions));
     });
 
-    it.each(ACCRUAL_EXCEPTIONS)(
+    it.each(ACCRUAL_EXCEPTIONS.filter((exception) => !hasTrainingDuty(FIXTURE_BY_ID.get(exception.empId)!)))(
         'charges $name $engine where the sheet charged $sheet',
         ({ empId, sheet, engine }) => {
             const row = BY_ID.get(empId)!;
@@ -229,7 +235,7 @@ describe('accrual vs the sheet', () => {
     );
 
     it('raises the accrual only for shift-team controllers', () => {
-        for (const { empId } of BRIDGING_RATE_EXCEPTIONS) {
+        for (const { empId } of BRIDGING_RATE_EXCEPTIONS.filter((exception) => !hasTrainingDuty(FIXTURE_BY_ID.get(exception.empId)!))) {
             const row = BY_ID.get(empId)!;
             expect(row.home).toBe('shift');
             expect(row.required).toBeGreaterThan(secs(FIXTURE_BY_ID.get(empId)!.sheetRequired)!);
@@ -237,7 +243,7 @@ describe('accrual vs the sheet', () => {
     });
 
     it('lowers the accrual only for general-team officers', () => {
-        for (const { empId } of ISOLATED_DUTY_EXCEPTIONS) {
+        for (const { empId } of ISOLATED_DUTY_EXCEPTIONS.filter((exception) => !hasTrainingDuty(FIXTURE_BY_ID.get(exception.empId)!))) {
             const row = BY_ID.get(empId)!;
             expect(row.home).toBe('general');
             expect(row.required).toBeLessThan(secs(FIXTURE_BY_ID.get(empId)!.sheetRequired)!);
@@ -245,7 +251,7 @@ describe('accrual vs the sheet', () => {
     });
 
     it('agrees with the sheet on who counts as general', () => {
-        const mismatches = SARC_FIXTURES.filter(
+        const mismatches = SARC_FIXTURES.filter((row) => !hasTrainingDuty(row)).filter(
             (row) => BY_ID.get(row.empId)!.isGeneral !== row.sheetGeneral,
         ).map((row) => `${row.name}: got ${BY_ID.get(row.empId)!.isGeneral}, sheet ${row.sheetGeneral}`);
 
@@ -254,7 +260,9 @@ describe('accrual vs the sheet', () => {
 });
 
 describe('cap and rating pro-rate vs the sheet', () => {
-    const comparable = SARC_FIXTURES.filter((row) => !ACCRUAL_EXCEPTION_IDS.has(row.empId));
+    const comparable = SARC_FIXTURES.filter(
+        (row) => !hasTrainingDuty(row) && !ACCRUAL_EXCEPTION_IDS.has(row.empId),
+    );
 
     it('reproduces Adjusted Hours wherever the accrual matches', () => {
         const mismatches = comparable
@@ -338,6 +346,7 @@ describe('Annexure vs the issued statement', () => {
 
     it('reproduces every recovery percentage', () => {
         const mismatches = report.rows
+            .filter((row) => !hasTrainingDuty(FIXTURE_BY_ID.get(row.empId)!))
             .filter((row) => {
                 const sheet = FIXTURE_BY_ID.get(row.empId)!.sheetRecovery;
                 if (sheet == null || row.recovery == null) return false;
@@ -367,18 +376,18 @@ describe('Annexure vs the issued statement', () => {
         expect(everyone).toBeGreaterThan(summary.totalPerformed);
     });
 
-    it('leaves the statement’s totals where the sheet left them', () => {
+    it('reports the totals produced by the current duty rules', () => {
         expect(summary.withRequirement).toBe(175);
-        expect(summary.inRecovery).toBe(12);
-        expect(summary.meanRecovery).toBeCloseTo(0.0182, 4);
+        expect(summary.inRecovery).toBe(6);
+        expect(summary.meanRecovery).toBeCloseTo(0.01195, 4);
     });
 
-    it('moves the total accrual by 25 hours across the whole roster', () => {
+    it('applies the training-as-general-duty accrual across the whole roster', () => {
         const sheetTotal = SARC_FIXTURES.reduce((sum, row) => sum + secs(row.sheetRequired)!, 0);
         const engineTotal = ROWS.reduce((sum, row) => sum + row.required, 0);
 
         expect(formatDuration(sheetTotal)).toBe('20974:30');
-        expect(formatDuration(engineTotal)).toBe('20999:30');
+        expect(formatDuration(engineTotal)).toBe('20569:00');
     });
 });
 
@@ -611,15 +620,18 @@ describe('charging rules', () => {
         expect(row.days.filter((day) => day.span === 'general')).toHaveLength(5);
     });
 
-    it('treats training as bridging, neither building nor breaking a block', () => {
-        expect(classifyDutyCode('T')).toBe('bridging');
-        expect(classifyDutyCode('TR')).toBe('bridging');
-        expect(classifyDutyCode('Tr')).toBe('bridging');
+    it('treats training as general duty', () => {
+        expect(classifyDutyCode('T')).toBe('general');
+        expect(classifyDutyCode('TR')).toBe('general');
+        expect(classifyDutyCode('Tr')).toBe('general');
 
-        const row = evaluateCodes('B', [...CYCLE, ...CYCLE, ...Array(8).fill('T')]);
-        // Eight training days cannot form a general block, so the whole period
-        // falls back to the shift rate rather than the sheet's 0.5.
-        expect(row.days.every((day) => day.reason === 'fallback-shift')).toBe(true);
+        const row = evaluateCodes('B', [...CYCLE, ...CYCLE, 'T', 'TR', 'T', 'TR', 'T', 'TR']);
+        const training = row.days.filter(
+            (day) => ['T', 'TR'].includes((day.code ?? '').toUpperCase()),
+        );
+        expect(training).toHaveLength(6);
+        expect(training.every((day) => day.charge === GENERAL_RATE)).toBe(true);
+        expect(training.every((day) => day.reason === 'span')).toBe(true);
     });
 
     it('reads NO as shift duty and CO as bridging', () => {
@@ -661,11 +673,9 @@ describe('charging rules', () => {
         expect(block.qualifies).toBe(true);
     });
 
-    it('treats every off day, holiday and training day identically', () => {
-        // Training sits here deliberately: T and TR draw the same rate as a
-        // holiday or an off day, and are equally invisible to the 5-duty count.
+    it('treats every off day and holiday identically', () => {
         const OFF_DAYS = [
-            'NH', 'CH', 'GH', 'RH', 'SAT', 'SUN', 'LEAVE', 'CO', 'SL', 'T', 'TR',
+            'NH', 'CH', 'GH', 'RH', 'SAT', 'SUN', 'LEAVE', 'CO', 'SL',
         ];
         for (const code of OFF_DAYS) expect(classifyDutyCode(code)).toBe('bridging');
 

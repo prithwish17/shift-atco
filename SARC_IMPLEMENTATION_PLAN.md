@@ -35,8 +35,8 @@ to junk records that never match a live employee ID.
 | Class | Codes |
 |---|---|
 | **skipped** | blank, `NA`, `#N/A` |
-| **general duty** | `G`, `GO` |
-| **bridging** | `LEAVE` `SAT` `SUN` `CH` `GH` `RH` `NH` `SL` `CO` `T` `TR` |
+| **general duty** | `G`, `GO`, `T`, `TR` |
+| **bridging** | `LEAVE` `SAT` `SUN` `CH` `GH` `RH` `NH` `SL` `CO` |
 | **shift duty** | everything else — `M` `A` `N` `NO` `M+A` `A+M` `NO+N` `CO+M` … |
 
 **The live roster speaks a wider vocabulary than the workbook.** The golden
@@ -54,15 +54,15 @@ Per the app's own duty legend (`useEmployeeSchedules.DUTY_DESCRIPTIONS`):
 `GO` is "General Oscar" and shares `G`'s 0940 start; `NA` is "Not Available",
 meaning not posted that day, so it accrues nothing; `NH` is a National Holiday.
 
-`NH`, `CH`, `GH`, `RH`, `SAT`, `SUN`, `LEAVE`, `CO`, `SL` and training (`T`,
-`TR`) are all treated **identically** — a test asserts behavioural equivalence
-across the whole set, not merely a shared label. Note the app's legend records
-`Tr` as "Transfer"; it is Training, and that entry is worth correcting at
-source, though nothing here depends on it.
+`NH`, `CH`, `GH`, `RH`, `SAT`, `SUN`, `LEAVE`, `CO` and `SL` are treated
+**identically** — a test asserts behavioural equivalence across the whole set,
+not merely a shared label. Training (`T`/`TR`) is general duty for Stress
+Recovery, and counts toward the five-duty threshold.
 
 Skipped days contribute nothing and do not break a block. Bridging days do not
-count toward the 5 and do not break a block. Training (`T`/`TR`) bridges — it
-neither builds nor breaks a block.
+count toward the 5 and do not break a block. Training (`T`/`TR`) is general
+duty and, when there are at least five consecutive general-duty days, accrues
+at 0.5 hour per day.
 
 ### 1.3 Blocks
 
@@ -533,7 +533,7 @@ All specification questions are closed. Recorded here so the reasoning survives.
 |---|---|---|
 | 1 | Home rate source | Team column — `G` → 0.5/day, `A`–`E` → 1.0/day |
 | 2 | Does the 5-day gate apply per block or globally? | **Per block**, with the §1.4 global fallback ahead of it |
-| 3 | Training (`T`/`TR`) | **Bridges** — neither builds nor breaks a block |
+| 3 | Training (`T`/`TR`) | **General duty** — counts toward the five-duty gate and accrues at 0.5/day once qualified |
 | 4 | Bridging codes | `LEAVE SAT SUN CH GH RH SL CO`; `NO` stays a shift duty |
 | 5 | Bridging days inside a qualifying span | Charged at **the span's rate**, not the home rate |
 | 6 | Bridging days outside any span | **Home rate** |

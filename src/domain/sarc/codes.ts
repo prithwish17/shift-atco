@@ -18,19 +18,14 @@ import type { DayClass } from './types';
  * two on the live roster: 1,332 cells against 734 for `G` over June–July.
  * Classifying it by fall-through charged every one of them at the watch rate.
  */
-export const GENERAL_DUTY_CODES: ReadonlySet<string> = new Set(['G', 'GO']);
+export const GENERAL_DUTY_CODES: ReadonlySet<string> = new Set(['G', 'GO', 'T', 'TR']);
 
 /**
  * Codes that bridge a block without counting toward the five.
  *
- * Training — `T` and `TR` alike — is treated exactly as a holiday or off day:
- * it neither builds nor breaks a block, and draws whatever rate the day around
- * it draws. The sheet instead reclassified a 5+ training run as general and
- * retroactively corrected the earlier days from 1.0 to 0.5 (§2.5).
- *
- * Note the app's own legend in `useEmployeeSchedules.DUTY_DESCRIPTIONS` records
- * `Tr` as "Transfer". That is wrong — it is Training, per the section — and
- * worth correcting there, though it changes nothing here either way.
+ * Training (`T` and `TR`) is deliberately absent. In Stress Recovery it is
+ * general duty: it contributes to the five-duty general block threshold and
+ * therefore accrues at 0.5 hours per day once that threshold is met.
  *
  * `NH` (National Holiday) sits with `CH`.
  *
@@ -38,7 +33,7 @@ export const GENERAL_DUTY_CODES: ReadonlySet<string> = new Set(['G', 'GO']);
  * and counts as shift duty, as it always has.
  */
 export const BRIDGING_CODES: ReadonlySet<string> = new Set([
-    'LEAVE', 'SAT', 'SUN', 'CH', 'GH', 'RH', 'NH', 'SL', 'CO', 'T', 'TR',
+    'LEAVE', 'SAT', 'SUN', 'CH', 'GH', 'RH', 'NH', 'SL', 'CO',
 ]);
 
 /**
