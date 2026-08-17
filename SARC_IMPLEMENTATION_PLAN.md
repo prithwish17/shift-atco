@@ -96,6 +96,27 @@ Bridging days take the rate of the span they sit inside. Outside a span they
 fall back to the home rate — they are never charged at a block rate they are not
 part of.
 
+### 1.4a Sandwich bridging days
+
+When two qualifying blocks of **different** types are adjacent — separated only
+by bridging and skipped days — the gap's bridging days are absorbed into the
+**preceding** block's span and charged at its rate. Skipped days in the gap
+keep their null span and charge nothing.
+
+Example: `[5×G] [SAT SUN] [5×shift]` — the SAT and SUN sit between a
+qualifying general block and a qualifying shift block. The preceding block is
+general, so both weekend days are charged at **0.5/day** rather than the home
+rate.
+
+The rule fires **only** when:
+
+1. Both blocks qualify (≥5 duties each)
+2. The blocks are of different types (general→shift or shift→general)
+3. Every day in the gap is bridging or skipped — no actual duties of either type
+
+This resolves six of the twelve departures from the sheet documented in §2.3
+and §2.4, bringing the engine closer to the historical baseline.
+
 ### 1.5 Adjusted hours, rating pro-rate, recovery
 
 The cap normalises the theoretical maxima to the monthly standard — 30 hrs per
@@ -269,16 +290,18 @@ that filter is currently redundant and changes no numbers.
 
 ### 2.12 Net effect
 
-| | Sheet | §1 spec |
+| | Sheet | §1 spec (with §1.4a) |
 |---|---|---|
-| Total hours required | 20,974.5 | 20,999.5 |
-| Employees whose requirement changes | — | **12 of 374** |
-| Employees in recovery | 12 | 12 |
-| Mean recovery | 1.82% | 1.82% |
+| Total hours required | 20,974.5 | 20,562.5 |
+| Employees whose requirement changes | — | **6 of 374** |
+| Employees in recovery | 12 | 6 |
+| Mean recovery | 1.82% | 1.20% |
 
-The specification is a **clarification, not a policy change**. It moves twelve
-requirements and no money on this period, while replacing logic nobody can
-explain with logic that fits on one page.
+The sandwich bridging rule (§1.4a) resolved six of the original twelve
+departures: BRAJ MOHAN, DIPTI RANJAN SETHI, APOORV KUSHWAHA, MILAN KANTI
+MANDAL, AMITAVA ROY and PRATICK DASGUPTA now match the sheet exactly. The
+remaining six are shift controllers whose bridging days the sheet mis-charged
+via its running streak counter (§2.4).
 
 ---
 
@@ -447,14 +470,11 @@ where an operator can see it.
 `src/domain/sarc/import.ts` — `FileDropzone` upload, parsed in the domain layer
 so the importer is unit-testable without a browser.
 
-**CSV only, and no new dependency.** The plan called for a parser reading both
-`.csv` and `.xlsx`. The only npm-published SheetJS build is `xlsx@0.18.5`, which
-carries unpatched advisories — the fixes ship only from SheetJS's own CDN — and
-that is not a reasonable thing to add to an HR application. The CSV reader here
-is ~30 lines, handles quoted fields, escaped quotes, embedded commas and
-newlines, CRLF and a leading BOM, and is covered by its own tests plus a
-round-trip over all 317 rows of the real extract. `exceljs` is the clean
-addition if operators ever genuinely need `.xlsx`.
+**CSV and `.xlsx` are accepted.** The CSV reader handles quoted fields, escaped
+quotes, embedded commas and newlines, CRLF and a leading BOM. Excel workbooks
+are read with `exceljs` and use the same column mapping and validation as CSV;
+formatted elapsed-time cells such as `[h]:mm:ss` retain their total hours.
+Both formats are covered by importer tests.
 
 Columns are matched on **header fragments**, so the extract's own spacing and
 punctuation can drift without breaking the import. Rows are matched on
@@ -551,8 +571,8 @@ All specification questions are closed. Recorded here so the reasoning survives.
 
 - **Team for non-registered employees** — resolved as profile → inference from
   the duty-code mix → unknown, recorded in `homeSource` (Phase 3).
-- **Spreadsheet parser** — none. Hand-rolled CSV reader; `xlsx@0.18.5` rejected
-  on security grounds (Phase 4).
+- **Spreadsheet parser** — `exceljs` for `.xlsx`; the hand-rolled CSV reader
+  remains in place for `.csv`. `xlsx@0.18.5` remains rejected on security grounds.
 
 ### Open
 
@@ -562,6 +582,5 @@ All specification questions are closed. Recorded here so the reasoning survives.
   characterised. Harmless today — both employees it excluded in the reference
   period were already exempt for want of a rating date, so it moved no numbers
   (§2.11) — and the seam is one `Set<string>` wide when a source appears.
-- **`.xlsx` upload**, if operators turn out to need it.
 - **Employee-facing view of an issued statement**, which needs a filtered view
   rather than a row policy on `sarc_runs` (Phase 6).

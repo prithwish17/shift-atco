@@ -312,8 +312,8 @@ describe('assembleEmployees against the real roster', () => {
         );
 
         expect(summary.withRequirement).toBe(175);
-        expect(summary.inRecovery).toBe(12);
-        expect(summary.meanRecovery).toBeCloseTo(0.0182, 4);
+        expect(summary.inRecovery).toBe(6);
+        expect(summary.meanRecovery).toBeCloseTo(0.01195, 4);
     });
 });
 

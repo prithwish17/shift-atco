@@ -25,7 +25,7 @@
 import {
     detectBlocks,
     hasQualifyingBlock,
-    resolveSpans,
+    resolveSandwichSpans,
 } from './blocks';
 import { classifyDutyCode, isKnownDutyCode, normaliseDutyCode } from './codes';
 import { HALF_HOUR, SECONDS_PER_HOUR, hours, roundToHalfHour, truncateToMinute } from './duration';
@@ -222,7 +222,7 @@ export function evaluateEmployee(
     });
 
     const blocks = detectBlocks(classes);
-    const spans = resolveSpans(blocks, totalDays);
+    const spans = resolveSandwichSpans(blocks, classes, totalDays);
     const home = employee.home ?? homeCategory(employee.team);
 
     const qualifiedGeneral = hasQualifyingBlock(blocks, 'general');

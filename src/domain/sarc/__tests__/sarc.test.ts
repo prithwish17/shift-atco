@@ -21,7 +21,7 @@ import {
     type SarcFixtureRow,
 } from './fixtures';
 import { buildAnnexure, summariseAnnexure } from '../annexure';
-import { detectBlocks, resolveSpans } from '../blocks';
+import { detectBlocks, resolveSpans, resolveSandwichSpans } from '../blocks';
 import { classifyDutyCode } from '../codes';
 import { formatDuration, hours, parseDuration } from '../duration';
 import {
@@ -45,16 +45,18 @@ import type { IamatcHours, SarcEmployeeInput, SarcPeriod, SarcRow } from '../typ
  * general rate the moment they touched a *single* `G` day. Under §1.4 a
  * bridging day only takes the general rate inside a qualifying general span;
  * outside one it stays on the home rate of 1.0 (§2.4).
+ *
+ * The sandwich rule (§1.4a) resolved four of the original nine: where a
+ * qualifying general span and a qualifying shift span are separated only by
+ * bridging days, the gap draws the preceding span's rate. BRAJ MOHAN,
+ * DIPTI RANJAN SETHI, APOORV KUSHWAHA and MILAN KANTI MANDAL now match the
+ * sheet exactly.
  */
 const BRIDGING_RATE_EXCEPTIONS = [
     { empId: '10020139', name: 'ABHIJIT KUMAR', sheet: '46:00', engine: '53:00' },
     { empId: '10010146', name: 'DHANANJAY KUMAR', sheet: '46:00', engine: '53:00' },
-    { empId: '10012533', name: 'MILAN KANTI MANDAL', sheet: '51:00', engine: '55:00' },
     { empId: '10012562', name: 'RANJIT KUMAR DAS', sheet: '50:00', engine: '53:30' },
-    { empId: '10012104', name: 'DIPTI RANJAN SETHI', sheet: '52:00', engine: '55:00' },
-    { empId: '10017084', name: 'BRAJ MOHAN', sheet: '48:00', engine: '49:30' },
     { empId: '10002405', name: 'DURGESH CHANDRA TRIPATHI', sheet: '56:00', engine: '57:00' },
-    { empId: '10023192', name: 'APOORV KUSHWAHA', sheet: '54:00', engine: '55:00' },
     { empId: '10012517', name: 'DEB DAYAL', sheet: '48:30', engine: '49:00' },
 ] as const;
 
@@ -65,11 +67,13 @@ const BRIDGING_RATE_EXCEPTIONS = [
  * a scattered shift duty billed at the watch rate. Under §1.4 a shift day only
  * takes the shift rate inside a qualifying shift span; outside one it stays on
  * the home rate of 0.5 (§2.3).
+ *
+ * The sandwich rule (§1.4a) resolved AMITAVA ROY and PRATICK DASGUPTA: their
+ * bridging days between general and shift blocks now draw the preceding span's
+ * rate instead of the home rate, matching the sheet.
  */
 const ISOLATED_DUTY_EXCEPTIONS = [
-    { empId: '10020974', name: 'AMITAVA ROY', sheet: '35:00', engine: '33:30' },
     { empId: '10023424', name: 'ARUN KUMAR', sheet: '45:00', engine: '43:30' },
-    { empId: '10002317', name: 'PRATICK DASGUPTA', sheet: '34:30', engine: '34:00' },
 ] as const;
 
 const ACCRUAL_EXCEPTIONS = [...BRIDGING_RATE_EXCEPTIONS, ...ISOLATED_DUTY_EXCEPTIONS];
@@ -387,7 +391,7 @@ describe('Annexure vs the issued statement', () => {
         const engineTotal = ROWS.reduce((sum, row) => sum + row.required, 0);
 
         expect(formatDuration(sheetTotal)).toBe('20974:30');
-        expect(formatDuration(engineTotal)).toBe('20569:00');
+        expect(formatDuration(engineTotal)).toBe('20562:30');
     });
 });
 
@@ -573,11 +577,15 @@ describe('charging rules', () => {
     });
 
     it('charges bridging days outside every span at the home rate', () => {
+        // A trailing leave after a general block with NO following qualifying
+        // shift block — the sandwich rule does not apply because there is no
+        // following qualifying block of a different type.
         const row = evaluateCodes('B', [
             ...CYCLE, ...CYCLE,
             G, G, G, G, G,
             'LEAVE', 'LEAVE',
-            ...CYCLE, ...CYCLE,
+            // Only three shift duties follow — not enough to qualify.
+            'M', 'A', 'N',
         ]);
         const outside = row.days.filter((day) => day.code === 'LEAVE');
 
@@ -681,32 +689,36 @@ describe('charging rules', () => {
 
         // Behavioural equivalence, not just a shared label: swap one day of an
         // otherwise identical roster for each code and the whole evaluation
-        // must come out the same — the charge inside a span, the charge outside
-        // one, and the period total.
+        // must come out the same — the charge inside a span, the charge in a
+        // sandwich, and the period total.
         // Indexed, not looked up by code: CO also occurs inside CYCLE, so a
         // find-by-code would grade the wrong day.
         const INSIDE_AT = CYCLE.length * 2 + 3;
-        const OUTSIDE_AT = CYCLE.length * 2 + 5;
+        const SANDWICH_AT = CYCLE.length * 2 + 5;
 
         const shape = (code: string) => {
             const inside = evaluateCodes('B', [
                 ...CYCLE, ...CYCLE, G, G, G, code, G, G, ...CYCLE,
             ]);
-            const outside = evaluateCodes('B', [
-                ...CYCLE, ...CYCLE, G, G, G, G, G, code, ...CYCLE,
+            // The "sandwich" case: qualifying general block, then bridging day,
+            // then qualifying shift block. Under §1.4a the bridging day is
+            // absorbed into the preceding general span.
+            const sandwich = evaluateCodes('B', [
+                ...CYCLE, ...CYCLE, G, G, G, G, G, code, ...CYCLE, ...CYCLE,
             ]);
             expect(inside.days[INSIDE_AT].code).toBe(code);
-            expect(outside.days[OUTSIDE_AT].code).toBe(code);
+            expect(sandwich.days[SANDWICH_AT].code).toBe(code);
             return {
                 insideCharge: inside.days[INSIDE_AT].charge,
-                outsideCharge: outside.days[OUTSIDE_AT].charge,
+                sandwichCharge: sandwich.days[SANDWICH_AT].charge,
                 total: inside.required,
             };
         };
 
         const baseline = shape('CH');
         expect(baseline.insideCharge).toBe(GENERAL_RATE);
-        expect(baseline.outsideCharge).toBe(SHIFT_RATE);
+        // Sandwich: the preceding qualifying span is general, so 0.5/day.
+        expect(baseline.sandwichCharge).toBe(GENERAL_RATE);
         for (const code of OFF_DAYS) expect(shape(code)).toEqual(baseline);
     });
 
@@ -715,5 +727,141 @@ describe('charging rules', () => {
         const block = row.blocks.find((b) => b.type === 'general')!;
         expect(block.dutyCount).toBe(5);
         expect(block.qualifies).toBe(true);
+    });
+});
+
+describe('sandwich bridging rule (§1.4a)', () => {
+    it('absorbs leave between general→shift into the general span', () => {
+        // [10×shift] [5×G] [SAT SUN] [10×shift]
+        // The SAT and SUN sit between qualifying general and qualifying shift
+        // blocks of different types → absorbed into the preceding general span.
+        const row = evaluateCodes('B', [
+            ...CYCLE, ...CYCLE,
+            G, G, G, G, G,
+            'SAT', 'SUN',
+            ...CYCLE, ...CYCLE,
+        ]);
+        const sat = row.days.find((d) => d.code === 'SAT')!;
+        const sun = row.days.find((d) => d.code === 'SUN')!;
+
+        expect(sat.span).toBe('general');
+        expect(sun.span).toBe('general');
+        expect(sat.charge).toBe(GENERAL_RATE);
+        expect(sun.charge).toBe(GENERAL_RATE);
+    });
+
+    it('absorbs leave between shift→general into the shift span', () => {
+        // [10×shift] [LEAVE LEAVE] [5×G] [10×shift]
+        // The two LEAVE days sit between qualifying shift and qualifying general
+        // blocks → absorbed into the preceding shift span.
+        const row = evaluateCodes('B', [
+            ...CYCLE, ...CYCLE,
+            'LEAVE', 'LEAVE',
+            G, G, G, G, G,
+            ...CYCLE, ...CYCLE,
+        ]);
+        const leaves = row.days.filter((d) => d.code === 'LEAVE');
+
+        expect(leaves).toHaveLength(2);
+        expect(leaves.every((d) => d.span === 'shift')).toBe(true);
+        expect(leaves.every((d) => d.charge === SHIFT_RATE)).toBe(true);
+    });
+
+    it('does not sandwich between two blocks of the same type', () => {
+        // [5×G] [SAT SUN] [5×G] — same type, no sandwich.
+        // The bridging days are already inside the general block's span because
+        // blocks.ts treats them as part of one continuous run.
+        const row = evaluateCodes('G', [
+            G, G, G, G, G,
+            'SAT', 'SUN',
+            G, G, G, G, G,
+        ]);
+        const sat = row.days.find((d) => d.code === 'SAT')!;
+        const sun = row.days.find((d) => d.code === 'SUN')!;
+
+        // They sit inside the general span — the block detection already
+        // bridges them without the sandwich rule needing to act.
+        expect(sat.span).toBe('general');
+        expect(sun.span).toBe('general');
+        expect(sat.charge).toBe(GENERAL_RATE);
+    });
+
+    it('does not sandwich when the following block is non-qualifying', () => {
+        // [10×shift] [5×G] [SAT SUN] [3×shift] — the following shift block
+        // has only 3 duties, not qualifying. No sandwich.
+        const row = evaluateCodes('B', [
+            ...CYCLE, ...CYCLE,
+            G, G, G, G, G,
+            'SAT', 'SUN',
+            'M', 'A', 'N',
+        ]);
+        const sat = row.days.find((d) => d.code === 'SAT')!;
+        const sun = row.days.find((d) => d.code === 'SUN')!;
+
+        // Outside both spans → home rate.
+        expect(sat.span).toBeNull();
+        expect(sun.span).toBeNull();
+        expect(sat.charge).toBe(SHIFT_RATE); // home rate for team B
+    });
+
+    it('does not sandwich when the preceding block is non-qualifying', () => {
+        // [3×G] [SAT SUN] [10×shift] — the preceding general block has only 3
+        // duties, not qualifying. No sandwich.
+        const row = evaluateCodes('B', [
+            G, G, G,
+            'SAT', 'SUN',
+            ...CYCLE, ...CYCLE,
+        ]);
+        const sat = row.days.find((d) => d.code === 'SAT')!;
+
+        expect(sat.span).toBeNull();
+        expect(sat.charge).toBe(SHIFT_RATE); // home rate
+    });
+
+    it('handles multiple sandwiches in sequence', () => {
+        // [10×shift] [LEAVE] [5×G] [SUN] [10×shift]
+        // Two sandwiches: LEAVE between shift→general, SUN between general→shift.
+        const row = evaluateCodes('B', [
+            ...CYCLE, ...CYCLE,
+            'LEAVE',
+            G, G, G, G, G,
+            'SUN',
+            ...CYCLE, ...CYCLE,
+        ]);
+
+        const leave = row.days.find((d) => d.code === 'LEAVE')!;
+        const sun = row.days.find((d) => d.code === 'SUN')!;
+
+        // LEAVE: between shift (preceding) and general (following) → shift rate.
+        expect(leave.span).toBe('shift');
+        expect(leave.charge).toBe(SHIFT_RATE);
+
+        // SUN: between general (preceding) and shift (following) → general rate.
+        expect(sun.span).toBe('general');
+        expect(sun.charge).toBe(GENERAL_RATE);
+    });
+
+    it('leaves skipped days in the sandwich gap uncharged', () => {
+        // [10×shift] [5×G] [SAT NA SUN] [10×shift]
+        // SAT and SUN are bridging → absorbed. NA is skipped → stays at 0.
+        const row = evaluateCodes('B', [
+            ...CYCLE, ...CYCLE,
+            G, G, G, G, G,
+            'SAT', 'NA', 'SUN',
+            ...CYCLE, ...CYCLE,
+        ]);
+
+        const sat = row.days.find((d) => d.code === 'SAT')!;
+        const na = row.days.find((d) => d.code === 'NA')!;
+        const sun = row.days.find((d) => d.code === 'SUN')!;
+
+        expect(sat.span).toBe('general');
+        expect(sat.charge).toBe(GENERAL_RATE);
+
+        expect(na.dayClass).toBe('skipped');
+        expect(na.charge).toBe(0);
+
+        expect(sun.span).toBe('general');
+        expect(sun.charge).toBe(GENERAL_RATE);
     });
 });

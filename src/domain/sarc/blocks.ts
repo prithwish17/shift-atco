@@ -89,6 +89,60 @@ export function resolveSpans(
     return spans;
 }
 
+/**
+ * Resolve spans with sandwich bridging awareness (§1.4a).
+ *
+ * When two qualifying blocks of *different* types are adjacent — separated
+ * only by bridging and skipped days — the gap's bridging days are absorbed
+ * into the **preceding** block's span and charged at its rate. Skipped days
+ * in the gap keep their null span (they always charge 0).
+ *
+ * This handles the real-world pattern of a general stretch followed by
+ * weekend leave followed by a shift stretch: the leave days draw the
+ * preceding (general) rate of 0.5 rather than the home rate.
+ */
+export function resolveSandwichSpans(
+    blocks: readonly DutyBlock[],
+    classes: readonly DayClass[],
+    length: number,
+): (('general' | 'shift') | null)[] {
+    const spans = resolveSpans(blocks, length);
+
+    const qualified = blocks
+        .filter((b) => b.qualifies)
+        .sort((a, b) => a.startIndex - b.startIndex);
+
+    for (let i = 0; i < qualified.length - 1; i += 1) {
+        const prev = qualified[i];
+        const next = qualified[i + 1];
+
+        // Only applies between different duty types.
+        if (prev.type === next.type) continue;
+
+        const gapStart = prev.endIndex + 1;
+        const gapEnd = next.startIndex - 1;
+
+        if (gapStart > gapEnd) continue; // no gap
+
+        // Every day in the gap must be bridging or skipped — a duty of either
+        // type means the blocks are not truly adjacent.
+        const allBridgingOrSkipped = classes
+            .slice(gapStart, gapEnd + 1)
+            .every((c) => c === 'bridging' || c === 'skipped');
+
+        if (!allBridgingOrSkipped) continue;
+
+        // Absorb bridging days into the preceding block's span.
+        for (let j = gapStart; j <= gapEnd; j += 1) {
+            if (classes[j] === 'bridging') {
+                spans[j] = prev.type;
+            }
+        }
+    }
+
+    return spans;
+}
+
 export function hasQualifyingBlock(
     blocks: readonly DutyBlock[],
     type: 'general' | 'shift',
