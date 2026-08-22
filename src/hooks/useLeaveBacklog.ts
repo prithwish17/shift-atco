@@ -336,3 +336,123 @@ export function monthsForItems(items: Array<Pick<BacklogItem, 'startDate' | 'end
     }
     return [...months];
 }
+
+/* ─── Leave balance ────────────────────────────────────────────────────────── */
+
+/**
+ * The CL/RH balance for one employee, derived the same way a commit would.
+ *
+ * Worth being explicit about what this is for: backfill does NOT check or deduct
+ * a balance. deduct_leave_balance() raises on insufficient balance, so a
+ * thousand historical entries would abort constantly and leave balances
+ * half-applied — recompute_leave_balance() derives them afterwards instead, as
+ * `12 - approved CL days` for the year.
+ *
+ * Nothing therefore stops a supervisor recording a 13th CL day. This puts the
+ * number in front of them at the moment it matters. It calls the same RPC with
+ * `p_dry_run`, rather than counting rows separately, so the figure shown is
+ * exactly the one a recompute would write.
+ */
+export function useEmployeeLeaveBalance(employeeCode?: string | null, year?: number) {
+    const targetYear = year ?? new Date().getFullYear();
+
+    return useQuery({
+        queryKey: ['leave-balance-preview', employeeCode, targetYear],
+        enabled: !!employeeCode,
+        staleTime: 60 * 1000,
+        queryFn: async (): Promise<BalanceRecomputeResult | null> => {
+            if (!employeeCode) return null;
+
+            const { data: profile, error: profileError } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('employee_id', employeeCode)
+                .maybeSingle();
+
+            if (profileError) throw profileError;
+            if (!profile?.id) return null;   // sheet-only employee, no auth user to key on
+
+            const { data, error } = await supabase.rpc('recompute_leave_balance', {
+                p_user_id: profile.id,
+                p_year: targetYear,
+                p_dry_run: true,
+            });
+            if (error) throw error;
+            return data as unknown as BalanceRecomputeResult;
+        },
+    });
+}
+
+/* ─── Google Sheet write-back ──────────────────────────────────────────────── */
+
+export interface SheetPushChange {
+    cell: string;
+    section: string;
+    from: string;
+    to: string;
+}
+
+export interface SheetPushResult {
+    ok: boolean;
+    dryRun: boolean;
+    mode: string;
+    sheet?: string;
+    cellsChanged: number;
+    rowsWritten?: number;
+    employees: { received: number; matched: number; changed: number; unmatched: number };
+    results: Array<{
+        empId: string;
+        name: string;
+        row: number;
+        cellsChanged: number;
+        changes?: SheetPushChange[];
+        warnings: string[];
+    }>;
+    unmatched: Array<{ empId: string; name: string; reason: string }>;
+    registerRows?: number;
+    skippedCategories?: Array<{ category: string; count: number }>;
+    note?: string;
+}
+
+/**
+ * Push the register into the ATTENDANCE-2026 sheet.
+ *
+ * Goes through api/leave-sheet-push.ts rather than calling the Apps Script
+ * directly: the write token must not reach the browser, and Apps Script /exec
+ * redirects in a way browsers cannot follow for a cross-origin POST anyway.
+ *
+ * Defaults to a dry run. The caller has to ask for `dryRun: false`.
+ */
+export function usePushLeaveToSheet() {
+    return useMutation({
+        mutationFn: async (input: {
+            dryRun?: boolean;
+            mode?: 'merge' | 'replace';
+            year?: number;
+            empIds?: string[];
+        }): Promise<SheetPushResult> => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session?.access_token) throw new Error('Not signed in');
+
+            const res = await fetch(`${getFunctionsProxyBaseUrl()}/api/leave-sheet-push`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${session.access_token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    dryRun: input.dryRun !== false,
+                    mode: input.mode ?? 'merge',
+                    year: input.year,
+                    empIds: input.empIds,
+                }),
+            });
+
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok || payload?.error) {
+                throw new Error(payload?.error || `Push failed (${res.status})`);
+            }
+            return payload as SheetPushResult;
+        },
+    });
+}

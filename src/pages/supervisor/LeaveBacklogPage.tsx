@@ -12,7 +12,9 @@ import {
     Loader2,
     Scissors,
     Search,
+    Sheet as SheetIcon,
     Users,
+    Wallet,
     X,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -30,6 +32,14 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { CompOffPicker } from "@/components/leave/CompOffPicker";
@@ -38,12 +48,20 @@ import { useHolidaysByYear } from "@/hooks/useHolidayDashboard";
 import {
     monthsForItems,
     useBackfillLeaveEntry,
+    useEmployeeLeaveBalance,
     useLeaveBacklog,
     useOpenBackfillBatch,
     useCloseBackfillBatch,
+    usePushLeaveToSheet,
     type BackfillConflict,
+    type SheetPushResult,
 } from "@/hooks/useLeaveBacklog";
-import { LEAVE_TYPES, YEAR_LOOKBACK, getLeaveTypeLabel } from "@/lib/leaveConstants";
+import {
+    DEFAULT_CL_BALANCE,
+    LEAVE_TYPES,
+    YEAR_LOOKBACK,
+    getLeaveTypeLabel,
+} from "@/lib/leaveConstants";
 import {
     splitIntoLeaveSegments,
     type BacklogItem,
@@ -56,6 +74,16 @@ const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
     value: String(i),
     label: format(new Date(2000, i, 1), "MMMM"),
 }));
+
+/**
+ * Leave types that draw on the CL bucket.
+ *
+ * Mirrors the filter in recompute_leave_balance() — keep the two in step, or the
+ * balance shown here stops matching the one a recompute writes.
+ */
+const CL_FAMILY = new Set([
+    "CL", "CL_CON", "CL_1ST", "CL_1ST_CON", "CL_2ND", "CL_2ND_CON",
+]);
 
 /** Half-day types need a single date; a multi-day run cannot be one of them. */
 const HALF_DAY_TYPES = new Set(["CL_1ST", "CL_2ND"]);
@@ -120,6 +148,8 @@ export default function LeaveBacklogPage() {
     const [bulkBusyCode, setBulkBusyCode] = useState<string | null>(null);
     const [conflict, setConflict] = useState<BackfillConflict | null>(null);
     const [clearedKeys, setClearedKeys] = useState<Set<string>>(new Set());
+    const [sheetOpen, setSheetOpen] = useState(false);
+    const [sheetPreview, setSheetPreview] = useState<SheetPushResult | null>(null);
 
     const typeRef = useRef<HTMLButtonElement>(null);
 
@@ -212,6 +242,9 @@ export default function LeaveBacklogPage() {
         needsCompOff ? active?.employeeCode : null,
     );
 
+    const balance = useEmployeeLeaveBalance(active?.employeeCode, selectedYear);
+    const pushToSheet = usePushLeaveToSheet();
+
     const isClosedHoliday = useMemo(() => {
         const chSet = new Set(
             holidays.filter((h) => h.type === "CH").map((h) => h.holiday_date as string),
@@ -251,6 +284,22 @@ export default function LeaveBacklogPage() {
         [segments],
     );
     /** One comp-off entry per deducted day, across every comp-off segment. */
+    /**
+     * CL days this run would add.
+     *
+     * Backfill never deducts — recompute_leave_balance() derives the balance
+     * afterwards from approved history — so nothing stops a 13th CL day being
+     * recorded. Showing what the run costs is the only guard the supervisor gets.
+     */
+    const clDaysInRun = useMemo(
+        () => segments
+            .filter((seg) => CL_FAMILY.has(seg.leaveType))
+            .reduce((total, seg) => total + seg.totalDays, 0),
+        [segments],
+    );
+
+    const clRemainingAfterRun = (balance.data?.cl.after ?? 0) - clDaysInRun;
+
     const compOffRequired = useMemo(
         () =>
             segments
@@ -288,6 +337,41 @@ export default function LeaveBacklogPage() {
         } catch {
             // A batch is only for grouping/rollback; never block clearing on it.
             return null;
+        }
+    };
+
+    /** Always preview first — this writes to a shared workbook, not just our DB. */
+    const previewSheetPush = async () => {
+        setSheetPreview(null);
+        setSheetOpen(true);
+        try {
+            setSheetPreview(await pushToSheet.mutateAsync({ dryRun: true, year: selectedYear }));
+        } catch (err) {
+            setSheetOpen(false);
+            toast({
+                title: "Could not reach the sheet",
+                description: err instanceof Error ? err.message : String(err),
+                variant: "destructive",
+            });
+        }
+    };
+
+    const commitSheetPush = async () => {
+        try {
+            const result = await pushToSheet.mutateAsync({ dryRun: false, year: selectedYear });
+            setSheetPreview(result);
+            toast({
+                title: "Sheet updated",
+                description: `${result.cellsChanged} cell${result.cellsChanged === 1 ? "" : "s"} across ${
+                    result.employees.changed
+                } row${result.employees.changed === 1 ? "" : "s"}.`,
+            });
+        } catch (err) {
+            toast({
+                title: "Could not write to the sheet",
+                description: err instanceof Error ? err.message : String(err),
+                variant: "destructive",
+            });
         }
     };
 
@@ -572,6 +656,20 @@ export default function LeaveBacklogPage() {
                                     ))}
                                 </SelectContent>
                             </Select>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="h-10 gap-2"
+                                onClick={previewSheetPush}
+                                disabled={pushToSheet.isPending}
+                            >
+                                {pushToSheet.isPending ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <SheetIcon className="h-4 w-4" />
+                                )}
+                                Send to Google Sheets
+                            </Button>
                         </div>
                     </div>
 
@@ -1009,6 +1107,65 @@ export default function LeaveBacklogPage() {
                                         </span>
                                     </div>
 
+                                    {/*
+                                      Advisory only. Backfill never checks or deducts a balance —
+                                      recompute_leave_balance() derives it afterwards — so this is
+                                      the supervisor's only warning before overdrawing someone.
+                                    */}
+                                    {balance.data && (
+                                        <div
+                                            className={`rounded-lg border p-2.5 text-sm ${
+                                                clRemainingAfterRun < 0
+                                                    ? "border-red-200 bg-red-50"
+                                                    : "border-slate-200 bg-white"
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="flex items-center gap-1.5 font-medium text-slate-900">
+                                                    <Wallet className="h-3.5 w-3.5" />
+                                                    Casual leave {selectedYear}
+                                                </span>
+                                                <span className="text-xs text-muted-foreground">
+                                                    RH {balance.data.rh.after} left
+                                                </span>
+                                            </div>
+                                            <div className="mt-1 text-xs text-muted-foreground">
+                                                {DEFAULT_CL_BALANCE} allowed ·{" "}
+                                                {balance.data.cl.used} approved ·{" "}
+                                                <span className="font-semibold text-slate-900">
+                                                    {balance.data.cl.after} left
+                                                </span>
+                                                {clDaysInRun > 0 && (
+                                                    <>
+                                                        {" → "}
+                                                        <span
+                                                            className={
+                                                                clRemainingAfterRun < 0
+                                                                    ? "font-semibold text-red-700"
+                                                                    : "font-semibold text-emerald-700"
+                                                            }
+                                                        >
+                                                            {clRemainingAfterRun} after this run
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </div>
+                                            {clRemainingAfterRun < 0 && (
+                                                <div className="mt-1.5 flex items-start gap-1.5 text-xs text-red-800">
+                                                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                                                    <span>
+                                                        This takes the employee{" "}
+                                                        {Math.abs(clRemainingAfterRun)} day
+                                                        {Math.abs(clRemainingAfterRun) === 1 ? "" : "s"}{" "}
+                                                        past the {DEFAULT_CL_BALANCE}-day allowance.
+                                                        Nothing blocks it — record it only if that is
+                                                        genuinely what happened.
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {compOffRequired > 0 && (
                                         <div className="space-y-1.5">
                                             <label className="text-sm font-medium">
@@ -1097,6 +1254,128 @@ export default function LeaveBacklogPage() {
                     </Card>
                 </div>
             </div>
+
+            {/* Sheet write-back: preview the diff, then commit it. */}
+            <Dialog open={sheetOpen} onOpenChange={setSheetOpen}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <SheetIcon className="h-4 w-4" />
+                            Send leave data to Google Sheets
+                        </DialogTitle>
+                        <DialogDescription>
+                            {sheetPreview?.dryRun === false
+                                ? "Written to the sheet."
+                                : `Preview of what would change in the ${selectedYear} register. Nothing is written yet.`}
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {pushToSheet.isPending && !sheetPreview ? (
+                        <p className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Building the payload and asking the sheet what would change…
+                        </p>
+                    ) : sheetPreview ? (
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-3 gap-2 text-center">
+                                {[
+                                    ["Employees matched", `${sheetPreview.employees.matched}/${sheetPreview.employees.received}`],
+                                    ["Rows affected", String(sheetPreview.employees.changed)],
+                                    ["Cells", String(sheetPreview.cellsChanged)],
+                                ].map(([label, value]) => (
+                                    <div key={label} className="rounded-lg border p-2.5">
+                                        <div className="text-lg font-black text-slate-900">{value}</div>
+                                        <div className="text-[11px] text-muted-foreground">{label}</div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {sheetPreview.cellsChanged === 0 && (
+                                <p className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-xs text-emerald-900">
+                                    <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                    <span>The sheet already matches the register — nothing to write.</span>
+                                </p>
+                            )}
+
+                            {sheetPreview.employees.unmatched > 0 && (
+                                <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
+                                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                    <span>
+                                        {sheetPreview.employees.unmatched} employee
+                                        {sheetPreview.employees.unmatched === 1 ? "" : "s"} could not be
+                                        matched to a row — EMP NO missing from the sheet, or the name
+                                        disagrees. They are skipped, never guessed at.
+                                    </span>
+                                </p>
+                            )}
+
+                            {!!sheetPreview.skippedCategories?.length && (
+                                <p className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-muted-foreground">
+                                    No column on the sheet for:{" "}
+                                    {sheetPreview.skippedCategories
+                                        .map((c) => `${c.count} ${c.category}`)
+                                        .join(", ")}
+                                    .
+                                </p>
+                            )}
+
+                            {sheetPreview.cellsChanged > 0 && (
+                                <ul className="max-h-64 divide-y overflow-y-auto rounded-lg border text-xs">
+                                    {sheetPreview.results
+                                        .filter((r) => r.cellsChanged || r.warnings.length)
+                                        .slice(0, 60)
+                                        .map((r) => (
+                                            <li key={r.empId} className="p-2.5">
+                                                <div className="font-semibold text-slate-900">
+                                                    {r.name}{" "}
+                                                    <span className="font-normal text-muted-foreground">
+                                                        · row {r.row} · {r.cellsChanged} cell
+                                                        {r.cellsChanged === 1 ? "" : "s"}
+                                                    </span>
+                                                </div>
+                                                {r.changes?.slice(0, 6).map((c) => (
+                                                    <div key={c.cell} className="mt-0.5 text-muted-foreground">
+                                                        <span className="font-mono">{c.cell}</span> {c.section}:{" "}
+                                                        {c.from || "—"} → {c.to || "—"}
+                                                    </div>
+                                                ))}
+                                                {r.warnings.map((w) => (
+                                                    <div key={w} className="mt-0.5 text-amber-700">! {w}</div>
+                                                ))}
+                                            </li>
+                                        ))}
+                                </ul>
+                            )}
+                        </div>
+                    ) : null}
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setSheetOpen(false)}>
+                            Close
+                        </Button>
+                        <Button
+                            onClick={commitSheetPush}
+                            disabled={
+                                pushToSheet.isPending ||
+                                !sheetPreview ||
+                                sheetPreview.dryRun === false ||
+                                sheetPreview.cellsChanged === 0
+                            }
+                        >
+                            {pushToSheet.isPending && sheetPreview ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Writing…
+                                </>
+                            ) : (
+                                `Write ${sheetPreview?.cellsChanged ?? 0} cell${
+                                    sheetPreview?.cellsChanged === 1 ? "" : "s"
+                                }`
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </DashboardLayout>
     );
 }
