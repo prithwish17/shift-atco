@@ -1,7 +1,11 @@
-#!/usr/bin/env node
+#!/usr/bin/env npx tsx
 /**
  * Pushes leave data into the LEAVE_DATA tab through the Apps Script web app in
  * docs/leave-apps-script/Code.gs.
+ *
+ * The in-app equivalent is the "Send to Google Sheets" button on the Leave
+ * Backlog page, which goes through api/leave-sheet-push.ts. Both build their
+ * payload with lib/leaveSheetPayload.ts, so the two cannot drift.
  *
  * Two sources, because the two jobs are different:
  *
@@ -95,7 +99,7 @@ for (const u of out.unmatched) console.log(`  ! ${u.empId} ${u.name}: ${u.reason
  * Reads a CSV export of the tab using the same header rules the Apps Script
  * uses, so the two agree about which column is what.
  */
-function fromCsv(path) {
+function fromCsv(path: string): SheetEmployeePayload[] {
   const rows = parseCsv(fs.readFileSync(path, "utf8"));
   const width = Math.max(...rows.map((r) => r.length));
   const cell = (r, c) => (rows[r]?.[c] ?? "").trim();
@@ -184,92 +188,51 @@ function fromCsv(path) {
 /* ─── Supabase → payload ───────────────────────────────────────────────────── */
 
 /**
- * The inverse of supabase/functions/fetch-leave-data.
- *
- * Comp-off rows key off the DUTY date (leave_date) with the day off in
- * leave_used_on — the opposite way round from plain leave rows, which is the
- * single easiest thing to get backwards here.
+ * Reads the register and hands it to the shared builder.
  *
  * Known gap: employee_leave_records does not mark a CL row as a half day, so
  * the four "1/2 CL" columns cannot be rebuilt from it. They come from
  * leave_requests.leave_type (CL_1ST / CL_2ND) and are left alone by this path.
  */
-async function fromSupabase(args) {
-  const url = args.supabaseUrl || process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const kkey = args.supabaseKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  if (!url || !kkey) throw new Error("Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or pass --supabaseUrl/--supabaseKey).");
-
-  const year = Number(args.year) || new Date().getFullYear();
-  const rows = [];
-  const pageSize = 1000;
-
-  for (let offset = 0; ; offset += pageSize) {
-    const q = new URL(`${url.replace(/\/$/, "")}/rest/v1/employee_leave_records`);
-    q.searchParams.set("select", "emp_id,employee_name,leave_category,source_event_type,event_kind,leave_date,leave_used_on,duty_code,metadata");
-    q.searchParams.set("order", "emp_id,leave_date");
-    const res = await fetch(q, {
-      headers: { apikey: kkey, Authorization: `Bearer ${kkey}`, Range: `${offset}-${offset + pageSize - 1}` },
-    });
-    if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
-    const page = await res.json();
-    rows.push(...page);
-    if (page.length < pageSize) break;
-  }
-
-  const byEmp = new Map();
-  const bucket = (r) => {
-    if (!byEmp.has(r.emp_id)) {
-      byEmp.set(r.emp_id, {
-        employee: { empId: String(r.emp_id).replace(/^0+(?=\d)/, ""), name: r.employee_name || "" },
-        casualLeave: [], restrictedHolidays: [], nationalHolidays: [],
-        closedHolidays: [], lastYearCompOff: [], opeDuty: [],
-      });
+async function fromSupabase(args: Args): Promise<SheetEmployeePayload[]> {
+    const url = args.supabaseUrl || process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const key = args.supabaseKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    if (!url || !key) {
+        throw new Error("Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or pass --supabaseUrl/--supabaseKey).");
     }
-    return byEmp.get(r.emp_id);
-  };
 
-  for (const r of rows) {
-    const inYear = (d) => d && Number(String(d).slice(0, 4)) === year;
-    const e = bucket(r);
-    const meta = r.metadata || {};
+    const year = Number(args.year) || new Date().getFullYear();
+    const rows: LeaveRecordRow[] = [];
+    const pageSize = 1000;
 
-    switch (r.leave_category) {
-      case "CL":
-        if (inYear(r.leave_date)) e.casualLeave.push(r.leave_date);
-        break;
-      case "RH":
-        if (inYear(r.leave_date)) e.restrictedHolidays.push({ date: r.leave_date, leaveApplied: r.leave_used_on || meta.leave_applied || "" });
-        break;
-      case "NH":
-        if (inYear(r.leave_date)) e.nationalHolidays.push(r.leave_date);
-        break;
-      case "COMP_OFF_EARNED":
-      case "COMP_OFF":
-        // leave_date is the closed-holiday duty date; the day off is leave_used_on.
-        e.closedHolidays.push({ date: r.leave_date, dutyPerformed: r.duty_code || meta.duty_performed || "", leaveApplied: r.leave_used_on || "" });
-        break;
-      case "LAST_YEAR_CH_DUTY":
-        e.lastYearCompOff.push({ date: r.leave_date, dutyPerformed: r.duty_code || meta.duty_performed || "", leaveApplied: r.leave_used_on || "" });
-        break;
-      case "OPE":
-        e.opeDuty.push({ opeDutyDate: meta.ope_duty_date || r.leave_date, leaveApplied: r.leave_used_on || "" });
-        break;
-      default:
-        break;   // CH / *_COMP_OFF rows carry no slot date; they cannot be placed
+    for (let offset = 0; ; offset += pageSize) {
+        const q = new URL(`${String(url).replace(/\/$/, "")}/rest/v1/employee_leave_records`);
+        q.searchParams.set("select", LEAVE_RECORD_COLUMNS);
+        q.searchParams.set("order", "emp_id,leave_date");
+        const res = await fetch(q, {
+            headers: { apikey: String(key), Authorization: `Bearer ${key}`, Range: `${offset}-${offset + pageSize - 1}` },
+        });
+        if (!res.ok) throw new Error(`Supabase ${res.status}: ${await res.text()}`);
+        const page = (await res.json()) as LeaveRecordRow[];
+        rows.push(...page);
+        if (page.length < pageSize) break;
     }
-  }
 
-  return [...byEmp.values()];
+    const built = buildSheetPayload(rows, { year });
+    for (const s of built.skipped) {
+        console.log(`  note: ${s.count} ${s.category} row(s) have no column on the sheet — skipped`);
+    }
+    return built.employees;
 }
 
 /* ─── Helpers ──────────────────────────────────────────────────────────────── */
 
-function key(v) {
+function key(v: unknown): string {
   return String(v ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 /** First full date inside a header label, ISO. "23-Jan-2026 CH-1" → 2026-01-23. */
-function isoOf(text) {
+function isoOf(text: unknown): string | null {
   const m = String(text ?? "").match(/(\d{1,2})[-/ ]([A-Za-z]{3,})[-/ ](\d{4})/);
   if (!m) {
     const iso = String(text ?? "").match(/(\d{4})-(\d{2})-(\d{2})/);
@@ -279,9 +242,9 @@ function isoOf(text) {
   return mo ? `${m[3]}-${String(mo).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}` : null;
 }
 
-function parseCsv(text) {
-  const rows = [];
-  let row = [], cell = "", quoted = false;
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [], cell = "", quoted = false;
 
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
@@ -299,8 +262,10 @@ function parseCsv(text) {
   return rows;
 }
 
-function parseArgs(argv) {
-  const out = {};
+type Args = Record<string, string | boolean | undefined>;
+
+function parseArgs(argv: string[]): Args {
+  const out: Args = {};
   for (let i = 0; i < argv.length; i++) {
     if (!argv[i].startsWith("--")) continue;
     const name = argv[i].slice(2);

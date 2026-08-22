@@ -11,7 +11,12 @@ Two pieces:
 | File | What it is |
 | --- | --- |
 | [`docs/leave-apps-script/Code.gs`](leave-apps-script/Code.gs) | The receiver. Deploy on the workbook as a web app. |
-| [`scripts/leave-sheet-push.mjs`](../scripts/leave-sheet-push.mjs) | The sender. Builds a payload from the CSV export or from Supabase and POSTs it. |
+| [`lib/leaveSheetPayload.ts`](../lib/leaveSheetPayload.ts) | `employee_leave_records` → sheet payload. The inverse of `fetch-leave-data`. |
+| [`api/leave-sheet-push.ts`](../api/leave-sheet-push.ts) | The endpoint behind the **Send to Google Sheets** button on the Leave Backlog page. |
+| [`scripts/leave-sheet-push.ts`](../scripts/leave-sheet-push.ts) | CLI sender, for the CSV round-trip and for pushing without the UI. |
+
+Both senders build their payload with the same module, so the button and the CLI
+cannot disagree about where a row belongs.
 
 ---
 
@@ -233,6 +238,33 @@ deliberately rebuilding the block.
 
 ---
 
+## 5b. Sending from the app
+
+**Leave Backlog → Send to Google Sheets.** It previews first: the dialog shows
+employees matched, rows affected, cells changed and every individual cell diff,
+and writes nothing until you press the write button. The same preview-then-commit
+shape as the balance recompute on Employee Management.
+
+It goes through `api/leave-sheet-push.ts` rather than calling Apps Script from
+the browser, for two reasons. The write token must never reach the client — an
+`/exec` URL plus its token is a write handle on the whole register, and
+`app_settings` (where the read-feed URL lives) is client-readable, so the token
+cannot go there either. And Apps Script `/exec` redirects in a way a browser
+cannot follow for a cross-origin POST regardless.
+
+Set these in **Vercel → Settings → Environment Variables**:
+
+| Variable | Value |
+| --- | --- |
+| `LEAVE_SHEET_WEBAPP_URL` | the Apps Script `/exec` URL |
+| `LEAVE_SHEET_TOKEN` | its `ACCESS_TOKEN` |
+| `LEAVE_SHEET_TAB` | optional; the tab name if it is not `LEAVE_DATA` |
+
+Point them at the **copy** while you are testing, and swap to the real workbook
+when you are ready. The endpoint requires an approved `supervisor` or `admin` in
+`user_roles` — the same rule as `can_manage_leave_backfill()` — and defaults to a
+dry run, so writing takes an explicit `dryRun: false`.
+
 ## 6. Deploy
 
 1. Open the workbook → **Extensions → Apps Script**.
@@ -272,7 +304,7 @@ a real date and the CSV had rendered it as `01/10`. See the note below.
 run. A correct mapping reports **zero changes**:
 
 ```bash
-node scripts/leave-sheet-push.mjs --url "<exec-url>" --token "<token>" --from csv --csv "$HOME/Downloads/ATTENDANCE-2026 - LEAVE_DATA.csv"
+npx tsx scripts/leave-sheet-push.ts --url "<exec-url>" --token "<token>" --sheet Sheet1 --from csv --csv "$HOME/Downloads/ATTENDANCE-2026 - LEAVE_DATA.csv"
 ```
 
 The CSV renders dates as their displayed text, so entries the sheet holds as a
@@ -293,10 +325,11 @@ add `--emp 10012524 --commit` to push a single row, then look at the sheet.
 **Step 4 — the real data.** Once the backlog is cleared:
 
 ```bash
-node scripts/leave-sheet-push.mjs --url "<exec-url>" --token "<token>" --from supabase --year 2026
+npx tsx scripts/leave-sheet-push.ts --url "<exec-url>" --token "<token>" --sheet Sheet1 --from supabase --year 2026
 ```
 
-Read the diff. Add `--commit` when it looks right.
+Read the diff. Add `--commit` when it looks right — or use the button on the
+Leave Backlog page, which does the same thing with a preview dialog.
 
 ## 8. Going live
 
@@ -324,3 +357,9 @@ Two things worth doing before the first real write:
 - The `mark` written into a National Holiday column is `NH` by default; the sheet
   only has seven of these and the convention behind them is not documented
   anywhere in the app.
+- **Backfill does not check leave balance.** `backfill_leave_entry` never calls
+  `deduct_leave_balance()` — that raises on insufficient balance, and a thousand
+  historical entries would abort constantly and leave balances half-applied.
+  Balances are derived afterwards by `recompute_leave_balance()` as
+  `12 - approved CL days` for the year. The Leave Backlog page shows that figure
+  and what the pending run would take it to, but nothing blocks going past 12.

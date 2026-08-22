@@ -2,7 +2,8 @@
   "functions": {
     "api/upload/profile-picture.ts": { "maxDuration": 30 },
     "api/upload/leave-document.ts": { "maxDuration": 30 },
-    "api/leave-document-url.ts": { "maxDuration": 10 }
+    "api/leave-document-url.ts": { "maxDuration": 10 },
+    "api/leave-sheet-push.ts": { "maxDuration": 60 }
   },
   "headers": [
     {
