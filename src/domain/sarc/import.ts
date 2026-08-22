@@ -5,10 +5,8 @@
  * actual time on position, whereas `working_hours_cache` holds rostered hours
  * derived from duty codes, a different quantity.
  *
- * CSV only, parsed here rather than through a dependency. The only npm-published
- * SheetJS build carries unpatched advisories, and every other input to this
- * module already arrives as CSV; `exceljs` is the clean addition if operators
- * ever need `.xlsx`.
+ * CSV and modern Excel workbooks (`.xlsx`) are accepted. Workbook parsing is
+ * loaded only when needed, keeping the ordinary CSV path dependency-free.
  *
  * Nothing is silently corrected. Where our own weighted total disagrees with
  * the one the extract prints, both are reported and the extract's is kept —
@@ -148,9 +146,8 @@ export function indexImport(result: IamatcImport): Map<string, IamatcHours> {
     return new Map(result.rows.map((row) => [row.empId, row.hours]));
 }
 
-export function parseIamatcCsv(text: string): IamatcImport {
+function parseIamatcTable(table: string[][]): IamatcImport {
     const issues: IamatcImportIssue[] = [];
-    const table = parseCsv(text);
 
     // Nothing is filtered out of `table`: a row's index is its line in the
     // source file, which is the only way a reported line number can be trusted.
@@ -283,4 +280,56 @@ export function parseIamatcCsv(text: string): IamatcImport {
     }
 
     return { rows, issues, ok: rows.length > 0 };
+}
+
+/** Parse the text-based version of the IAMATC extract. */
+export function parseIamatcCsv(text: string): IamatcImport {
+    return parseIamatcTable(parseCsv(text));
+}
+
+/**
+ * Parse the first worksheet of an `.xlsx` IAMATC extract.
+ *
+ * Excel stores elapsed times as fractions of a day. `cell.text` applies the
+ * worksheet's number format (for example `[h]:mm:ss`) before the common table
+ * parser sees it, so 37:15 remains 37 hours and 15 minutes rather than 1.55.
+ */
+export async function parseIamatcXlsx(data: ArrayBuffer): Promise<IamatcImport> {
+    const { Workbook } = await import('exceljs');
+    const workbook = new Workbook();
+    await workbook.xlsx.load(data as unknown as Buffer);
+
+    const sheet = workbook.worksheets[0];
+    if (!sheet) {
+        return {
+            rows: [],
+            ok: false,
+            issues: [{ code: 'no-rows', severity: 'error', message: 'The workbook has no worksheets.' }],
+        };
+    }
+
+    const cellText = (row: number, column: number) => {
+        const cell = sheet.getCell(row, column);
+        if (!(cell.value instanceof Date)) return cell.text;
+
+        // ExcelJS converts cells formatted as `[h]:mm:ss` into Date objects
+        // when loading a workbook. Convert its 1899-12-30 serial-date origin
+        // back to an elapsed `h:mm:ss` string so a value over 24 hours retains
+        // its total duration rather than becoming a calendar date.
+        const seconds = Math.round((cell.value.getTime() - Date.UTC(1899, 11, 30)) / 1000);
+        if (seconds < 0) return cell.text;
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
+        return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    };
+
+    const table = Array.from({ length: sheet.rowCount }, (_, rowIndex) =>
+        Array.from(
+            { length: sheet.columnCount },
+            (_, columnIndex) => cellText(rowIndex + 1, columnIndex + 1),
+        ),
+    );
+
+    return parseIamatcTable(table);
 }

@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { SARC_FIXTURES } from './fixtures';
 import { formatDurationWithSeconds, parseDuration } from '../duration';
 import { weightedTotal } from '../engine';
-import { indexImport, parseCsv, parseIamatcCsv } from '../import';
+import ExcelJS from 'exceljs';
+
+import { indexImport, parseCsv, parseIamatcCsv, parseIamatcXlsx } from '../import';
 
 const HEADER =
     'Sl No,Name,Employee Id,Controlling(A),OJT_Practical(B),TOTAL TIME-IN (A+B),' +
@@ -148,6 +150,31 @@ describe('parseIamatcCsv', () => {
     it('does not cry format on a properly formatted file', () => {
         const result = parseIamatcCsv(`${HEADER}\n1,A,10000001,5:00:00,,5:00:00,,,,,,,5:00:00`);
         expect(result.issues.some((i) => i.code === 'suspect-duration-format')).toBe(false);
+    });
+});
+
+describe('parseIamatcXlsx', () => {
+    it('reads a formatted Excel workbook through the same IAMATC rules', async () => {
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet('IAMATC');
+        sheet.addRow(HEADER.split(','));
+        const row = sheet.addRow([
+            1, 'JAGANNATH SAHOO', '10012551', 37.25 / 24, 107.25 / 24, 144.5 / 24,
+            24.25 / 24, '', '', 6.5 / 24, '', '', 172 / 24,
+        ]);
+        row.eachCell((cell, column) => {
+            if ([4, 5, 6, 7, 10, 13].includes(column)) cell.numFmt = '[h]:mm:ss';
+        });
+
+        const result = await parseIamatcXlsx(await workbook.xlsx.writeBuffer());
+
+        expect(result.ok).toBe(true);
+        expect(result.issues).toEqual([]);
+        expect(result.rows).toHaveLength(1);
+        expect(result.rows[0].empId).toBe('10012551');
+        expect(result.rows[0].hours.controlling).toBe(parseDuration('37:15:00'));
+        expect(result.rows[0].hours.ojtPractical).toBe(parseDuration('107:15:00'));
+        expect(result.rows[0].statedTotal).toBe(parseDuration('172:00:00'));
     });
 });
 

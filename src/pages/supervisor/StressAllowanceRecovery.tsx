@@ -24,6 +24,7 @@ import { FileDropzone } from '@/components/upload/FileDropzone';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -39,7 +40,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useSarc, useSarcRuns, useSaveSarcRun } from '@/hooks/useSarc';
 import {
-    annexureTitle, formatDuration, indexImport, parseIamatcCsv,
+    annexureTitle, formatDuration, indexImport, parseIamatcCsv, parseIamatcXlsx,
     type IamatcHours, type IamatcImport, type SarcPeriod, type SarcRow,
 } from '@/domain/sarc';
 
@@ -112,6 +113,7 @@ export default function StressAllowanceRecovery() {
     const [extractName, setExtractName] = useState<string | null>(null);
     const [search, setSearch] = useState('');
     const [recoveryOnly, setRecoveryOnly] = useState(false);
+    const [hiddenEmpIds, setHiddenEmpIds] = useState<ReadonlySet<string>>(() => new Set());
     const [selected, setSelected] = useState<SarcRow | null>(null);
 
     const months = useMemo(() => recentMonths(), []);
@@ -144,17 +146,41 @@ export default function StressAllowanceRecovery() {
         });
     }, [rows, search, recoveryOnly]);
 
+    /** Names removed with the checkbox stay out of the table and all exports. */
+    const exportRows = useMemo(
+        () => filtered.filter((row) => !hiddenEmpIds.has(row.empId)),
+        [filtered, hiddenEmpIds],
+    );
+
     /** True when the table is showing less than the whole statement. */
-    const isFiltered = filtered.length !== rows.length;
+    const isFiltered = exportRows.length !== rows.length;
 
     const rowById = useMemo(
         () => new Map((evaluation?.rows ?? []).map((row) => [row.empId, row])),
         [evaluation],
     );
 
+    function hideEmployee(empId: string) {
+        setHiddenEmpIds((current) => new Set([...current, empId]));
+    }
+
+    function restoreHiddenEmployees() {
+        setHiddenEmpIds(new Set());
+    }
+
     async function handleExtract(file: File) {
         try {
-            const result = parseIamatcCsv(await file.text());
+            const fileName = file.name.toLowerCase();
+            const isWorkbook = fileName.endsWith('.xlsx');
+            if (!isWorkbook && !fileName.endsWith('.csv')) {
+                toast.error('Unsupported file type', {
+                    description: 'Upload an IAMATC extract as CSV or Excel (.xlsx).',
+                });
+                return;
+            }
+            const result = isWorkbook
+                ? await parseIamatcXlsx(await file.arrayBuffer())
+                : parseIamatcCsv(await file.text());
             setExtract(result);
             setExtractName(file.name);
 
@@ -181,13 +207,14 @@ export default function StressAllowanceRecovery() {
 
         const doc = new jsPDF({ orientation: 'portrait' });
         doc.setFontSize(11);
-        doc.text(annexureTitle(period), 14, 14);
+        doc.rect(14, 8, 182, 8);
+        doc.text(annexureTitle(period), 105, 13.5, { align: 'center' });
 
         if (isFiltered) {
             doc.setFontSize(8);
             doc.setTextColor(180, 30, 30);
             doc.text(
-                `Filtered view — ${filtered.length} of ${rows.length} employees. Not the full statement.`,
+                `Filtered view — ${exportRows.length} of ${rows.length} employees. Not the full statement.`,
                 14,
                 19,
             );
@@ -196,8 +223,13 @@ export default function StressAllowanceRecovery() {
 
         autoTable(doc, {
             startY: isFiltered ? 23 : 20,
-            head: [['Employee Id', 'Name', 'Designation', 'Hours Required', 'Hours Performed', 'Recovery']],
-            body: filtered.map((row) => [
+            head: [[
+                { content: 'Employee Id', rowSpan: 2 },
+                { content: 'Name', rowSpan: 2 },
+                { content: 'Designation', rowSpan: 2 },
+                { content: 'Stress Calculation', colSpan: 3 },
+            ], ['Hours Required', 'Hours Performed', 'Recovery']],
+            body: exportRows.map((row) => [
                 row.empId,
                 row.name,
                 row.designation ?? '',
@@ -205,8 +237,22 @@ export default function StressAllowanceRecovery() {
                 formatDuration(row.performed),
                 row.requirement == null ? '' : percent(row.recovery),
             ]),
-            styles: { fontSize: 7, cellPadding: 1.2 },
-            headStyles: { fillColor: [30, 41, 59] },
+            theme: 'grid',
+            styles: { fontSize: 7, cellPadding: 1.2, lineColor: [0, 0, 0], lineWidth: 0.15 },
+            headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center' },
+            columnStyles: {
+                0: { halign: 'center' },
+                1: { halign: 'center' },
+                2: { halign: 'center' },
+                3: { halign: 'right' },
+                4: { halign: 'right' },
+                5: { halign: 'right' },
+            },
+            didParseCell: (data) => {
+                if (data.section === 'body' && data.column.index === 3 && (exportRows[data.row.index]?.recovery ?? 0) > 0) {
+                    data.cell.styles.fillColor = [255, 255, 0];
+                }
+            },
         });
 
         doc.save(`Annexure-2 ${monthLabel(startMonth)} to ${monthLabel(endMonth)}${isFiltered ? ' (filtered)' : ''}.pdf`);
@@ -218,7 +264,7 @@ export default function StressAllowanceRecovery() {
         const escape = (value: string) => (/[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
         const csv = [
             ['Employee Id', 'Name', 'Designation', 'Hours Required', 'Hours Performed', 'Recovery'],
-            ...filtered.map((row) => [
+            ...exportRows.map((row) => [
                 row.empId,
                 row.name,
                 row.designation ?? '',
@@ -236,6 +282,79 @@ export default function StressAllowanceRecovery() {
         link.download = `Annexure-2 ${monthLabel(startMonth)} to ${monthLabel(endMonth)}${isFiltered ? ' (filtered)' : ''}.csv`;
         link.click();
         URL.revokeObjectURL(url);
+    }
+
+    async function exportExcel() {
+        if (!period || !evaluation) return;
+
+        try {
+            const { Workbook } = await import('exceljs');
+            const workbook = new Workbook();
+            const sheet = workbook.addWorksheet('Annexure-2', { views: [{ showGridLines: false }] });
+            const lastRow = exportRows.length + 3;
+            const border = { style: 'thin' as const, color: { argb: 'FF000000' } };
+
+            sheet.mergeCells('A1:F1');
+            sheet.getCell('A1').value = annexureTitle(period);
+            sheet.getCell('A1').font = { bold: true, size: 14 };
+            sheet.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
+            sheet.getRow(1).height = 24;
+
+            sheet.mergeCells('A2:A3');
+            sheet.mergeCells('B2:B3');
+            sheet.mergeCells('C2:C3');
+            sheet.mergeCells('D2:F2');
+            sheet.getCell('A2').value = 'Employee Id';
+            sheet.getCell('B2').value = 'Name';
+            sheet.getCell('C2').value = 'Designation';
+            sheet.getCell('D2').value = 'Stress Calculation';
+            sheet.getCell('D3').value = 'Hours Required';
+            sheet.getCell('E3').value = 'Hours Performed';
+            sheet.getCell('F3').value = 'Recovery';
+
+            exportRows.forEach((row, index) => {
+                sheet.getRow(index + 4).values = [
+                    row.empId,
+                    row.name,
+                    row.designation ?? '',
+                    row.requirement == null ? 'exempt' : formatDuration(row.requirement),
+                    row.performed == null ? '—' : formatDuration(row.performed),
+                    row.requirement == null ? '—' : percent(row.recovery),
+                ];
+                if ((row.recovery ?? 0) > 0) {
+                    sheet.getCell(index + 4, 4).fill = {
+                        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' },
+                    };
+                }
+            });
+
+            sheet.columns = [
+                { width: 18 }, { width: 32 }, { width: 18 },
+                { width: 22 }, { width: 22 }, { width: 16 },
+            ];
+            for (let row = 1; row <= lastRow; row += 1) {
+                for (let column = 1; column <= 6; column += 1) {
+                    const cell = sheet.getCell(row, column);
+                    cell.border = { top: border, left: border, bottom: border, right: border };
+                    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    if (row >= 2 && row <= 3) cell.font = { bold: true, size: 12 };
+                }
+            }
+
+            const url = URL.createObjectURL(new Blob(
+                [await workbook.xlsx.writeBuffer()],
+                { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+            ));
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Annexure-2 ${monthLabel(startMonth)} to ${monthLabel(endMonth)}${isFiltered ? ' (filtered)' : ''}.xlsx`;
+            link.click();
+            URL.revokeObjectURL(url);
+        } catch (cause) {
+            toast.error('Could not create the Excel file', {
+                description: cause instanceof Error ? cause.message : 'Unknown error',
+            });
+        }
     }
 
     function issue() {
@@ -333,9 +452,9 @@ export default function StressAllowanceRecovery() {
                                 </div>
                             ) : (
                                 <FileDropzone
-                                    accept=".csv,text/csv"
+                                    accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                     onFile={handleExtract}
-                                    description="Drop the IAMATC extract as CSV, or click to choose"
+                                    description="Drop the IAMATC extract as CSV or Excel (.xlsx), or click to choose"
                                 />
                             )}
 
@@ -404,12 +523,20 @@ export default function StressAllowanceRecovery() {
                                     </Badge>
                                 ) : null}
                             </Button>
-                            <Button variant="outline" size="sm" onClick={exportCsv} disabled={!rows.length}>
+                            <Button variant="outline" size="sm" onClick={exportCsv} disabled={!exportRows.length}>
                                 <Download className="mr-2 h-4 w-4" />CSV
                             </Button>
-                            <Button variant="outline" size="sm" onClick={exportPdf} disabled={!rows.length}>
+                            <Button variant="outline" size="sm" onClick={exportExcel} disabled={!exportRows.length}>
+                                <FileSpreadsheet className="mr-2 h-4 w-4" />Excel
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={exportPdf} disabled={!exportRows.length}>
                                 <Download className="mr-2 h-4 w-4" />PDF
                             </Button>
+                            {hiddenEmpIds.size > 0 && (
+                                <Button variant="ghost" size="sm" onClick={restoreHiddenEmployees}>
+                                    Show {hiddenEmpIds.size} hidden
+                                </Button>
+                            )}
                             <Button
                                 size="sm"
                                 onClick={issue}
@@ -442,10 +569,12 @@ export default function StressAllowanceRecovery() {
                                     <Skeleton key={index} className="h-8 w-full" />
                                 ))}
                             </div>
-                        ) : filtered.length === 0 ? (
+                        ) : exportRows.length === 0 ? (
                             <p className="p-6 text-sm text-muted-foreground">
                                 {rows.length === 0
                                     ? 'No roster data for this period. Check the schedule sync has run for both months.'
+                                    : hiddenEmpIds.size > 0 && filtered.length > 0
+                                      ? 'Every matching employee is hidden. Use “Show hidden” to restore them.'
                                     : recoveryOnly && !search.trim()
                                       ? 'Nobody is in recovery for this period — every requirement was met.'
                                       : recoveryOnly
@@ -457,6 +586,7 @@ export default function StressAllowanceRecovery() {
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
+                                            <TableHead className="w-12 text-center">Hide</TableHead>
                                             <TableHead>Employee Id</TableHead>
                                             <TableHead>Name</TableHead>
                                             <TableHead>Designation</TableHead>
@@ -466,7 +596,7 @@ export default function StressAllowanceRecovery() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {filtered.map((row) => {
+                                        {exportRows.map((row) => {
                                             const full = rowById.get(row.empId);
                                             const shortfall = (row.recovery ?? 0) > 0;
 
@@ -476,6 +606,13 @@ export default function StressAllowanceRecovery() {
                                                     className="cursor-pointer"
                                                     onClick={() => full && setSelected(full)}
                                                 >
+                                                    <TableCell className="text-center" onClick={(event) => event.stopPropagation()}>
+                                                        <Checkbox
+                                                            checked={false}
+                                                            aria-label={`Hide ${row.name} from the table and exports`}
+                                                            onCheckedChange={() => hideEmployee(row.empId)}
+                                                        />
+                                                    </TableCell>
                                                     <TableCell className="font-mono text-xs">{row.empId}</TableCell>
                                                     <TableCell className="font-medium">{row.name}</TableCell>
                                                     <TableCell className="text-muted-foreground">{row.designation ?? '—'}</TableCell>
