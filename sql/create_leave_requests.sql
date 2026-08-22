@@ -1,5 +1,11 @@
 -- Leave Requests Table
--- Run this in the Supabase SQL Editor
+--
+-- SUPERSEDED: this table is now created by
+--   supabase/migrations/20260220100000_leave_requests_baseline.sql
+-- Do not run this file against a live database — its CREATE POLICY statements
+-- are unconditional and would fail (or, if the policies were dropped first,
+-- revert the 'admin' grant added by the backfill foundation migration).
+-- Kept for reference only.
 
 CREATE TABLE IF NOT EXISTS public.leave_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

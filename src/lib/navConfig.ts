@@ -114,6 +114,12 @@ const supervisorNav: NavGroup[] = [
         icon: AlertTriangle,
         keywords: ["mismatch", "audit"],
       },
+      {
+        title: "Leave Backlog",
+        url: "/supervisor/leave-backlog",
+        icon: ClipboardList,
+        keywords: ["backfill", "backlog", "history", "catch up"],
+      },
     ],
   },
   {

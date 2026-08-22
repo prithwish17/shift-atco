@@ -36,6 +36,14 @@ export type LeaveRequest = {
     direct_supervisor_approved_at?: string | null;
     direct_supervisor_comments?: string | null;
     ch_comp_off_dates?: { date: string; holiday_name: string; holiday_id: string }[] | null;
+    /** employee_leave_records ids explicitly chosen for a COMP_OFF request.
+     *  Null/empty on requests made before the picker existed — those fall back
+     *  to FIFO-by-expiry allocation. */
+    comp_off_record_ids?: string[] | null;
+    /** 'employee' | 'backfill' | 'amendment' — see the backfill foundation migration. */
+    origin?: string;
+    supersedes_id?: string | null;
+    superseded_by_id?: string | null;
     attachment_path?: string | null;
     attachment_meta?: { mime?: string; size?: number; original_name?: string | null } | null;
     created_at: string;
@@ -58,6 +66,7 @@ export type LeaveRequestInsert = {
     reason?: string | null;
     actual_rh_date?: string | null;
     actual_rh_date_2?: string | null;
+    comp_off_record_ids?: string[] | null;
     ch_comp_off_dates?: { date: string; holiday_name: string; holiday_id: string }[] | null;
 };
 
@@ -164,13 +173,47 @@ async function syncApprovedCompOffUsage(request: LeaveRequest) {
     const alreadySynced = candidates.filter((candidate) => candidate.metadata?.leave_request_id === request.id);
     if (alreadySynced.length >= leaveDays.length) return;
 
-    const allocation = allocateCompOffCandidates(candidates, leaveDays.length, 0);
-    if (!allocation.canCoverRequest || allocation.selectedEntries.length < leaveDays.length) {
-        throw new Error('Insufficient comp-off entries are available to sync this approved leave.');
+    // Honour the entries the applicant/approver actually chose.
+    //
+    // Allocation used to be recomputed here from scratch, independently of the
+    // preview shown at apply time and again at review time, so the entries
+    // someone approved were not guaranteed to be the ones consumed. When the
+    // request carries an explicit selection we use it verbatim; requests made
+    // before the picker existed still fall back to FIFO-by-expiry.
+    const chosenIds = Array.isArray(request.comp_off_record_ids)
+        ? (request.comp_off_record_ids as unknown[]).map(String).filter(Boolean)
+        : [];
+
+    let recordIds: string[];
+
+    if (chosenIds.length > 0) {
+        const byId = new Map(candidates.map((candidate) => [candidate.recordId, candidate]));
+        const missing = chosenIds.filter((id) => !byId.has(id));
+        if (missing.length > 0) {
+            throw new Error('Some selected comp-off entries no longer exist for this employee.');
+        }
+
+        const takenElsewhere = chosenIds.filter((id) => {
+            const owner = byId.get(id)?.metadata?.leave_request_id;
+            return owner && owner !== request.id;
+        });
+        if (takenElsewhere.length > 0) {
+            throw new Error('A selected comp-off entry is already allocated to another leave request.');
+        }
+
+        if (chosenIds.length < leaveDays.length) {
+            throw new Error('Fewer comp-off entries were selected than there are leave days.');
+        }
+
+        recordIds = chosenIds.slice(0, leaveDays.length);
+    } else {
+        const allocation = allocateCompOffCandidates(candidates, leaveDays.length, 0);
+        if (!allocation.canCoverRequest || allocation.selectedEntries.length < leaveDays.length) {
+            throw new Error('Insufficient comp-off entries are available to sync this approved leave.');
+        }
+        recordIds = allocation.selectedEntries.map((e) => e.recordId);
     }
 
-    // Atomic allocation via RPC — all-or-nothing transaction
-    const recordIds = allocation.selectedEntries.map((e) => e.recordId);
     const { error: rpcError } = await supabase.rpc('allocate_comp_off_for_leave', {
         p_leave_request_id: request.id,
         p_record_ids: recordIds,

@@ -24,6 +24,8 @@ type ReviewCompOffAllocation = {
   employeeCode: string;
   requestedDays: number;
   reservedDays: number;
+  /** True when the applicant chose these entries, rather than FIFO picking them. */
+  isExplicitSelection: boolean;
   allocation: ReturnType<typeof allocateCompOffCandidates>;
 };
 
@@ -206,15 +208,54 @@ export default function LeaveApprovals() {
       if (pendingRequestsError) throw pendingRequestsError;
 
       const candidates = buildCompOffAllocationCandidates((earnedRows || []) as any[]);
-      const reservedDays = (pendingRequests || []).reduce((sum: number, row: { total_days?: number | null }) => {
-        return sum + Math.ceil(Number(row.total_days || 0));
-      }, 0);
+      // Cast through the row shape: the generated Supabase types are stale for
+      // leave_requests, so without this `reservedDays` inherits SelectQueryError
+      // and poisons every arithmetic use downstream.
+      const reservedDays: number = ((pendingRequests || []) as Array<{ total_days?: number | null }>)
+        .reduce((sum: number, row) => sum + Math.ceil(Number(row.total_days || 0)), 0);
       const requestedDays = Math.ceil(Number(detailTarget.total_days || 0));
+
+      // Show what will ACTUALLY be consumed.
+      //
+      // This preview used to recompute the allocation independently of the one the
+      // applicant saw and of the one approval would perform, so the entries an
+      // approver signed off were not guaranteed to be the entries taken. When the
+      // request carries an explicit selection, show exactly that; older requests
+      // with no selection still fall back to the FIFO preview.
+      const chosenIds = Array.isArray(detailTarget.comp_off_record_ids)
+        ? (detailTarget.comp_off_record_ids as unknown[]).map(String).filter(Boolean)
+        : [];
+
+      if (chosenIds.length > 0) {
+        const byId = new Map(candidates.map((candidate) => [candidate.recordId, candidate]));
+        const selectedEntries = chosenIds
+          .map((id) => byId.get(id))
+          .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+        return {
+          employeeCode,
+          requestedDays,
+          reservedDays,
+          isExplicitSelection: true,
+          allocation: {
+            requestedDays,
+            availableCount: candidates.filter((c) => c.status === 'available').length,
+            reservedCount: reservedDays,
+            remainingAfterReservations: Math.max(
+              candidates.filter((c) => c.status === 'available').length - reservedDays,
+              0,
+            ),
+            selectedEntries,
+            canCoverRequest: selectedEntries.length >= requestedDays,
+          },
+        };
+      }
 
       return {
         employeeCode,
         requestedDays,
         reservedDays,
+        isExplicitSelection: false,
         allocation: allocateCompOffCandidates(candidates, requestedDays, reservedDays),
       };
     },
@@ -816,6 +857,12 @@ export default function LeaveApprovals() {
                               <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Requested Here</div>
                               <div className="mt-1 font-semibold">{reviewCompOffAllocationQuery.data.requestedDays} day{reviewCompOffAllocationQuery.data.requestedDays === 1 ? '' : 's'}</div>
                             </div>
+                          </div>
+
+                          <div className="mb-2 text-[11px] text-muted-foreground">
+                            {reviewCompOffAllocationQuery.data.isExplicitSelection
+                              ? 'Chosen by the applicant — these are the entries that will be consumed.'
+                              : 'No explicit choice was made, so the earliest-expiring entries will be consumed.'}
                           </div>
 
                           {reviewCompOffAllocationQuery.data.allocation.selectedEntries.length > 0 ? (

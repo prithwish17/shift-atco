@@ -51,6 +51,7 @@ const LeaveApprovals = lazy(() => import("./pages/supervisor/LeaveApprovals"));
 const ApprovedLeavesRegister = lazy(() => import("./pages/supervisor/ApprovedLeavesRegister"));
 const SupervisorLeaveDashboard = lazy(() => import("./pages/supervisor/SupervisorLeaveDashboard"));
 const LeaveDiscrepancyPage = lazy(() => import("./pages/supervisor/LeaveDiscrepancyPage"));
+const LeaveBacklogPage = lazy(() => import("./pages/supervisor/LeaveBacklogPage"));
 const DutyExchangeApprovals = lazy(() => import("./pages/supervisor/DutyExchangeApprovals"));
 const HolidayManagement = lazy(() => import("./pages/supervisor/HolidayManagement"));
 const OPEAssignments = lazy(() => import("./pages/supervisor/OPEAssignments"));
@@ -333,6 +334,7 @@ function App() {
                     <Route path="/supervisor/approved-leaves" element={<ProtectedRoute allowedRoles={['supervisor', 'wso']}><ApprovedLeavesRegister /></ProtectedRoute>} />
                     <Route path="/supervisor/leave-dashboard" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorLeaveDashboard /></ProtectedRoute>} />
                     <Route path="/supervisor/leave-discrepancy" element={<ProtectedRoute allowedRoles={['supervisor']}><LeaveDiscrepancyPage /></ProtectedRoute>} />
+                    <Route path="/supervisor/leave-backlog" element={<ProtectedRoute allowedRoles={['supervisor', 'admin']}><LeaveBacklogPage /></ProtectedRoute>} />
                     <Route path="/supervisor/duty-exchange" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyExchangeApprovals /></ProtectedRoute>} />
                     <Route path="/supervisor/duty-exchanges" element={<ProtectedRoute allowedRoles={['supervisor']}><DutyExchangeApprovals /></ProtectedRoute>} />
                     <Route path="/supervisor/holidays" element={<ProtectedRoute allowedRoles={['supervisor']}><HolidayManagement /></ProtectedRoute>} />

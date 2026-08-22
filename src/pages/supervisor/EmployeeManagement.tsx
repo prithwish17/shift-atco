@@ -15,6 +15,7 @@ import { useLicenses } from "@/hooks/useLicenses";
 import { logSupervisorEdit } from "@/lib/supervisorAuditLog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AddEmployeeDialog } from "@/components/AddEmployeeDialog";
+import { LeaveBalanceRecompute } from "@/components/leave/LeaveBalanceRecompute";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const LICENSE_LABELS: { [key: string]: string } = {
@@ -444,7 +445,10 @@ export default function EmployeeManagement() {
                   <p className="text-[11px] text-muted-foreground sm:text-sm">Shift history would be displayed here</p>
                 </TabsContent>
                 <TabsContent value="leave" className="mt-3 sm:mt-4">
-                  <p className="text-[11px] text-muted-foreground sm:text-sm">Leave balance information would be displayed here</p>
+                  <LeaveBalanceRecompute
+                    userId={selectedEmployee.id}
+                    employeeName={selectedEmployee.full_name}
+                  />
                 </TabsContent>
               </Tabs>
               </div>

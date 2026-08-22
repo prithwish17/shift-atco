@@ -6,10 +6,16 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ShieldAlert, Search, X, CalendarDays, Users, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { eachDayOfInterval, endOfMonth, format, parseISO } from "date-fns";
+import { endOfMonth, format, parseISO } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { getLeaveTypeLabel, YEAR_LOOKBACK } from "@/lib/leaveConstants";
+import {
+  fetchLeaveDiscrepancies,
+  type DiscrepancyKind,
+  type DiscrepancyRow,
+} from "@/lib/leaveReconciliation";
+import { useResolveSheetConflict } from "@/hooks/useLeaveBacklog";
+import { useToast } from "@/hooks/use-toast";
 
 const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = Array.from({ length: YEAR_LOOKBACK }, (_, i) => CURRENT_YEAR - i);
@@ -30,15 +36,11 @@ function leaveTypeBadgeClass(type: string | null): string {
   return LEAVE_TYPE_BADGE_COLORS[type.toUpperCase()] ?? "bg-violet-100 text-violet-800";
 }
 
-const COMP_OFF_CATEGORIES = ["COMP_OFF", "COMP_OFF_USED", "OPE_COMP_OFF", "LAST_YEAR_COMP_OFF"];
-const NON_COMPOFF_LEAVE_CATEGORIES = ["CL", "EL", "RH", "HPL", "NEE", "COMM"];
-
-type DiscrepancyKind = "schedule_no_request" | "approved_no_schedule" | "record_no_schedule";
-
 const KIND_ORDER: DiscrepancyKind[] = [
   "schedule_no_request",
   "approved_no_schedule",
   "record_no_schedule",
+  "sheet_vs_app",
 ];
 
 const KIND_META: Record<DiscrepancyKind, { label: string; short: string; badge: string }> = {
@@ -57,230 +59,13 @@ const KIND_META: Record<DiscrepancyKind, { label: string; short: string; badge: 
     short: "record",
     badge: "bg-green-100 text-green-800",
   },
+  sheet_vs_app: {
+    label: "Sheet · disagrees with app",
+    short: "sheet conflict",
+    badge: "bg-purple-100 text-purple-800",
+  },
 };
 
-type DiscrepancyRow = {
-  employeeCode: string;
-  employeeName: string;
-  team: string;
-  date: string;
-  kind: DiscrepancyKind;
-  detail: string;
-  leaveType: string | null;
-  requestStatus: string | null;
-};
-
-async function fetchDiscrepancies(monthStart: string, monthEnd: string): Promise<DiscrepancyRow[]> {
-  const [scheduleRes, requestRes, leaveRecordRes, compOffRecordRes] = await Promise.all([
-    supabase
-      .from("employee_schedules" as any)
-      .select("employee_code, duty_date, employee_name")
-      .eq("duty_code", "LEAVE")
-      .gte("duty_date", monthStart)
-      .lte("duty_date", monthEnd),
-    supabase
-      .from("leave_requests" as any)
-      .select("employee_id, employee_name, leave_type, status, start_date, end_date")
-      .not("status", "in", `("Rejected","Cancelled")`)
-      .lte("start_date", monthEnd)
-      .gte("end_date", monthStart),
-    // CL / EL / RH etc. — leave was taken on leave_date
-    supabase
-      .from("employee_leave_records" as any)
-      .select("emp_id, employee_name, leave_category, leave_date, leave_used_on")
-      .in("leave_category", NON_COMPOFF_LEAVE_CATEGORIES)
-      .gte("leave_date", monthStart)
-      .lte("leave_date", monthEnd),
-    // COMP_OFF variants — leave was taken on leave_used_on
-    supabase
-      .from("employee_leave_records" as any)
-      .select("emp_id, employee_name, leave_category, leave_date, leave_used_on")
-      .in("leave_category", COMP_OFF_CATEGORIES)
-      .gte("leave_used_on", monthStart)
-      .lte("leave_used_on", monthEnd),
-  ]);
-
-  if (scheduleRes.error) throw scheduleRes.error;
-  if (requestRes.error) throw requestRes.error;
-  if (leaveRecordRes.error) throw leaveRecordRes.error;
-  if (compOffRecordRes.error) throw compOffRecordRes.error;
-
-  const scheduleRows = (scheduleRes.data || []) as unknown as Array<{
-    employee_code: string;
-    duty_date: string;
-    employee_name: string | null;
-  }>;
-  const requestRows = (requestRes.data || []) as unknown as Array<{
-    employee_id: string;
-    employee_name: string;
-    leave_type: string;
-    status: string;
-    start_date: string;
-    end_date: string;
-  }>;
-  type LeaveRecordRow = {
-    emp_id: string;
-    employee_name: string | null;
-    leave_category: string;
-    leave_date: string;
-    leave_used_on: string | null;
-  };
-  const allLeaveRecordRows = [
-    ...((leaveRecordRes.data || []) as unknown as LeaveRecordRow[]),
-    ...((compOffRecordRes.data || []) as unknown as LeaveRecordRow[]),
-  ];
-
-  // Fetch profiles to map auth UUID <-> employee_code and get team / full name
-  const authIds = [...new Set(requestRows.map((r) => r.employee_id))];
-  const scheduleCodes = [
-    ...new Set([
-      ...scheduleRows.map((r) => r.employee_code),
-      ...allLeaveRecordRows.map((r) => r.emp_id),
-    ]),
-  ];
-
-  type ProfileRow = {
-    id: string;
-    employee_id: string | null;
-    full_name: string | null;
-    current_shift: string | null;
-  };
-
-  const [authProfilesRes, codeProfilesRes] = await Promise.all([
-    authIds.length > 0
-      ? supabase
-          .from("profiles" as any)
-          .select("id, employee_id, full_name, current_shift")
-          .in("id", authIds)
-      : Promise.resolve({ data: [], error: null }),
-    scheduleCodes.length > 0
-      ? supabase
-          .from("profiles" as any)
-          .select("id, employee_id, full_name, current_shift")
-          .in("employee_id", scheduleCodes)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-
-  if (authProfilesRes.error) throw authProfilesRes.error;
-  if (codeProfilesRes.error) throw codeProfilesRes.error;
-
-  const allProfiles = [
-    ...((authProfilesRes.data || []) as ProfileRow[]),
-    ...((codeProfilesRes.data || []) as ProfileRow[]),
-  ];
-
-  const authToCode = new Map(
-    allProfiles.filter((p) => p.employee_id).map((p) => [p.id, p.employee_id!]),
-  );
-  const codeToProfile = new Map(
-    allProfiles.filter((p) => p.employee_id).map((p) => [p.employee_id!, p]),
-  );
-
-  // Build schedule set: `${employee_code}:${duty_date}`
-  const scheduleSet = new Set(scheduleRows.map((r) => `${r.employee_code}:${r.duty_date}`));
-
-  // Build request day set
-  const requestDaySet = new Set<string>();
-  type ApprovedEntry = { code: string; date: string; row: (typeof requestRows)[0] };
-  const approvedEntries: ApprovedEntry[] = [];
-
-  for (const req of requestRows) {
-    const code = authToCode.get(req.employee_id);
-    if (!code) continue;
-    try {
-      const days = eachDayOfInterval({
-        start: parseISO(req.start_date),
-        end: parseISO(req.end_date),
-      });
-      for (const day of days) {
-        const iso = format(day, "yyyy-MM-dd");
-        if (iso < monthStart || iso > monthEnd) continue;
-        requestDaySet.add(`${code}:${iso}`);
-        if (req.status === "Approved") approvedEntries.push({ code, date: iso, row: req });
-      }
-    } catch {
-      // skip malformed dates
-    }
-  }
-
-  // Build leave record set: `${emp_id}:${effectiveDate}`
-  const leaveRecordSet = new Set<string>();
-  type RecordEntry = { code: string; date: string; row: LeaveRecordRow };
-  const recordEntries: RecordEntry[] = [];
-
-  for (const rec of allLeaveRecordRows) {
-    const isCompOff = COMP_OFF_CATEGORIES.includes(rec.leave_category);
-    const effectiveDate = isCompOff ? (rec.leave_used_on ?? rec.leave_date) : rec.leave_date;
-    if (!effectiveDate) continue;
-    leaveRecordSet.add(`${rec.emp_id}:${effectiveDate}`);
-    recordEntries.push({ code: rec.emp_id, date: effectiveDate, row: rec });
-  }
-
-  const rows: DiscrepancyRow[] = [];
-  const seen = new Set<string>();
-
-  // Case 1: In schedule but NEITHER a leave request NOR a leave record exists
-  for (const sched of scheduleRows) {
-    const empKey = `${sched.employee_code}:${sched.duty_date}`;
-    if (requestDaySet.has(empKey) || leaveRecordSet.has(empKey)) continue;
-    const key = `${sched.employee_code}:${sched.duty_date}:schedule_no_request`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const profile = codeToProfile.get(sched.employee_code);
-    rows.push({
-      employeeCode: sched.employee_code,
-      employeeName: profile?.full_name || sched.employee_name || sched.employee_code,
-      team: profile?.current_shift || "—",
-      date: sched.duty_date,
-      kind: "schedule_no_request",
-      detail: "Marked LEAVE in schedule — no matching leave request or leave record found",
-      leaveType: null,
-      requestStatus: null,
-    });
-  }
-
-  // Case 2: Approved leave request but not in schedule
-  for (const entry of approvedEntries) {
-    if (scheduleSet.has(`${entry.code}:${entry.date}`)) continue;
-    const key = `${entry.code}:${entry.date}:approved_no_schedule`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const profile = codeToProfile.get(entry.code);
-    rows.push({
-      employeeCode: entry.code,
-      employeeName: profile?.full_name || entry.row.employee_name || entry.code,
-      team: profile?.current_shift || "—",
-      date: entry.date,
-      kind: "approved_no_schedule",
-      detail: `Approved ${entry.row.leave_type} request — schedule not updated`,
-      leaveType: entry.row.leave_type,
-      requestStatus: entry.row.status,
-    });
-  }
-
-  // Case 3: Leave record exists but not in schedule
-  for (const entry of recordEntries) {
-    if (scheduleSet.has(`${entry.code}:${entry.date}`)) continue;
-    const key = `${entry.code}:${entry.date}:record_no_schedule`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const profile = codeToProfile.get(entry.code);
-    rows.push({
-      employeeCode: entry.code,
-      employeeName: profile?.full_name || entry.row.employee_name || entry.code,
-      team: profile?.current_shift || "—",
-      date: entry.date,
-      kind: "record_no_schedule",
-      detail: `Leave record (${entry.row.leave_category}) found — schedule not updated`,
-      leaveType: entry.row.leave_category,
-      requestStatus: null,
-    });
-  }
-
-  return rows.sort(
-    (a, b) => a.date.localeCompare(b.date) || a.employeeName.localeCompare(b.employeeName),
-  );
-}
 
 export default function LeaveDiscrepancyPage() {
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth());
@@ -290,13 +75,40 @@ export default function LeaveDiscrepancyPage() {
   // Tracks the collapsed employees, so groups start expanded.
   const [collapsedCodes, setCollapsedCodes] = useState<Set<string>>(new Set());
 
+  const { toast } = useToast();
+  const resolveConflict = useResolveSheetConflict();
+
+  const resolve = async (
+    recordId: string | null | undefined,
+    resolution: "keep_app" | "accept_sheet",
+  ) => {
+    if (!recordId) return;
+    try {
+      const result = await resolveConflict.mutateAsync({ recordId, resolution });
+      toast({
+        title: result?.ok
+          ? resolution === "keep_app"
+            ? "Kept the app value"
+            : "Applied the sheet value"
+          : "Nothing to resolve",
+        description: result?.ok ? undefined : result?.message,
+      });
+    } catch (err) {
+      toast({
+        title: "Could not resolve this conflict",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    }
+  };
+
   const monthStart = format(new Date(selectedYear, selectedMonth, 1), "yyyy-MM-dd");
   const monthEnd = format(endOfMonth(new Date(selectedYear, selectedMonth, 1)), "yyyy-MM-dd");
 
   const { data: discrepancies = [], isLoading, error } = useQuery({
     queryKey: ["leave-discrepancy-page", monthStart, monthEnd],
     staleTime: 5 * 60 * 1000,
-    queryFn: () => fetchDiscrepancies(monthStart, monthEnd),
+    queryFn: () => fetchLeaveDiscrepancies(monthStart, monthEnd),
   });
 
   const filtered = useMemo(() => {
@@ -354,6 +166,7 @@ export default function LeaveDiscrepancyPage() {
   const scheduleNoRequest = filtered.filter((r) => r.kind === "schedule_no_request");
   const approvedNoSchedule = filtered.filter((r) => r.kind === "approved_no_schedule");
   const recordNoSchedule = filtered.filter((r) => r.kind === "record_no_schedule");
+  const sheetVsApp = filtered.filter((r) => r.kind === "sheet_vs_app");
 
   return (
     <DashboardLayout role="supervisor">
@@ -370,7 +183,7 @@ export default function LeaveDiscrepancyPage() {
                   Leave Discrepancy Report
                 </h1>
                 <p className="mt-1 text-sm text-muted-foreground sm:text-base">
-                  Mismatches between schedule (duty_code=LEAVE), leave requests, and leave records.
+                  Mismatches between the roster, leave requests, leave records, and the Google Sheet.
                 </p>
               </div>
             </div>
@@ -410,7 +223,7 @@ export default function LeaveDiscrepancyPage() {
 
         {/* Summary cards */}
         {!isLoading && (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <Card className="shadow-sm">
               <CardContent className="flex items-center justify-between p-5">
                 <div>
@@ -455,6 +268,19 @@ export default function LeaveDiscrepancyPage() {
                   </div>
                 </div>
                 <div className="rounded-full bg-green-100 p-3 text-green-600">
+                  <ShieldAlert className="h-6 w-6" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="shadow-sm">
+              <CardContent className="flex items-center justify-between p-5">
+                <div>
+                  <div className="text-sm text-muted-foreground">Sheet — Disagrees with App</div>
+                  <div className="mt-1 text-3xl font-black text-purple-600">
+                    {discrepancies.filter((r) => r.kind === "sheet_vs_app").length}
+                  </div>
+                </div>
+                <div className="rounded-full bg-purple-100 p-3 text-purple-600">
                   <ShieldAlert className="h-6 w-6" />
                 </div>
               </CardContent>
@@ -781,6 +607,77 @@ export default function LeaveDiscrepancyPage() {
                         </div>
                         <div className="text-right text-xs text-slate-600 shrink-0">
                           {format(parseISO(row.date), "dd MMM yyyy")}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base text-purple-700">
+                  Sheet — Disagrees with App ({sheetVsApp.length})
+                </CardTitle>
+                <CardDescription>
+                  The Google Sheet tried to overwrite a record the app owns. The app value was kept;
+                  what the sheet sent is shown below.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {sheetVsApp.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">None for this period.</p>
+                ) : (
+                  <ul className="divide-y">
+                    {sheetVsApp.map((row) => (
+                      <li
+                        key={`${row.employeeCode}-${row.date}-sheet`}
+                        className="flex items-start justify-between gap-3 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-900">{row.employeeName}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {row.employeeCode} · Team {row.team}
+                          </div>
+                          {row.leaveType && (
+                            <Badge className={`mt-1 text-[10px] ${leaveTypeBadgeClass(row.leaveType)}`}>
+                              {getLeaveTypeLabel(row.leaveType)}
+                            </Badge>
+                          )}
+                          {row.sheetShadow && (
+                            <div className="mt-1 break-words text-[11px] text-purple-700">
+                              Sheet sent:{" "}
+                              {Object.entries(row.sheetShadow)
+                                .map(([key, value]) => `${key}=${String(value)}`)
+                                .join(", ")}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                          <span className="text-xs text-slate-600">
+                            {format(parseISO(row.date), "dd MMM yyyy")}
+                          </span>
+                          <div className="flex gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              disabled={resolveConflict.isPending}
+                              onClick={() => resolve(row.recordId, "keep_app")}
+                            >
+                              Keep app
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              disabled={resolveConflict.isPending}
+                              onClick={() => resolve(row.recordId, "accept_sheet")}
+                            >
+                              Accept sheet
+                            </Button>
+                          </div>
                         </div>
                       </li>
                     ))}

@@ -23,6 +23,8 @@ import { useLeaveBalances } from '@/hooks/useLeaves';
 import { useHolidaysByYear } from '@/hooks/useHolidayDashboard';
 import { validateLeaveAgainstHolidays, isHoliday, type HolidayConflict, type HolidayInfo } from '@/lib/holidayRules';
 import { buildCompOffAllocationCandidates, allocateCompOffCandidates } from '@/lib/compOffAllocation';
+import { CompOffPicker } from '@/components/leave/CompOffPicker';
+import { useCompOffCandidates } from '@/hooks/useCompOffCandidates';
 import { LeaveDocumentUpload } from '@/components/upload/LeaveDocumentUpload';
 
 function getBalanceBucket(leaveType: string): 'cl' | 'rh' | 'comp_off' | null {
@@ -298,6 +300,38 @@ export default function LeaveApplication() {
 
     return allocateCompOffCandidates(candidates, requestedDays, pendingCompOffDays);
   }, [employeeLeaveRecord, formData.leave_type, pendingCompOffDays, requestedDays]);
+
+  // Which earned comp-off entries this request will consume.
+  //
+  // compOffAllocation above is built from the normalized ledger view, whose ids
+  // are synthesized (`${sourceType}-${dutyDate}-...`) and cannot be handed to
+  // allocate_comp_off_for_leave. These candidates come straight from
+  // employee_leave_records, so they carry the real record ids the allocator needs.
+  const { data: compOffCandidates = [], isLoading: compOffCandidatesLoading } =
+    useCompOffCandidates(formData.leave_type === 'COMP_OFF' ? employeeEmpId : null);
+  const [selectedCompOffIds, setSelectedCompOffIds] = useState<string[]>([]);
+  const [allowUsedCompOff, setAllowUsedCompOff] = useState(false);
+
+  // Default to the historical behaviour — earliest expiry first — so an employee
+  // who does not care can simply submit, while one who applied for a specific day
+  // outside the app can correct the choice.
+  useEffect(() => {
+    if (formData.leave_type !== 'COMP_OFF') {
+      if (selectedCompOffIds.length > 0) setSelectedCompOffIds([]);
+      return;
+    }
+    if (compOffCandidates.length === 0 || requestedDays <= 0) return;
+    if (selectedCompOffIds.length > 0) return;
+    const available = compOffCandidates
+      .filter((candidate) => candidate.status === 'available')
+      .map((candidate) => candidate.recordId);
+    setSelectedCompOffIds(available.slice(0, requestedDays));
+  }, [compOffCandidates, formData.leave_type, requestedDays, selectedCompOffIds.length]);
+
+  const compOffSelectionShortfall =
+    formData.leave_type === 'COMP_OFF' && requestedDays > 0
+      ? Math.max(requestedDays - selectedCompOffIds.length, 0)
+      : 0;
   const matchingBalanceEntries = useMemo(() => {
     if (!balanceBucket) return null;
 
@@ -509,6 +543,13 @@ export default function LeaveApplication() {
       return;
     }
 
+    if (compOffSelectionShortfall > 0) {
+      toast.error(
+        `Choose ${compOffSelectionShortfall} more comp-off entr${compOffSelectionShortfall === 1 ? 'y' : 'ies'} — one for each day of leave.`
+      );
+      return;
+    }
+
     if (!formData.sap_applied) {
       toast.error('Please confirm whether you have already applied this leave on SAP.');
       return;
@@ -530,6 +571,10 @@ export default function LeaveApplication() {
         actual_rh_date: formData.leave_type === 'RH' && formData.actual_rh_date ? formData.actual_rh_date : null,
         actual_rh_date_2: null,
         ch_comp_off_dates: chDatesInRange.length > 0 ? chDatesInRange.map(ch => ({ date: ch.date, holiday_name: ch.holiday.name, holiday_id: ch.holiday.id })) : null,
+        comp_off_record_ids:
+          effectiveLeaveType === 'COMP_OFF' && selectedCompOffIds.length > 0
+            ? selectedCompOffIds
+            : null,
       });
 
       // Upload attachment if a file was selected
@@ -572,6 +617,8 @@ export default function LeaveApplication() {
         toast.success('Leave request submitted successfully');
       }
       setFormData({ leave_type: '', start_date: '', end_date: '', reason: '', actual_rh_date: '', actual_rh_date_2: '', rh_leave_date: '', sap_applied: '' });
+      setSelectedCompOffIds([]);
+      setAllowUsedCompOff(false);
       setAttachmentFile(null);
     } catch (error: any) {
       toast.error(error.message || 'Failed to submit leave request');
@@ -1010,6 +1057,27 @@ export default function LeaveApplication() {
                         )}
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {formData.leave_type === 'COMP_OFF' && requestedDays > 0 && (
+                  <div className="rounded-xl border border-slate-200/80 bg-white/90 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600 dark:text-slate-300 sm:text-[11px] sm:tracking-[0.2em]">
+                      Comp-off entries to use
+                    </div>
+                    <p className="mb-2 mt-0.5 text-[11px] leading-4 text-slate-600 dark:text-slate-300 sm:text-xs sm:leading-5">
+                      Pick which earned comp-off days this leave should consume. Entries already used
+                      outside the app are shown so you can spot a clash.
+                    </p>
+                    <CompOffPicker
+                      candidates={compOffCandidates}
+                      selectedIds={selectedCompOffIds}
+                      onChange={setSelectedCompOffIds}
+                      requiredCount={requestedDays}
+                      isLoading={compOffCandidatesLoading}
+                      allowUsedOverride={allowUsedCompOff}
+                      onAllowUsedOverrideChange={setAllowUsedCompOff}
+                    />
                   </div>
                 )}
 
