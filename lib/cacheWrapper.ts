@@ -42,7 +42,9 @@ export async function withCache<T>(
     const cached = await redis.get(key);
     if (cached !== null) {
       await recordCacheHit(key);
-      return typeof cached === 'string' ? JSON.parse(cached) : cached;
+      // redis.get() is typed `unknown`; the value is whatever this key's caller
+      // stored, which withCache cannot verify — the cast states that explicitly.
+      return (typeof cached === 'string' ? JSON.parse(cached) : cached) as T;
     }
   } catch (err) {
     console.warn(`[cache] Redis read error for ${key}:`, err);

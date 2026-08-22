@@ -24,17 +24,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       redis.hgetall(`stats:misses:${yesterday}`),
     ]);
 
-    // Calculate totals
-    const calculateTotal = (obj: Record<string, string>) => 
-      Object.values(obj).reduce((sum, val) => sum + parseInt(val, 10), 0);
+    // hgetall() is typed Record<string, unknown> and Upstash deserialises
+    // numeric-looking values, so a counter arrives as a number about as often as
+    // a string. Number() handles both, and the guard keeps one unparseable
+    // field from turning the whole total into NaN.
+    const calculateTotal = (obj: Record<string, unknown> | null) =>
+      Object.values(obj ?? {}).reduce<number>((sum, val) => {
+        const parsed = Number(val);
+        return sum + (Number.isFinite(parsed) ? parsed : 0);
+      }, 0);
 
-    const todayHitsTotal = calculateTotal(todayHits || {});
-    const todayMissesTotal = calculateTotal(todayMisses || {});
+    const todayHitsTotal = calculateTotal(todayHits);
+    const todayMissesTotal = calculateTotal(todayMisses);
     const todayTotal = todayHitsTotal + todayMissesTotal;
     const todayHitRatio = todayTotal > 0 ? (todayHitsTotal / todayTotal) * 100 : 0;
 
-    const yesterdayHitsTotal = calculateTotal(yesterdayHits || {});
-    const yesterdayMissesTotal = calculateTotal(yesterdayMisses || {});
+    const yesterdayHitsTotal = calculateTotal(yesterdayHits);
+    const yesterdayMissesTotal = calculateTotal(yesterdayMisses);
     const yesterdayTotal = yesterdayHitsTotal + yesterdayMissesTotal;
     const yesterdayHitRatio = yesterdayTotal > 0 ? (yesterdayHitsTotal / yesterdayTotal) * 100 : 0;
 
