@@ -1,5 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+import { violatesRotation } from "../_shared/dutyRotation.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": Deno.env.get("ALLOWED_ORIGIN") || "*",
   "Access-Control-Allow-Headers":
@@ -216,6 +218,8 @@ Deno.serve(async (req) => {
     // deno-lint-ignore no-explicit-any
     const rows: any[] = [];
     const fetchErrors: string[] = [];
+    /** Rows the rotation guard refused, reported back to whoever pressed Fetch. */
+    let totalRotationRejects = 0;
     const deadline = Date.now() + FETCH_BUDGET_MS;
     let firstRequest = true;
 
@@ -275,6 +279,7 @@ Deno.serve(async (req) => {
       }
 
       let skippedDates = 0;
+      let rotationRejects = 0;
 
       /** A row as written to `rosters`; row_index is null when the scrape omits it. */
       type RosterInsert = {
@@ -316,10 +321,21 @@ Deno.serve(async (req) => {
           return acc;
         }
 
+        const rowShift = normaliseShift(row.shift || "");
+        const rowTeam = normaliseTeam(row.team || team);
+
+        // A row the rotation calls impossible is dropped rather than written.
+        // Rows pooled here come from several tabs at once, so this is filtered
+        // per row: one mis-dated tab must not cost the others their data.
+        if (violatesRotation(isoDate, rowShift, rowTeam)) {
+          rotationRejects++;
+          return acc;
+        }
+
         acc.push({
           date: isoDate,
-          shift: normaliseShift(row.shift || ""),
-          team: normaliseTeam(row.team || team),
+          shift: rowShift,
+          team: rowTeam,
           unit: (row.unit || "").toUpperCase().trim() === "HQ" ? "WSO" : (row.unit || ""),
           employee_name: empName,
           position: positionValue,
@@ -332,6 +348,16 @@ Deno.serve(async (req) => {
 
       if (skippedDates > 0) {
         console.warn(`[fetch-roster] Skipped ${skippedDates} row(s) with unparseable dates`);
+      }
+
+      totalRotationRejects = rotationRejects;
+
+      if (rotationRejects > 0) {
+        // Worth a look in the sheet: the usual cause is the date cell on a tab.
+        console.warn(
+          `[fetch-roster] Rejected ${rotationRejects} row(s) whose date/shift/team ` +
+          `the duty rotation makes impossible — check the date cell on the source tab`,
+        );
       }
 
       // Deduplicate by unique constraint columns (date, shift, employee_name, unit, position)
@@ -396,9 +422,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ data: rows, count: rows.length }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ data: rows, count: rows.length, rotationRejects: totalRotationRejects }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   } catch (error) {
     console.error("Error:", error);
     const message = error instanceof Error ? error.message : "Internal server error";
