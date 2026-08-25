@@ -1,6 +1,6 @@
 import { supabase } from '../_shared/supabase.ts'
 import { logApiCall } from '../_shared/logger.ts'
-import { shiftIsoDate, violatesRotation } from '../_shared/dutyRotation.ts'
+import { getTeamDutyForDate, shiftIsoDate, violatesRotation } from '../_shared/dutyRotation.ts'
 
 const ENDPOINT  = '/functions/v1/sync-roster'
 const ALL_TEAMS = ['A', 'B', 'C', 'D', 'E']
@@ -163,8 +163,6 @@ type TeamFetchResult = {
   skippedDates:    number
   /** Rows the rotation guard refused — a mis-dated source tab, almost always. */
   rotationRejects: number
-  /** The sheet's own date when it disagrees with the one that was asked for. */
-  dateDrift:       string | null
 }
 
 async function fetchTeamRosterOnce(
@@ -269,19 +267,24 @@ async function fetchTeamRosterOnce(
   // Every row rejected means the whole tab is mis-dated, not that a stray row
   // slipped in.  Fail the team loudly instead of reporting an empty roster.
   if (kept.length === 0 && rotationRejects > 0) {
+    // Name what the rotation expected instead of what was requested: the
+    // requested date is not the expectation (see the note below), so quoting it
+    // would send whoever reads this looking at the wrong thing.
+    const sheetDate = records[0].date
     throw new RosterDataError(
-      `sheet is dated ${records[0].date}, which the rotation does not put team ` +
-      `${team} on ${shift} — correct the date cell on the source tab (asked for ${date})`,
+      `sheet is dated ${sheetDate}, but the rotation has team ${team} on ` +
+      `${getTeamDutyForDate(team, sheetDate)} that day, not ${shift} — ` +
+      `correct the date cell on the source tab`,
     )
   }
 
-  // Not fatal on its own: the sheet is sometimes published a day ahead, and the
-  // sheet's date is deliberately allowed to win.  Reported so a tab that has
-  // silently drifted is visible in the sync log rather than only in the data.
-  const sheetDate = kept[0]?.date ?? null
-  const dateDrift = sheetDate && sheetDate !== date ? sheetDate : null
-
-  return { records: kept, skippedDates, rotationRejects, dateDrift }
+  // Note that the sheet's date is NOT expected to equal the requested one, and
+  // comparing them would be noise rather than a check.  Each team keeps its own
+  // (team, shift) tab holding that team's own next turn on the shift, published
+  // days ahead — so one sync of "Morning" pulls five different dates, one per
+  // team, spread across the 5-day cycle.  Only the rotation can say whether any
+  // of them is wrong.
+  return { records: kept, skippedDates, rotationRejects }
 }
 
 // Retries on failure *and* on an empty result.  The webapp is flaky under load:
@@ -323,7 +326,7 @@ async function fetchTeamRoster(
 
   // Exhausted every attempt with an empty result rather than a hard failure.
   if (lastError?.message === 'returned 0 rows') {
-    return { records: [], skippedDates: 0, rotationRejects: 0, dateDrift: null }
+    return { records: [], skippedDates: 0, rotationRejects: 0 }
   }
   throw lastError ?? new Error('unknown fetch failure')
 }
@@ -372,16 +375,13 @@ Deno.serve(async (req) => {
     for (const [i, team] of ALL_TEAMS.entries()) {
       if (i > 0) await sleep(TEAM_GAP_MS)
       try {
-        const { records, skippedDates: skipped, rotationRejects: rejected, dateDrift } =
+        const { records, skippedDates: skipped, rotationRejects: rejected } =
           await fetchTeamRoster(rosterUrl, shift, team, targetDate)
         allRecords.push(...records)
         skippedDates += skipped
         rotationRejects += rejected
         if (rejected > 0) {
           warnings.push(`Team ${team}: ${rejected} row(s) failed the rotation check`)
-        }
-        if (dateDrift) {
-          warnings.push(`Team ${team}: sheet dated ${dateDrift}, asked for ${targetDate}`)
         }
         perTeamCounts.push(`${team}:${records.length}`)
         // An empty result is not an error, but it is never expected — surface it
