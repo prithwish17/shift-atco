@@ -326,3 +326,20 @@ All colors MUST be HSL.
   scrollbar-color: #6b7280 #dbe1ea;
   scrollbar-gutter: stable;
 }
+
+/* Dark-mode hairlines.
+   In the dark theme `--border` is 217 33% 17% — the same value as `--muted` and
+   `--card`, and only six points of lightness off `--background`.  A single card
+   edge survives that; a mesh of 1px rules does not, and the shift roster's
+   matrix reads as floating names with no grid at all.
+
+   `.crisp-borders` lifts the two tokens on a subtree.  Because Tailwind resolves
+   `border`/`border-input` as `hsl(var(--border))` per element, every descendant
+   picks the stronger colour up without a single className changing, and nothing
+   outside the subtree is repainted.  Elements that set their own border colour
+   (the roster's SAR / training / remarks bands) never resolve `--border` and are
+   unaffected. */
+.dark .crisp-borders {
+  --border: 215 20% 32%;
+  --input: 215 20% 32%;
+}

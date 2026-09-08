@@ -312,7 +312,9 @@ export default function ShiftRosterView({ actions, description }: Props) {
   };
 
   return (
-    <div className="space-y-3">
+    // `crisp-borders` is not a layout hook — it lifts the dark theme's border
+    // tokens for this page so the grid's 1px rules stay visible (see index.css).
+    <div className="crisp-borders space-y-3">
       {/* ── Title ── */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
