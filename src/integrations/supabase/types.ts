@@ -201,6 +201,7 @@ export type Database = {
           expires_at: string
           fetched_at: string
           id: string
+          list_type: string
           remarks: string | null
           shift: string | null
           sl_no: number | null
@@ -214,6 +215,7 @@ export type Database = {
           expires_at?: string
           fetched_at?: string
           id?: string
+          list_type?: string
           remarks?: string | null
           shift?: string | null
           sl_no?: number | null
@@ -227,6 +229,7 @@ export type Database = {
           expires_at?: string
           fetched_at?: string
           id?: string
+          list_type?: string
           remarks?: string | null
           shift?: string | null
           sl_no?: number | null

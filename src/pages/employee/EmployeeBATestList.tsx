@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import {
   CalendarDays,
   AlertCircle,
   CheckCircle2,
+  Clock3,
   User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,17 +23,26 @@ import { format, parseISO } from "date-fns";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+type ListType = "MAIN" | "STANDBY";
+
 interface BATestRow {
   id: string;
   sl_no: number | null;
   employee_name: string;
   employee_code: string | null;
+  list_type: string | null;
   test_time: string | null;
   remarks: string | null;
   shift: string | null;
   test_date: string;
   fetched_at: string;
   expires_at: string;
+}
+
+interface DateGroup {
+  date: string;
+  main: BATestRow[];
+  standby: BATestRow[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -57,6 +67,11 @@ function formatFetchedAt(iso: string): string {
 
 function normaliseCode(val: string | null | undefined): string {
   return (val ?? "").trim().toLowerCase();
+}
+
+/** Rows written before the standby list existed carry no list_type — they are main. */
+function rowListType(row: BATestRow): ListType {
+  return (row.list_type ?? "").trim().toUpperCase() === "STANDBY" ? "STANDBY" : "MAIN";
 }
 
 /** Higher number = later shift. */
@@ -99,8 +114,8 @@ export default function EmployeeBATestList() {
     refetchInterval: 5 * 60 * 1000,
   });
 
-  // Group by date — show only the latest shift per date.
-  const byDate = useMemo(() => {
+  // Group by date — show only the latest shift per date, split main vs standby.
+  const byDate = useMemo<DateGroup[]>(() => {
     // First pass: determine latest shift for each date
     const dateToLatestShift = new Map<string, string>();
     for (const r of rows) {
@@ -112,8 +127,10 @@ export default function EmployeeBATestList() {
       }
     }
 
-    // Second pass: keep only rows from the latest shift, deduplicate employees
-    const map = new Map<string, BATestRow[]>();
+    // Second pass: keep only rows from the latest shift, deduplicate employees.
+    // A name is kept once per date across both lists, so someone who somehow
+    // appears on main and standby is shown as main only.
+    const map = new Map<string, DateGroup>();
     const seenByDate = new Map<string, Set<string>>();
 
     for (const r of rows) {
@@ -130,41 +147,132 @@ export default function EmployeeBATestList() {
       if (seenNames.has(employeeKey)) continue;
       seenNames.add(employeeKey);
 
-      if (!map.has(dateKey)) map.set(dateKey, []);
-      map.get(dateKey)!.push(r);
+      if (!map.has(dateKey)) map.set(dateKey, { date: dateKey, main: [], standby: [] });
+      const group = map.get(dateKey)!;
+      if (rowListType(r) === "STANDBY") group.standby.push(r);
+      else group.main.push(r);
     }
 
-    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+    return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
   }, [rows]);
 
   // Filter rows by search
-  const filtered = useMemo(() => {
+  const filtered = useMemo<DateGroup[]>(() => {
     const q = search.trim().toLowerCase();
     if (!q) return byDate;
-    return byDate.map(([date, dateRows]) => [
-      date,
-      dateRows.filter(
-        (r) =>
-          r.employee_name.toLowerCase().includes(q) ||
-          (r.employee_code ?? "").toLowerCase().includes(q) ||
-          (r.test_time ?? "").toLowerCase().includes(q),
-      ),
-    ] as [string, BATestRow[]]).filter(([, dateRows]) => (dateRows as BATestRow[]).length > 0);
+    const matches = (r: BATestRow) =>
+      r.employee_name.toLowerCase().includes(q) ||
+      (r.employee_code ?? "").toLowerCase().includes(q) ||
+      (r.test_time ?? "").toLowerCase().includes(q);
+
+    return byDate
+      .map((g) => ({ date: g.date, main: g.main.filter(matches), standby: g.standby.filter(matches) }))
+      .filter((g) => g.main.length > 0 || g.standby.length > 0);
   }, [byDate, search]);
 
-  // Check if current user is in the list
-  const iAmListed = useMemo(() => {
-    if (!myCode && !myName) return false;
-    return rows.some(
-      (r) =>
+  const isMyRow = useCallback(
+    (r: BATestRow) =>
+      Boolean(
         (myCode && normaliseCode(r.employee_code) === myCode) ||
         (myName && normaliseCode(r.employee_name) === myName),
-    );
-  }, [rows, myCode, myName]);
+      ),
+    [myCode, myName],
+  );
 
-  const isMyRow = (r: BATestRow) =>
-    (myCode && normaliseCode(r.employee_code) === myCode) ||
-    (myName && normaliseCode(r.employee_name) === myName);
+  /** Which list the current user is on, across everything loaded. */
+  const myListType = useMemo<ListType | null>(() => {
+    if (!myCode && !myName) return null;
+    const mine = rows.filter(isMyRow);
+    if (mine.length === 0) return null;
+    return mine.some((r) => rowListType(r) === "MAIN") ? "MAIN" : "STANDBY";
+  }, [rows, myCode, myName, isMyRow]);
+
+  const statusBanner =
+    myListType === "MAIN"
+      ? {
+          className:
+            "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300",
+          icon: <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />,
+          text: "You are on the main list for a BA test in the current list.",
+        }
+      : myListType === "STANDBY"
+      ? {
+          className:
+            "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300",
+          icon: <Clock3 className="h-4 w-4 shrink-0 text-amber-500" />,
+          text: "You are on the standby list — report only if you are called.",
+        }
+      : {
+          className:
+            "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300",
+          icon: <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />,
+          text: "You are not listed for a BA test in the current list.",
+        };
+
+  const renderTable = (rowList: BATestRow[], listType: ListType) => (
+    <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
+      <table className="w-full border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 bg-slate-900 text-left dark:border-slate-700">
+            <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+              Employee Name
+            </th>
+            <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+              Employee Number
+            </th>
+            <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+              Shift
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rowList.map((row, idx) => {
+            const mine = isMyRow(row);
+            const highlight =
+              listType === "STANDBY"
+                ? "bg-amber-50/70 dark:bg-amber-900/20"
+                : "bg-amber-50 dark:bg-amber-900/20";
+            return (
+              <tr
+                key={row.id}
+                className={`${
+                  mine
+                    ? highlight
+                    : idx % 2 === 0
+                    ? "bg-white dark:bg-slate-950"
+                    : "bg-slate-50 dark:bg-slate-900"
+                }`}
+              >
+                <td className="border-b border-slate-100 px-4 py-2.5 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    {mine && <User className="h-3.5 w-3.5 shrink-0 text-amber-500" />}
+                    <p
+                      className={`font-medium ${
+                        mine
+                          ? "text-amber-700 dark:text-amber-400"
+                          : "text-slate-900 dark:text-slate-100"
+                      }`}
+                    >
+                      {row.employee_name}
+                    </p>
+                    {mine && (
+                      <Badge className="ml-1 bg-amber-500 text-white text-[10px]">You</Badge>
+                    )}
+                  </div>
+                </td>
+                <td className="border-b border-slate-100 px-4 py-2.5 tabular-nums text-slate-600 dark:border-slate-800 dark:text-slate-300">
+                  {row.employee_code ?? "—"}
+                </td>
+                <td className="border-b border-slate-100 px-4 py-2.5 text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                  {row.shift ?? (guessShift(row.test_time) || "—")}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 
   return (
     <DashboardLayout role="employee">
@@ -198,22 +306,10 @@ export default function EmployeeBATestList() {
         {/* Personal status banner */}
         {!isLoading && rows.length > 0 && (
           <div
-            className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-sm ${
-              iAmListed
-                ? "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300"
-                : "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300"
-            }`}
+            className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-sm ${statusBanner.className}`}
           >
-            {iAmListed ? (
-              <AlertCircle className="h-4 w-4 shrink-0 text-red-500" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-            )}
-            <span>
-              {iAmListed
-                ? "You are listed for a BA test in the current list."
-                : "You are not listed for a BA test in the current list."}
-            </span>
+            {statusBanner.icon}
+            <span>{statusBanner.text}</span>
           </div>
         )}
 
@@ -262,33 +358,37 @@ export default function EmployeeBATestList() {
 
         {/* Grouped date sections */}
         {!isLoading &&
-          filtered.map(([dateStr, dateRows]) => {
-            const rowList = dateRows as BATestRow[];
-            const fetchedAt =
-              rowList[0]?.fetched_at ? formatFetchedAt(rowList[0].fetched_at) : null;
+          filtered.map((group) => {
+            const headRow = group.main[0] ?? group.standby[0];
+            const fetchedAt = headRow?.fetched_at ? formatFetchedAt(headRow.fetched_at) : null;
 
             return (
-              <div key={dateStr} className="space-y-2">
+              <div key={group.date} className="space-y-3">
                 {/* Date header */}
                 <div className="flex items-center gap-2">
                   <CalendarDays className="h-4 w-4 text-slate-400" />
                   <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
                     {(() => {
                       try {
-                        return format(parseISO(dateStr), "EEEE, dd MMMM yyyy");
+                        return format(parseISO(group.date), "EEEE, dd MMMM yyyy");
                       } catch {
-                        return dateStr;
+                        return group.date;
                       }
                     })()}
                   </span>
-                  {rowList[0]?.shift && (
+                  {headRow?.shift && (
                     <Badge className="text-xs bg-slate-700 text-slate-200">
-                      {rowList[0].shift} Shift
+                      {headRow.shift} Shift
                     </Badge>
                   )}
                   <Badge variant="secondary" className="text-xs">
-                    {rowList.length} {rowList.length === 1 ? "employee" : "employees"}
+                    {group.main.length} main
                   </Badge>
+                  {group.standby.length > 0 && (
+                    <Badge variant="secondary" className="text-xs">
+                      {group.standby.length} standby
+                    </Badge>
+                  )}
                   {fetchedAt && (
                     <span className="ml-auto hidden text-[11px] text-slate-400 sm:block">
                       Fetched {fetchedAt}
@@ -296,69 +396,34 @@ export default function EmployeeBATestList() {
                   )}
                 </div>
 
-                {/* Table */}
-                <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-200 bg-slate-900 text-left dark:border-slate-700">
-                        <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
-                          Employee Name
-                        </th>
-                        <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
-                          Employee Number
-                        </th>
-                        <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
-                          Shift
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rowList.map((row, idx) => {
-                        const mine = isMyRow(row);
-                        return (
-                          <tr
-                            key={row.id}
-                            className={`${
-                              mine
-                                ? "bg-amber-50 dark:bg-amber-900/20"
-                                : idx % 2 === 0
-                                ? "bg-white dark:bg-slate-950"
-                                : "bg-slate-50 dark:bg-slate-900"
-                            }`}
-                          >
-                            <td className="border-b border-slate-100 px-4 py-2.5 dark:border-slate-800">
-                              <div className="flex items-center gap-2">
-                                {mine && (
-                                  <User className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                                )}
-                                <p
-                                  className={`font-medium ${
-                                    mine
-                                      ? "text-amber-700 dark:text-amber-400"
-                                      : "text-slate-900 dark:text-slate-100"
-                                  }`}
-                                >
-                                  {row.employee_name}
-                                </p>
-                                {mine && (
-                                  <Badge className="ml-1 bg-amber-500 text-white text-[10px]">
-                                    You
-                                  </Badge>
-                                )}
-                              </div>
-                            </td>
-                            <td className="border-b border-slate-100 px-4 py-2.5 tabular-nums text-slate-600 dark:border-slate-800 dark:text-slate-300">
-                              {row.employee_code ?? "—"}
-                            </td>
-                            <td className="border-b border-slate-100 px-4 py-2.5 text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                              {row.shift ?? (guessShift(row.test_time) || "—")}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                {/* Main list */}
+                {group.main.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+                      <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                        Selected for BA test — main list
+                      </span>
+                    </div>
+                    {renderTable(group.main, "MAIN")}
+                  </div>
+                )}
+
+                {/* Standby list */}
+                {group.standby.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Clock3 className="h-3.5 w-3.5 text-amber-500" />
+                      <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                        Standby list
+                      </span>
+                    </div>
+                    {renderTable(group.standby, "STANDBY")}
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                      Standby ATCOs are tested only if someone on the main list is unavailable.
+                    </p>
+                  </div>
+                )}
               </div>
             );
           })}

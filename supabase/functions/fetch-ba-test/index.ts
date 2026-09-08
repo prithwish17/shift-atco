@@ -149,14 +149,20 @@ Deno.serve(async (req) => {
 
         const json = await response.json();
 
-        // ── Parse the new format: { team, shift, employees: [{employee_number, name}] }
-        // Also support legacy flat arrays for backwards compatibility.
+        // ── Parse the BAT_REPORT feed ────────────────────────────────────────
+        // Current shape (docs/ba-test-apps-script/Code.gs):
+        //   { team, shift, date, main_list: [...], standby_list: [...] }
+        // Older shapes still accepted: { team, shift, employees: [...] } and a
+        // bare array of rows.
         const todayIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+        type ListType = "MAIN" | "STANDBY";
 
         type Row = {
             sl_no: number | null;
             employee_name: string;
             employee_code: string | null;
+            list_type: ListType;
             test_time: string | null;
             remarks: string | null;
             shift: string | null;
@@ -171,61 +177,80 @@ Deno.serve(async (req) => {
         const normaliseShift = (s: string) =>
             s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 
-        // ── New format: { team, shift, employees: [{employee_number, name}] }
-        if (json && typeof json === "object" && !Array.isArray(json) && Array.isArray(json.employees)) {
-            const shift    = String(json.shift ?? "").trim();
-            const expiresAt = shiftExpiresAt(shift, todayIST);
-            const now      = new Date().toISOString();
+        const isObj = (v: unknown): v is Record<string, unknown> =>
+            !!v && typeof v === "object" && !Array.isArray(v);
 
-            rows = json.employees
-                .filter((e: unknown) => e && typeof e === "object")
-                .map((e: Record<string, unknown>, idx: number) => {
-                    const name = String(e["name"] ?? e["employee_name"] ?? e["Name"] ?? "").trim();
-                    if (!name) return null;
-                    const empNum = e["employee_number"] ?? e["employee_code"] ?? e["emp_code"] ?? null;
-                    return {
-                        sl_no:         idx + 1,
-                        employee_name: name,
-                        employee_code: empNum !== null ? String(empNum).trim() : null,
-                        test_time:     String(e["test_time"] ?? e["time"] ?? "").trim() || null,
-                        remarks:       String(e["remarks"] ?? e["Remarks"] ?? "").trim() || null,
-                        shift:         normaliseShift(shift) || null,
-                        test_date:     todayIST,
-                        fetched_at:    now,
-                        expires_at:    expiresAt,
-                    } as Row;
+        const asArray = (v: unknown): Record<string, unknown>[] =>
+            Array.isArray(v) ? v.filter(isObj) : [];
+
+        const now = new Date().toISOString();
+
+        /** One sheet entry → one ba_test_list row, or null when it has no name. */
+        function toRow(
+            e: Record<string, unknown>,
+            idx: number,
+            listType: ListType,
+            shift: string,
+            expiresAt: string,
+        ): Row | null {
+            const name = String(e["name"] ?? e["employee_name"] ?? e["Name"] ?? "").trim();
+            if (!name) return null;
+            const empNum = e["employee_number"] ?? e["employee_code"] ?? e["emp_code"] ?? null;
+            const slNo = Number(e["sl_no"] ?? e["sl"] ?? e["sr_no"] ?? NaN);
+            return {
+                sl_no:         Number.isFinite(slNo) && slNo > 0 ? slNo : idx + 1,
+                employee_name: name,
+                employee_code: empNum !== null ? String(empNum).trim() || null : null,
+                list_type:     listType,
+                test_time:     String(e["test_time"] ?? e["time"] ?? "").trim() || null,
+                remarks:       String(e["status"] ?? e["remarks"] ?? e["Remarks"] ?? "").trim() || null,
+                shift:         normaliseShift(shift) || null,
+                test_date:     todayIST,
+                fetched_at:    now,
+                expires_at:    expiresAt,
+            };
+        }
+
+        // ── Current format: separate main and standby blocks ──────────────────
+        if (isObj(json) && (Array.isArray(json.main_list) || Array.isArray(json.standby_list) ||
+                            Array.isArray(json.main) || Array.isArray(json.standby))) {
+            const shift     = String(json.shift ?? "").trim();
+            const expiresAt = shiftExpiresAt(shift, todayIST);
+
+            const mainRaw    = asArray(json.main_list ?? json.main);
+            const standbyRaw = asArray(json.standby_list ?? json.standby);
+
+            // Main first — if a name somehow appears on both lists, the dedupe
+            // below keeps the main entry.
+            rows = [
+                ...mainRaw.map((e, i) => toRow(e, i, "MAIN", shift, expiresAt)),
+                ...standbyRaw.map((e, i) => toRow(e, i, "STANDBY", shift, expiresAt)),
+            ].filter(Boolean) as Row[];
+        }
+        // ── Previous format: { team, shift, employees: [...] } ────────────────
+        else if (isObj(json) && Array.isArray(json.employees)) {
+            const shift     = String(json.shift ?? "").trim();
+            const expiresAt = shiftExpiresAt(shift, todayIST);
+
+            rows = asArray(json.employees)
+                .map((e, i) => {
+                    const declared = String(e["list_type"] ?? "").trim().toUpperCase();
+                    return toRow(e, i, declared === "STANDBY" ? "STANDBY" : "MAIN", shift, expiresAt);
                 })
                 .filter(Boolean) as Row[];
         }
-        // ── Legacy format: bare array or { status, data: [...] }
+        // ── Legacy format: bare array or { status, data: [...] } ──────────────
         else {
-            const rawRows: unknown[] = Array.isArray(json)
-                ? json
-                : Array.isArray(json?.data) ? json.data : [];
-
-            const now = new Date().toISOString();
+            const rawRows = asArray(Array.isArray(json) ? json : (isObj(json) ? json.data : []));
 
             rows = rawRows
-                .map((raw: unknown, idx: number) => {
-                    if (!raw || typeof raw !== "object") return null;
-                    const r = raw as Record<string, unknown>;
-                    const name = String(r["employee_name"] ?? r["name"] ?? r["Name"] ?? r["Employee Name"] ?? "").trim();
-                    if (!name) return null;
+                .map((r, idx) => {
                     const shift = String(r["shift"] ?? "").trim();
                     const expiresAt = shift
                         ? shiftExpiresAt(shift, todayIST)
                         : new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
-                    return {
-                        sl_no:         Number(r["sl_no"] ?? r["sl"] ?? r["Sr"] ?? r["sr_no"] ?? idx + 1) || idx + 1,
-                        employee_name: name,
-                        employee_code: String(r["employee_code"] ?? r["employee_number"] ?? r["code"] ?? r["emp_code"] ?? "").trim() || null,
-                        test_time:     String(r["test_time"] ?? r["time"] ?? "").trim() || null,
-                        remarks:       String(r["remarks"] ?? r["Remarks"] ?? "").trim() || null,
-                        shift:         normaliseShift(shift) || null,
-                        test_date:     todayIST,
-                        fetched_at:    now,
-                        expires_at:    expiresAt,
-                    } as Row;
+                    const declared = String(r["list_type"] ?? "").trim().toUpperCase();
+                    return toRow(r, idx, declared === "STANDBY" ? "STANDBY" : "MAIN", shift, expiresAt);
                 })
                 .filter(Boolean) as Row[];
         }
@@ -264,11 +289,21 @@ Deno.serve(async (req) => {
             else inserted += rows.slice(i, i + BATCH).length;
         }
 
-        const msg = `Fetched ${rows.length} employees (shift: ${fetchedShift ?? "unknown"}), inserted ${inserted} for ${todayIST}`;
+        const mainCount    = rows.filter((r) => r.list_type === "MAIN").length;
+        const standbyCount = rows.length - mainCount;
+
+        const msg = `Fetched ${mainCount} main + ${standbyCount} standby (shift: ${fetchedShift ?? "unknown"}), inserted ${inserted} for ${todayIST}`;
         await logApiCall("success", msg, Date.now() - startTime, triggeredBy, inserted);
 
         return new Response(
-            JSON.stringify({ success: true, shift: fetchedShift, rows: rows.length, inserted }),
+            JSON.stringify({
+                success: true,
+                shift: fetchedShift,
+                rows: rows.length,
+                main: mainCount,
+                standby: standbyCount,
+                inserted,
+            }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
     } catch (error) {

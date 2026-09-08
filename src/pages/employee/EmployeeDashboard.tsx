@@ -255,9 +255,14 @@ export default function EmployeeDashboard() {
     queryFn: async () => {
       const { data } = await (supabase as any)
         .from("ba_test_list")
-        .select("employee_code, employee_name, shift")
+        .select("employee_code, employee_name, shift, list_type")
         .eq("test_date", format(new Date(), "yyyy-MM-dd"));
-      return (data ?? []) as { employee_code: string | null; employee_name: string; shift: string | null }[];
+      return (data ?? []) as {
+        employee_code: string | null;
+        employee_name: string;
+        shift: string | null;
+        list_type: string | null;
+      }[];
     },
     // The banner's cutoffs move on a 30-minute grid, so minute-by-minute polling
     // only cost every employee a request a minute.
@@ -272,10 +277,15 @@ export default function EmployeeDashboard() {
 
     const myCode = String(profile.employee_id ?? "").trim().toLowerCase();
     const myName = String(profile.full_name ?? "").trim().toLowerCase();
-    return baTestRows.find(r =>
+    const mine = baTestRows.filter(r =>
       (myCode && String(r.employee_code ?? "").trim().toLowerCase() === myCode) ||
       (myName && String(r.employee_name ?? "").trim().toLowerCase() === myName)
-    ) ?? null;
+    );
+    if (mine.length === 0) return null;
+
+    // A main-list selection outranks a standby one: the compulsory test is the
+    // thing the employee has to act on.
+    return mine.find(r => String(r.list_type ?? "MAIN").toUpperCase() !== "STANDBY") ?? mine[0];
   }, [baTestRows, profile]);
 
   const baTestAlert = useMemo(() => {
@@ -472,30 +482,54 @@ export default function EmployeeDashboard() {
       <div className="space-y-4 md:space-y-6">
 
         {/* ─── BA Test Alert Banner (time-aware, dismissible) ─── */}
-        {baTestAlert && !isBaBannerDismissed && (
-          <div className="rounded-xl border border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20 p-4 md:p-5 relative">
-            <div className="flex items-start gap-3">
-              <div className="size-9 bg-red-100 dark:bg-red-800/50 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                <FlaskConical className="size-4 text-red-600 dark:text-red-400" />
+        {baTestAlert && !isBaBannerDismissed && (() => {
+          const isStandby = String(baTestAlert.list_type ?? "MAIN").toUpperCase() === "STANDBY";
+          const shiftLabel = baTestAlert.shift ? `${baTestAlert.shift} Shift` : "Today";
+          const tone = isStandby
+            ? {
+                wrap:    "border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20",
+                bubble:  "bg-amber-100 dark:bg-amber-800/50",
+                icon:    "text-amber-600 dark:text-amber-400",
+                title:   "text-amber-800 dark:text-amber-200",
+                body:    "text-amber-700 dark:text-amber-300",
+                dismiss: "hover:bg-amber-200 dark:hover:bg-amber-800/50",
+              }
+            : {
+                wrap:    "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20",
+                bubble:  "bg-red-100 dark:bg-red-800/50",
+                icon:    "text-red-600 dark:text-red-400",
+                title:   "text-red-800 dark:text-red-200",
+                body:    "text-red-700 dark:text-red-300",
+                dismiss: "hover:bg-red-200 dark:hover:bg-red-800/50",
+              };
+
+          return (
+            <div className={`rounded-xl border p-4 md:p-5 relative ${tone.wrap}`}>
+              <div className="flex items-start gap-3">
+                <div className={`size-9 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${tone.bubble}`}>
+                  <FlaskConical className={`size-4 ${tone.icon}`} />
+                </div>
+                <div className="flex-1 min-w-0 pr-8">
+                  <p className={`text-sm font-semibold ${tone.title}`}>
+                    {isStandby ? "BA Test Standby" : "Mandatory BA Test"} — {shiftLabel}
+                  </p>
+                  <p className={`mt-1 text-sm leading-snug ${tone.body}`}>
+                    {isStandby
+                      ? "You are on the standby list for today's Breath Analyzer (BA) test. Kindly remain available — you will be tested only if someone on the main list is unavailable."
+                      : "You have been selected for today's mandatory Breath Analyzer (BA) test. Kindly report to the testing station prior to commencing your shift."}
+                  </p>
+                </div>
+                <button
+                  onClick={handleDismissBaBanner}
+                  className={`absolute top-3 right-3 size-6 flex items-center justify-center rounded-md transition-colors ${tone.dismiss}`}
+                  aria-label="Dismiss BA test alert"
+                >
+                  <X className={`size-4 ${tone.icon}`} />
+                </button>
               </div>
-              <div className="flex-1 min-w-0 pr-8">
-                <p className="text-sm font-semibold text-red-800 dark:text-red-200">
-                  Mandatory BA Test — {baTestAlert.shift ? `${baTestAlert.shift} Shift` : "Today"}
-                </p>
-                <p className="mt-1 text-sm text-red-700 dark:text-red-300 leading-snug">
-                  You have been selected for today's mandatory Breath Analyzer (BA) test. Kindly report to the testing station prior to commencing your shift.
-                </p>
-              </div>
-              <button
-                onClick={handleDismissBaBanner}
-                className="absolute top-3 right-3 size-6 flex items-center justify-center rounded-md hover:bg-red-200 dark:hover:bg-red-800/50 transition-colors"
-                aria-label="Dismiss BA test alert"
-              >
-                <X className="size-4 text-red-600 dark:text-red-400" />
-              </button>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ─── Pending Duty Exchange Banner ─── */}
         {pendingExchanges.length > 0 && (
