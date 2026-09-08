@@ -7,7 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { Moon, Sun, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { Moon, Sun, Eye, EyeOff, AlertCircle, HelpCircle } from "lucide-react";
+import LoginHelpDialog from "@/components/auth/LoginHelpDialog";
 import { useToast } from "@/hooks/use-toast";
 import { getHomeRouteForRole } from "@/lib/roleRoutes";
 import { loginSchema, LoginInput } from "@/lib/validations";
@@ -21,6 +22,12 @@ export default function Login() {
   const [formData, setFormData] = useState<LoginInput>({ email: "", password: "" });
   const [errors, setErrors] = useState<Partial<Record<keyof LoginInput, string>>>({});
   const [authError, setAuthError] = useState<string>("");
+
+  const [helpOpen, setHelpOpen] = useState(false);
+  // A single typo should not be answered with a modal, so the dialog opens
+  // itself only once the credentials have been refused twice running; the
+  // first refusal offers the help link inside the error instead.
+  const [failedAttempts, setFailedAttempts] = useState(0);
 
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -60,9 +67,15 @@ export default function Login() {
       if (error) {
         // Use generic error message to prevent account enumeration
         setAuthError("Login failed. Please check your credentials and try again.");
+        setFailedAttempts((count) => {
+          const next = count + 1;
+          if (next >= 2) setHelpOpen(true);
+          return next;
+        });
         // Log detailed error for debugging (server-side in production)
         if (import.meta.env.DEV) console.error("Login error:", error);
       } else {
+        setFailedAttempts(0);
         setSignInSucceeded(true);
         toast({
           title: "Login successful",
@@ -123,7 +136,17 @@ export default function Login() {
             {authError && (
               <Alert variant="destructive" className="mb-4">
                 <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{authError}</AlertDescription>
+                <AlertDescription className="space-y-2">
+                  <p>{authError}</p>
+                  <button
+                    type="button"
+                    onClick={() => setHelpOpen(true)}
+                    className="inline-flex items-center gap-1 font-semibold underline underline-offset-2"
+                  >
+                    <HelpCircle className="h-3.5 w-3.5" aria-hidden />
+                    Need help signing in?
+                  </button>
+                </AlertDescription>
               </Alert>
             )}
 
@@ -194,10 +217,24 @@ export default function Login() {
           </CardContent>
         </Card>
 
-        <div className="text-center text-xs text-muted-foreground">
-          ATCORA v1.0.0 - Secure Authentication
+        <div className="flex flex-col items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setHelpOpen(true)}
+            className="text-muted-foreground"
+          >
+            <HelpCircle className="mr-1.5 h-4 w-4" aria-hidden />
+            Need help?
+          </Button>
+          <p className="text-center text-xs text-muted-foreground">
+            ATCORA v1.0.0 - Secure Authentication
+          </p>
         </div>
       </div>
+
+      <LoginHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   );
 }
