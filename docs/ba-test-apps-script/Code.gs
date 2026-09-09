@@ -60,7 +60,7 @@ var SHEET_NAME     = 'BAT_REPORT';
  * STATUS on the two selection lists and ATTENDANCE on the roll call.
  */
 var SECTIONS = [
-  { key: 'standby', title: /STANDBY/i,                          extra: 'status'     },
+  { key: 'standby', title: /STAND[\s-]*BY/i,                    extra: 'status'     },
   { key: 'present', title: /ALL\s+PRESENT/i,                    extra: 'attendance' },
   { key: 'main',    title: /MAIN\s+LIST|SELECTED\s+FOR\s+BA/i,  extra: 'status'     }
 ];
