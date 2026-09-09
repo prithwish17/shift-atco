@@ -7,6 +7,7 @@ import {
   type RosterGridModel,
   type RosterPerson,
 } from "@/lib/rosterGrid";
+import { STICKY_COLUMN_SHADOW, STICKY_CORNER_SHADOW, STICKY_HEADER_SHADOW } from "@/lib/stickyShadow";
 import { cn } from "@/lib/utils";
 
 /**
@@ -27,9 +28,9 @@ interface Props {
 }
 
 /** Sticky layering: header row over body, unit column over cells, corner over both. */
-const STICKY_HEAD = "sticky top-0 z-20 bg-muted";
-const STICKY_UNIT = "sticky left-0 z-10 bg-background";
-const STICKY_CORNER = "sticky left-0 top-0 z-30 bg-muted";
+const STICKY_HEAD = `sticky top-0 z-20 bg-muted ${STICKY_HEADER_SHADOW}`;
+const STICKY_UNIT = `sticky left-0 z-10 bg-background ${STICKY_COLUMN_SHADOW}`;
+const STICKY_CORNER = `sticky left-0 top-0 z-30 bg-muted ${STICKY_CORNER_SHADOW}`;
 
 function PersonCell({
   person,
@@ -136,8 +137,8 @@ function SectionTable({
       </p>
 
       {/* Only the table scrolls sideways — the page itself never does. */}
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full border-collapse text-xs">
+      <div className="overflow-x-auto rounded-lg border border-border/80 shadow-sm bg-card">
+        <table className="w-full border-separate border-spacing-0 text-xs">
           <thead>
             <tr>
               <th
@@ -162,7 +163,7 @@ function SectionTable({
             </tr>
           </thead>
 
-          <tbody>
+          <tbody className="[&_tr:last-child_th]:border-b-0 [&_tr:last-child_td]:border-b-0">
             {section.rows.map((row) => (
               <tr key={row.key} className="even:bg-muted/30">
                 <th
@@ -172,8 +173,10 @@ function SectionTable({
                     "border-b border-r px-2 py-1.5 text-left align-top font-semibold",
                     // The zebra stripe has to be repeated here: a sticky cell
                     // paints its own background and would otherwise show the
-                    // page through it while scrolling.
-                    "[tr:nth-child(even)>&]:bg-muted/30",
+                    // page through it while scrolling.  Opaque, not the row's
+                    // `muted/30` — at 30% the names sliding past show through
+                    // the frozen column and collide with the unit names.
+                    "[tr:nth-child(even)>&]:bg-[hsl(var(--roster-stripe))]",
                   )}
                 >
                   {row.label}
@@ -239,7 +242,7 @@ function PeopleBand({
   if (people.length === 0) return null;
 
   return (
-    <div className={cn("rounded-lg border px-2 py-1.5", tone)}>
+    <div className={cn("rounded-lg border border-border/80 shadow-xs px-2 py-1.5", tone)}>
       <p className="pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {title} · {people.length}
       </p>
@@ -272,7 +275,7 @@ function CommandBand({
   if (bands.length === 0) return null;
 
   return (
-    <div className="overflow-hidden rounded-lg border">
+    <div className="overflow-hidden rounded-lg border border-border/80 shadow-xs bg-card">
       <table className="w-full border-collapse text-xs">
         <tbody>
           {bands.map((band) => (

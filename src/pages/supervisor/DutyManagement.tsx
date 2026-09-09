@@ -27,6 +27,8 @@ import { useToast } from "@/hooks/use-toast";
 import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 import { logSupervisorEdit } from "@/lib/supervisorAuditLog";
 import { upsertDuty, type DutyCellWrite } from "@/data-access/schedule.repository";
+import { fetchScheduleRowsInRange } from "@/data-access/schedule-reads";
+import { STICKY_COLUMN_SHADOW, STICKY_HEADER_SHADOW } from "@/lib/stickyShadow";
 
 /* ── Types ── */
 interface ScheduleEntry {
@@ -37,6 +39,13 @@ interface ScheduleEntry {
     duty_code: string;
     duty_description: string;
 }
+
+/**
+ * The grid only ever reads a cell's duty code, so the month query selects four
+ * columns rather than the whole row — on a 30-day month that is a materially
+ * smaller payload than `ScheduleEntry`.
+ */
+type ScheduleGridCell = Pick<ScheduleEntry, "id" | "employee_code" | "duty_date" | "duty_code">;
 
 interface ProfileLite {
     id: string;
@@ -369,44 +378,17 @@ export default function DutyManagement() {
     const { data: schedules = [], isLoading: schedulesLoading } = useQuery({
         queryKey: scheduleKeys.grid(startDate, endDate),
         ...SCHEDULE_QUERY_OPTIONS,
-        // Fix 1: Parallel pagination — all pages fetched simultaneously instead of sequentially.
-        // For a typical month (~1550 rows = 2 pages) this is ~2× faster than the old while-loop.
-        queryFn: async () => {
-            if (!startDate || !endDate) return [];
-
-            const PAGE_SIZE = 1000;
-
-            // Step 1: Lightweight HEAD request to get the total row count
-            const { count, error: countError } = await supabase
-                .from("employee_schedules" as any)
-                .select("*", { count: "exact", head: true })
-                .gte("duty_date", startDate)
-                .lte("duty_date", endDate);
-
-            if (countError) throw countError;
-
-            const totalRows = count || 0;
-            if (totalRows === 0) return [];
-
-            // Step 2: Fetch all pages in parallel
-            const pages = await Promise.all(
-                Array.from({ length: Math.ceil(totalRows / PAGE_SIZE) }, (_, i) =>
-                    supabase
-                        .from("employee_schedules" as any)
-                        .select("id, employee_code, duty_date, duty_code")
-                        .gte("duty_date", startDate)
-                        .lte("duty_date", endDate)
-                        .order("duty_date")
-                        .range(i * PAGE_SIZE, (i + 1) * PAGE_SIZE - 1)
-                        .then(({ data, error }) => {
-                            if (error) throw error;
-                            return data || [];
-                        })
-                )
-            );
-
-            return pages.flat() as unknown as ScheduleEntry[];
-        },
+        // Keyset-paged (see schedule-reads.ts).  This used to ask for an exact
+        // `count` and then fire every OFFSET page in parallel: the count alone is
+        // a full scan, and the deep pages re-scan and discard everything before
+        // them, so under concurrent load the whole grid failed with a 500 once
+        // the month held enough rows.
+        queryFn: () =>
+            fetchScheduleRowsInRange<ScheduleGridCell>({
+                startDate,
+                endDate,
+                columns: "id, employee_code, duty_date, duty_code",
+            }),
         enabled: !!startDate && !!endDate,
     });
 
@@ -897,7 +879,7 @@ export default function DutyManagement() {
                         <div className="flex-1 flex overflow-hidden min-h-0">
                             {/* ── LEFT PANEL: Fixed employee columns (scrolls vertically only, synced) ── */}
                             <div
-                                className="flex-shrink-0 flex flex-col border-r-2 border-gray-400 shadow-[3px_0_8px_rgba(0,0,0,0.08)] z-10 bg-background"
+                                className={`flex-shrink-0 flex flex-col border-r-2 border-gray-400 ${STICKY_COLUMN_SHADOW} z-10 bg-background`}
                                 onWheel={(e) => {
                                     // Forward wheel events to the grid — the existing onGridScroll
                                     // handler will then sync namesRef.scrollTop automatically.
@@ -908,7 +890,7 @@ export default function DutyManagement() {
                                 }}
                             >
                                 {/* Left header */}
-                                <div className={`flex ${ROW_H} border-b-2 border-gray-400 bg-muted/60 flex-shrink-0`}>
+                                <div className={`flex ${ROW_H} border-b-2 border-gray-400 bg-muted flex-shrink-0 ${STICKY_HEADER_SHADOW}`}>
                                     <div style={{ width: EMP_ID_W }} className="px-2 flex items-center justify-center border-r border-gray-300 shrink-0">
                                         <span className="font-semibold text-xs truncate">Emp ID</span>
                                     </div>
@@ -974,7 +956,7 @@ export default function DutyManagement() {
                             <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                                 <div
                                     ref={dateHeaderRef}
-                                    className="shrink-0 overflow-x-auto overflow-y-hidden min-w-0 bg-background [&::-webkit-scrollbar]:hidden"
+                                    className={`shrink-0 overflow-x-auto overflow-y-hidden min-w-0 bg-background [&::-webkit-scrollbar]:hidden ${STICKY_HEADER_SHADOW}`}
                                     style={{ scrollbarWidth: "none" }}
                                     onScroll={onDateHeaderScroll}
                                 >

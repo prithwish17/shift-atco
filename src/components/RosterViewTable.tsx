@@ -17,11 +17,13 @@ import {
   SUPERVISOR_WEEKEND_SHIFT_HEADER,
   SUPERVISOR_WEEKEND_TEAM_HEADER,
   getSupervisorDefaultCellBg,
+  getSupervisorOpaqueCellBg,
   getSupervisorOpaqueRowBg,
   getSupervisorRowBg,
   getSupervisorShiftTone,
   getSupervisorUnitTextTone,
 } from "@/lib/supervisorTableTheme";
+import { STICKY_COLUMN_SHADOW, STICKY_CORNER_SHADOW, STICKY_HEADER_SHADOW } from "@/lib/stickyShadow";
 import type { RosterMatrixData } from "@/lib/rosterMatrix";
 
 interface Props {
@@ -359,7 +361,7 @@ export default function RosterViewTable({ data, searchTerm, selectedDate, mobile
             <th className={`sticky left-0 z-40 bg-slate-900 px-3 py-2 text-center text-[12px] font-bold text-slate-50 shadow-[inset_0_-1px_0_rgba(255,255,255,0.08)] dark:bg-slate-900 ${SUPERVISOR_GRID_LINE_STRONG} min-w-[56px] border-r`}>
               SL.
             </th>
-            <th className={`sticky left-[56px] z-40 bg-slate-900 px-3 py-2 text-center text-[12px] font-bold text-slate-50 shadow-[inset_0_-1px_0_rgba(255,255,255,0.08)] dark:bg-slate-900 ${SUPERVISOR_GRID_LINE_STRONG} min-w-[170px] border-r`}>
+            <th className={`sticky left-[56px] z-40 bg-slate-900 px-3 py-2 text-center text-[12px] font-bold text-slate-50 dark:bg-slate-900 ${STICKY_COLUMN_SHADOW} ${SUPERVISOR_GRID_LINE_STRONG} min-w-[170px] border-r`}>
               UNITS
             </th>
             {data.dates.map((dateColumn, index) => (
@@ -379,8 +381,8 @@ export default function RosterViewTable({ data, searchTerm, selectedDate, mobile
             ))}
           </tr>
           <tr>
-            <th className={`sticky left-0 z-40 h-7 border-r bg-slate-100/95 backdrop-blur-sm dark:bg-slate-900/95 ${SUPERVISOR_GRID_LINE}`} />
-            <th className={`sticky left-[56px] z-40 h-7 border-r bg-slate-100/95 backdrop-blur-sm dark:bg-slate-900/95 ${SUPERVISOR_GRID_LINE}`} />
+            <th className={`sticky left-0 z-40 h-7 border-r bg-slate-100 dark:bg-slate-900 ${SUPERVISOR_GRID_LINE}`} />
+            <th className={`sticky left-[56px] z-40 h-7 border-r bg-slate-100 dark:bg-slate-900 ${STICKY_COLUMN_SHADOW} ${SUPERVISOR_GRID_LINE}`} />
             {data.dates.map((dateColumn) =>
               dateColumn.shifts.map((shiftName, shiftIndex) => (
                 <th
@@ -397,8 +399,8 @@ export default function RosterViewTable({ data, searchTerm, selectedDate, mobile
             )}
           </tr>
           <tr>
-            <th className={`sticky left-0 z-40 h-5 border-r border-b bg-slate-100/95 backdrop-blur-sm dark:bg-slate-900/95 ${SUPERVISOR_GRID_LINE}`} />
-            <th className={`sticky left-[56px] z-40 h-5 border-r border-b bg-slate-100/95 backdrop-blur-sm dark:bg-slate-900/95 ${SUPERVISOR_GRID_LINE}`} />
+            <th className={`sticky left-0 z-40 h-5 border-r border-b bg-slate-100 dark:bg-slate-900 ${STICKY_HEADER_SHADOW} ${SUPERVISOR_GRID_LINE}`} />
+            <th className={`sticky left-[56px] z-40 h-5 border-r border-b bg-slate-100 dark:bg-slate-900 ${STICKY_CORNER_SHADOW} ${SUPERVISOR_GRID_LINE}`} />
             {data.dates.map((dateColumn) =>
               dateColumn.shiftCodes.map((shiftCode, shiftIndex) => (
                 <th
@@ -407,7 +409,7 @@ export default function RosterViewTable({ data, searchTerm, selectedDate, mobile
                     isWeekend(dateColumn.day)
                       ? SUPERVISOR_WEEKEND_TEAM_HEADER
                       : getSupervisorShiftTone(SHIFT_CODES[shiftIndex]).team
-                  } ${shiftIndex === 0 ? SUPERVISOR_COLUMN_START_DIVIDER : ""} ${shiftIndex === 2 ? SUPERVISOR_COLUMN_END_DIVIDER : ""}`}
+                  } ${STICKY_HEADER_SHADOW} ${shiftIndex === 0 ? SUPERVISOR_COLUMN_START_DIVIDER : ""} ${shiftIndex === 2 ? SUPERVISOR_COLUMN_END_DIVIDER : ""}`}
                 >
                   {`Team ${shiftCode}`}
                 </th>
@@ -433,7 +435,7 @@ export default function RosterViewTable({ data, searchTerm, selectedDate, mobile
                 ref={stickySectionKey ? (node) => {
                   stickyRowRefs.current[stickySectionKey] = node;
                 } : undefined}
-                className={`${getSupervisorRowBg(row.rowType, rowIndex)} ${row.rowType === "header" ? "border-y-2 border-slate-500 dark:border-slate-400" : ""} hover:brightness-[0.985] dark:hover:brightness-110 transition-[filter,background-color] duration-150`}
+                className={`${stickySectionRow ? getSupervisorOpaqueRowBg(row.rowType, rowIndex) : getSupervisorRowBg(row.rowType, rowIndex)} ${row.rowType === "header" ? "border-y-2 border-slate-500 dark:border-slate-400" : ""} hover:brightness-[0.985] dark:hover:brightness-110 transition-[filter,background-color] duration-150`}
               >
                 <td
                   className={`sticky left-0 ${stickySectionRow ? "z-30" : "z-20"} border-r border-b px-2.5 py-1.5 text-center font-mono text-[12px] ${SUPERVISOR_GRID_LINE} ${getSupervisorOpaqueRowBg(row.rowType, rowIndex)} ${isSummaryNum ? "font-bold shadow-[inset_-1px_0_0_rgba(148,163,184,0.18)]" : ""}`}
@@ -442,7 +444,7 @@ export default function RosterViewTable({ data, searchTerm, selectedDate, mobile
                   {row.slNo}
                 </td>
                 <td
-                  className={`sticky left-[56px] ${stickySectionRow ? "z-30" : "z-20"} min-w-[170px] max-w-[230px] whitespace-normal break-words border-r border-b px-2.5 py-1.5 text-[12px] ${SUPERVISOR_GRID_LINE} ${getSupervisorOpaqueRowBg(row.rowType, rowIndex)} ${getSupervisorUnitTextTone(row.rowType)}`}
+                  className={`sticky left-[56px] ${stickySectionRow ? "z-30" : "z-20"} min-w-[170px] max-w-[230px] whitespace-normal break-words border-r border-b px-2.5 py-1.5 text-[12px] ${STICKY_COLUMN_SHADOW} ${SUPERVISOR_GRID_LINE} ${getSupervisorOpaqueRowBg(row.rowType, rowIndex)} ${getSupervisorUnitTextTone(row.rowType)}`}
                   style={stickySectionStyle}
                 >
                   {row.unit}
@@ -498,7 +500,7 @@ export default function RosterViewTable({ data, searchTerm, selectedDate, mobile
                         shiftIdx === 0 ? SUPERVISOR_COLUMN_START_DIVIDER : ""
                       } ${
                         shiftIdx === 2 ? SUPERVISOR_COLUMN_END_DIVIDER : ""
-                      } ${colorOverride || getSupervisorDefaultCellBg(row.rowType, SHIFT_CODES[shiftIdx], weekend)} ${
+                      } ${colorOverride || (stickySectionRow ? getSupervisorOpaqueCellBg(row.rowType, SHIFT_CODES[shiftIdx], weekend) : getSupervisorDefaultCellBg(row.rowType, SHIFT_CODES[shiftIdx], weekend))} ${
                         (isSummaryNum || isHeaderRow) && isNum ? "font-bold text-[13px] text-center" : isSingleName ? "text-left" : "text-center"
                       } ${
                         isLeave ? "text-red-500 dark:text-rose-300 font-semibold italic" : value ? "text-[hsl(var(--cell-occupied))]" : "text-[hsl(var(--cell-empty))]"

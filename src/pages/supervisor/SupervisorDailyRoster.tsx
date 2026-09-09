@@ -25,8 +25,13 @@ export default function SupervisorDailyRoster() {
   };
 
   return (
-    <DashboardLayout role="supervisor">
+    <DashboardLayout
+      role="supervisor"
+      title="Shift Roster"
+      subtitle="Daily shift roster & duty rotation"
+    >
       <ShiftRosterView
+        hideHeaderTitle
         description="Who is on each shift, with teams set automatically by the duty rotation."
         actions={({ isoDate, shift }) => (
           <div className="flex flex-col items-end gap-1">

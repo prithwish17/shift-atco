@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { buildNameIndex, findUniqueNameMatch, normalizeEmployeeMatchName } from "@/lib/nameMatching";
 import type { SummaryScheduleMember } from "@/lib/supervisorAvailability";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchScheduleRowsInRange } from "@/data-access/schedule-reads";
 
 type ProfileRecord = {
   employee_id: string | null;
@@ -29,57 +30,12 @@ type ScheduleRow = {
 };
 
 export async function fetchSupervisorScheduleMembers(startDate: string, endDate: string): Promise<SummaryScheduleMember[]> {
-  const pageSize = 1000;
-
-  // Fetch schedules (keyset pagination) AND profiles AND training records concurrently.
-  //
-  // Schedules use KEYSET (cursor) pagination on the unique key (duty_date, employee_code)
-  // instead of OFFSET (.range()). OFFSET pagination fired all pages in parallel, and the
-  // deep-offset pages re-scanned/discarded thousands of index rows each — under concurrent
-  // load Postgres hit statement_timeout and PostgREST returned 500 on the high offsets.
-  // Keyset pages are constant-cost indexed range-scans and the ordering is deterministic
-  // (plain `order("duty_date")` is non-unique, so OFFSET could also skip/duplicate rows).
-  const fetchAllSchedulePages = async (): Promise<ScheduleRow[]> => {
-    const rows: ScheduleRow[] = [];
-    let cursorDate: string | null = null;
-    let cursorCode: string | null = null;
-
-    for (;;) {
-      let query = supabase
-        .from("employee_schedules" as any)
-        .select("employee_code, employee_name, duty_date, duty_code, duty_description")
-        .gte("duty_date", startDate)
-        .lte("duty_date", endDate)
-        .order("duty_date", { ascending: true })
-        .order("employee_code", { ascending: true })
-        .limit(pageSize);
-
-      // Advance past the last row of the previous page:
-      // (duty_date > cursorDate) OR (duty_date = cursorDate AND employee_code > cursorCode)
-      if (cursorDate !== null) {
-        query = query.or(
-          `duty_date.gt.${cursorDate},and(duty_date.eq.${cursorDate},employee_code.gt.${cursorCode})`
-        );
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      const page = (data || []) as ScheduleRow[];
-      rows.push(...page);
-
-      if (page.length < pageSize) break;
-
-      const last = page[page.length - 1];
-      cursorDate = last.duty_date;
-      cursorCode = last.employee_code ?? "";
-    }
-
-    return rows;
-  };
-
+  // Schedules, profiles and training records are independent reads, so they go
+  // out together rather than in series.  The schedule read is keyset-paged (see
+  // schedule-reads.ts) because OFFSET paging over this table crosses the 8s
+  // statement timeout once enough history accumulates.
   const [allScheduleRows, profilesResult, trainingResult] = await Promise.all([
-    fetchAllSchedulePages(),
+    fetchScheduleRowsInRange<ScheduleRow>({ startDate, endDate }),
 
     // Fetch ALL non-hidden profiles in parallel (no need to wait for schedule codes)
     supabase

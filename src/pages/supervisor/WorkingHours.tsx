@@ -23,6 +23,7 @@ import {
 } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchScheduleRowsInRange } from "@/data-access/schedule-reads";
 import { DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
 import { useToast } from "@/hooks/use-toast";
 import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
@@ -619,6 +620,8 @@ export default function WorkingHours() {
   const {
     data: queryResult,
     isLoading,
+    isError,
+    error,
     refetch,
     isRefetching,
   } = useQuery({
@@ -738,27 +741,15 @@ export default function WorkingHours() {
         // Fall through to client-side computation
       }
 
-      // ── Slow fallback: paginated query + client computation ─
-      const PAGE_SIZE = 1000;
-      let allRows: ScheduleRow[] = [];
-      let from = 0;
-      let hasMore = true;
-
-      while (hasMore) {
-        const { data, error } = await (supabase as any)
-          .from("employee_schedules")
-          .select("employee_code, employee_name, duty_date, duty_code, duty_description")
-          .gte("duty_date", queryStart)
-          .lte("duty_date", queryEnd)
-          .order("duty_date")
-          .range(from, from + PAGE_SIZE - 1);
-        if (error) throw error;
-
-        const rows = (data || []) as ScheduleRow[];
-        allRows = allRows.concat(rows);
-        hasMore = rows.length === PAGE_SIZE;
-        from += PAGE_SIZE;
-      }
+      // ── Slow fallback: full read + client computation ───────
+      // Keyset-paged (see schedule-reads.ts).  The window is the month plus 29
+      // days either side, which the peak-7d/peak-30d rolling limits need, so it
+      // is the widest schedule read in the app — and the one where OFFSET paging
+      // was most likely to cross the statement timeout and fail outright.
+      const allRows = await fetchScheduleRowsInRange<ScheduleRow>({
+        startDate: queryStart,
+        endDate: queryEnd,
+      });
 
       const { data: profData, error: profError } = await supabase
         .from("profiles")
@@ -1304,7 +1295,26 @@ export default function WorkingHours() {
           </CardHeader>
 
           <CardContent className="px-0 pb-0">
-            {isLoading ? (
+            {isError ? (
+              /* Every path failed (API route, cache table, RPC, client compute).
+                 Without this the table just rendered empty, which reads as "no
+                 one worked this month" rather than "the data did not load". */
+              <div className="flex flex-col items-center gap-3 px-5 py-16 text-center">
+                <AlertTriangle className="h-8 w-8 text-rose-500 dark:text-rose-400" />
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                    Could not load working hours
+                  </p>
+                  <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-600 dark:text-slate-300">
+                    {(error as Error | null)?.message || "The request timed out or was rejected."}
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" className="rounded-xl" onClick={() => refetch()}>
+                  <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                  Retry
+                </Button>
+              </div>
+            ) : isLoading ? (
               <>
                 <div className="space-y-3 px-4 pb-4 md:hidden">
                   {Array.from({ length: 4 }).map((_, i) => (

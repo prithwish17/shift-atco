@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchScheduleRowsInRange } from "@/data-access/schedule-reads";
 import {
   SUPERVISOR_MONTH_PILL,
   SUPERVISOR_TOOLBAR_ICON_BUTTON,
@@ -45,38 +46,17 @@ interface DutyRow {
 }
 
 // ── Supabase pagination helper ───────────────────────────────────────────────
-// PostgREST's server-side max_rows overrides .limit(); the only reliable way
-// to retrieve every row is to walk through pages with .range().
-
-const PAGE_SIZE = 1000;
+// Keyset-paged (see schedule-reads.ts).  `.limit()` cannot be trusted here —
+// PostgREST's server-side max_rows overrides it — but OFFSET paging made the
+// deep pages re-scan everything before them, which is how a wide date range
+// turned into a 500 instead of a slow load.
 
 async function fetchAllPages(
   startDate: string,
   endDate: string,
   allCodes: string[],
 ): Promise<DutyRow[]> {
-  const all: DutyRow[] = [];
-  let from = 0;
-
-  while (true) {
-    const { data, error } = await (supabase as any)
-      .from("employee_schedules")
-      .select("employee_code, employee_name, duty_date, duty_code, duty_description")
-      .gte("duty_date", startDate)
-      .lte("duty_date", endDate)
-      .in("duty_code", allCodes)
-      .order("duty_date")
-      .order("employee_name")
-      .range(from, from + PAGE_SIZE - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    all.push(...(data as DutyRow[]));
-    if (data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-
-  return all;
+  return fetchScheduleRowsInRange<DutyRow>({ startDate, endDate, dutyCodes: allCodes });
 }
 
 // ── Utilities ────────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import { AppSidebar } from "./AppSidebar";
 import { EmployeePageNoticeGate } from "./EmployeePageNoticeGate";
 import { NotificationDropdown } from "./NotificationDropdown";
 import { getHomeRouteForRole } from "@/lib/roleRoutes";
+import { STICKY_HEADER_SHADOW } from "@/lib/stickyShadow";
 
 // Module-level stack — persists for the app session, resets on hard refresh
 const appNavStack: string[] = [];
@@ -18,10 +19,13 @@ type Role = "admin" | "supervisor" | "wso" | "employee";
 
 interface DashboardLayoutProps {
   role: Role;
+  title?: ReactNode;
+  subtitle?: ReactNode;
+  headerActions?: ReactNode;
   children: ReactNode;
 }
 
-export function DashboardLayout({ role, children }: DashboardLayoutProps) {
+export function DashboardLayout({ role, title, subtitle, headerActions, children }: DashboardLayoutProps) {
   const { theme, toggleTheme } = useTheme();
   const { user } = useAuth();
   const { profile } = useUserProfile(user?.id);
@@ -65,23 +69,43 @@ export function DashboardLayout({ role, children }: DashboardLayoutProps) {
 
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 md:px-6 py-3 flex items-center justify-between sticky top-0 z-10">
-          {/* Mobile menu button is now in AppSidebar */}
-          <div className="lg:hidden w-10" />
+        <header className={`bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 md:px-6 py-2.5 flex items-center justify-between sticky top-0 z-10 ${STICKY_HEADER_SHADOW}`}>
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1 mr-3">
+            {/* Mobile menu button is now in AppSidebar */}
+            <div className="lg:hidden w-10 shrink-0" />
 
-          {canGoBack ? (
-            <button
-              onClick={handleBack}
-              className="hidden lg:flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-            >
-              <ArrowLeft className="size-4" />
-              Back
-            </button>
-          ) : (
-            <div className="hidden lg:block flex-none" />
-          )}
+            {canGoBack ? (
+              <button
+                onClick={handleBack}
+                className="hidden lg:flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 shrink-0"
+              >
+                <ArrowLeft className="size-4" />
+                Back
+              </button>
+            ) : (
+              <div className="hidden lg:block flex-none" />
+            )}
 
-          <div className="flex items-center gap-2 md:gap-4">
+            {title && (
+              <div className="min-w-0 flex flex-col justify-center">
+                <h1 className="text-base sm:text-lg font-bold text-gray-900 dark:text-gray-100 truncate tracking-tight">
+                  {title}
+                </h1>
+                {subtitle && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate hidden md:block">
+                    {subtitle}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 md:gap-4 shrink-0">
+            {headerActions && (
+              <div className="flex items-center gap-2">
+                {headerActions}
+              </div>
+            )}
             <Button asChild type="button" variant="outline" size="sm" className="hidden sm:inline-flex">
               <Link to={`/settings?portal=${role}`}>
                 <Settings className="size-4" />

@@ -29,46 +29,64 @@ window.setTimeout(() => {
 
 // ──── Service Worker registration + update lifecycle ────
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker
-    .register('/sw.js', { scope: '/' })
-    .then((reg) => {
-      // Check for updates every 60 s so long-lived tabs pick up deploys quickly.
-      setInterval(() => reg.update(), 60_000);
-
-      const promptReload = () => {
-        // Tell the waiting worker to activate immediately.
-        reg.waiting?.postMessage('SKIP_WAITING');
-      };
-
-      // If there's already a waiting worker (e.g. another tab triggered the install)
-      if (reg.waiting) {
-        promptReload();
-      }
-
-      // Listen for a new worker finishing install → becomes 'waiting'
-      reg.addEventListener('updatefound', () => {
-        const newWorker = reg.installing;
-        if (!newWorker) return;
-        newWorker.addEventListener('statechange', () => {
-          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            // New version ready — activate it right away.
-            promptReload();
-          }
-        });
+  if (import.meta.env.DEV) {
+    // In dev mode, unregister any existing service workers to avoid reload loops.
+    // A worker registered by an earlier dev session keeps controlling this page
+    // (and intercepting requests via its stale-while-revalidate cache, which
+    // conflicts with Vite's HMR module graph) until the page actually navigates —
+    // unregister() alone doesn't release it. Force one reload to fully detach.
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      if (registrations.length === 0) return;
+      const wasControlled = !!navigator.serviceWorker.controller;
+      Promise.all(registrations.map((reg) => reg.unregister())).then(() => {
+        if (wasControlled && !sessionStorage.getItem('dev_sw_cleanup_reload')) {
+          sessionStorage.setItem('dev_sw_cleanup_reload', '1');
+          window.location.reload();
+        }
       });
-    })
-    .catch((error) => {
-      if (import.meta.env.DEV) {
-        console.warn('[PWA] Service worker registration failed:', error);
-      }
     });
+  } else {
+    navigator.serviceWorker
+      .register('/sw.js', { scope: '/' })
+      .then((reg) => {
+        // Check for updates every 60 s so long-lived tabs pick up deploys quickly.
+        setInterval(() => reg.update(), 60_000);
 
-  // When the new SW takes over, reload so the page gets the fresh index.html +
-  // new assets.  The guard prevents an infinite loop.
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (refreshing) return;
-    refreshing = true;
-    window.location.reload();
-  });
+        const promptReload = () => {
+          // Tell the waiting worker to activate immediately.
+          reg.waiting?.postMessage('SKIP_WAITING');
+        };
+
+        // If there's already a waiting worker (e.g. another tab triggered the install)
+        if (reg.waiting) {
+          promptReload();
+        }
+
+        // Listen for a new worker finishing install → becomes 'waiting'
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              // New version ready — activate it right away.
+              promptReload();
+            }
+          });
+        });
+      })
+      .catch((error) => {
+        if (import.meta.env.DEV) {
+          console.warn('[PWA] Service worker registration failed:', error);
+        }
+      });
+
+    // When the new SW takes over, reload so the page gets the fresh index.html +
+    // new assets. The guard prevents an infinite loop.
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+  }
 }

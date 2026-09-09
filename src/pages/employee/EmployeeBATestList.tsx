@@ -7,15 +7,13 @@ import { Input } from "@/components/ui/input";
 import {
   Activity,
   Search,
-  RefreshCw,
   CalendarDays,
   AlertCircle,
   CheckCircle2,
   Clock3,
   User,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
@@ -94,7 +92,6 @@ function getRowShift(row: BATestRow): string {
 export default function EmployeeBATestList() {
   const { user } = useAuth();
   const { profile } = useUserProfile(user?.id);
-  const qc = useQueryClient();
   const [search, setSearch] = useState("");
 
   const myCode = normaliseCode(profile?.employee_id);
@@ -275,33 +272,12 @@ export default function EmployeeBATestList() {
   );
 
   return (
-    <DashboardLayout role="employee">
+    <DashboardLayout
+      role="employee"
+      title="BA Test List"
+      subtitle="Current Breath Analyser test roster"
+    >
       <div className="space-y-5 max-w-3xl">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/30">
-              <Activity className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100">
-                BA Test List
-              </h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Current Breath Analyser test roster
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 self-start sm:self-auto"
-            onClick={() => qc.invalidateQueries({ queryKey: ["ba-test-list"] })}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Refresh
-          </Button>
-        </div>
 
         {/* Personal status banner */}
         {!isLoading && rows.length > 0 && (

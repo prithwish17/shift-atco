@@ -27,7 +27,11 @@ export default function WsoRosterManagement() {
   };
 
   return (
-    <DashboardLayout role="wso">
+    <DashboardLayout
+      role="wso"
+      title="Shift Roster"
+      subtitle="Duty rotation & shift assignments"
+    >
       <Tabs defaultValue="current" className="space-y-3">
         <TabsList>
           <TabsTrigger value="current">Current Roster</TabsTrigger>
@@ -36,6 +40,7 @@ export default function WsoRosterManagement() {
 
         <TabsContent value="current">
           <ShiftRosterView
+            hideHeaderTitle
             description="Who is on each shift, with teams set automatically by the duty rotation."
             actions={({ isoDate, shift }) => (
               <div className="flex flex-col items-end gap-1">

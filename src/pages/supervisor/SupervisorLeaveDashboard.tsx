@@ -19,6 +19,7 @@ import { getAttendanceShiftTokens } from "@/lib/teamDutyRotation";
 
 import { SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 import { YEAR_LOOKBACK } from "@/lib/leaveConstants";
+import { STICKY_HEADER_SHADOW } from "@/lib/stickyShadow";
 
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -761,10 +762,10 @@ export default function SupervisorLeaveDashboard() {
                       <table className="w-full text-xs sm:text-sm">
                         <thead className="sticky top-0 z-10">
                           <tr className="border-b bg-slate-50 text-[10px] font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 sm:text-xs">
-                            <th className="px-2.5 py-2 text-left sm:px-3 sm:py-2.5">#</th>
-                            <th className="px-2.5 py-2 text-left sm:px-3 sm:py-2.5">Name</th>
-                            <th className="px-2.5 py-2 text-left sm:px-3 sm:py-2.5">ID</th>
-                            <th className="px-2.5 py-2 text-left sm:px-3 sm:py-2.5">Team</th>
+                            <th className={`px-2.5 py-2 text-left sm:px-3 sm:py-2.5 ${STICKY_HEADER_SHADOW}`}>#</th>
+                            <th className={`px-2.5 py-2 text-left sm:px-3 sm:py-2.5 ${STICKY_HEADER_SHADOW}`}>Name</th>
+                            <th className={`px-2.5 py-2 text-left sm:px-3 sm:py-2.5 ${STICKY_HEADER_SHADOW}`}>ID</th>
+                            <th className={`px-2.5 py-2 text-left sm:px-3 sm:py-2.5 ${STICKY_HEADER_SHADOW}`}>Team</th>
                           </tr>
                         </thead>
                         <tbody>

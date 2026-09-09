@@ -12,6 +12,7 @@ import { useElDetails } from "@/hooks/useElData";
 import { useLeaveData } from "@/hooks/useLeaveData";
 import { useLeaveBalances } from "@/hooks/useLeaves";
 import type { CompOffHistoryEntry } from "@/utils/leaveCalculations";
+import { STICKY_HEADER_SHADOW } from "@/lib/stickyShadow";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -168,12 +169,12 @@ function RequestsTable({ requests }: { requests: RequestRow[] }) {
       <table className="w-full text-xs sm:text-sm">
         <thead className="sticky top-0 z-10">
           <tr className="border-b bg-slate-50 text-[10px] font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 sm:text-xs">
-            <th className="px-2.5 py-2 text-left sm:px-3 sm:py-2.5">Date Range</th>
-            <th className="px-2.5 py-2 text-left sm:px-3 sm:py-2.5">Leave Type</th>
-            <th className="px-2.5 py-2 text-center sm:px-3 sm:py-2.5">Days</th>
-            <th className="px-2.5 py-2 text-left sm:px-3 sm:py-2.5">Status</th>
-            <th className="px-2.5 py-2 text-left sm:px-3 sm:py-2.5">Applied On</th>
-            <th className="px-2.5 py-2 text-left sm:px-3 sm:py-2.5">Reason</th>
+            <th className={`px-2.5 py-2 text-left sm:px-3 sm:py-2.5 ${STICKY_HEADER_SHADOW}`}>Date Range</th>
+            <th className={`px-2.5 py-2 text-left sm:px-3 sm:py-2.5 ${STICKY_HEADER_SHADOW}`}>Leave Type</th>
+            <th className={`px-2.5 py-2 text-center sm:px-3 sm:py-2.5 ${STICKY_HEADER_SHADOW}`}>Days</th>
+            <th className={`px-2.5 py-2 text-left sm:px-3 sm:py-2.5 ${STICKY_HEADER_SHADOW}`}>Status</th>
+            <th className={`px-2.5 py-2 text-left sm:px-3 sm:py-2.5 ${STICKY_HEADER_SHADOW}`}>Applied On</th>
+            <th className={`px-2.5 py-2 text-left sm:px-3 sm:py-2.5 ${STICKY_HEADER_SHADOW}`}>Reason</th>
           </tr>
         </thead>
         <tbody>

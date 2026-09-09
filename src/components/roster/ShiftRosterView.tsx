@@ -1,11 +1,22 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { addDays, format, isSameDay, isToday, parseISO } from "date-fns";
-import { CalendarDays, ChevronLeft, ChevronRight, LayoutGrid, List, Search, Users, X } from "lucide-react";
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  LayoutGrid,
+  List,
+  Search,
+  Users,
+  X,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import RosterGrid from "@/components/roster/RosterGrid";
@@ -49,7 +60,43 @@ interface Props {
   actions?: (context: { isoDate: string; shift: string }) => ReactNode;
   /** Extra line under the title, for role-specific wording. */
   description?: string;
+  /** When true, the top header is rendered in DashboardLayout rather than in-page. */
+  hideHeaderTitle?: boolean;
 }
+
+/** Config and accents for the 3 operational shifts */
+const SHIFT_CONFIG: Record<
+  ShiftCode,
+  {
+    activeBorder: string;
+    activeBg: string;
+    activeRing: string;
+    badgeActive: string;
+    badgeInactive: string;
+  }
+> = {
+  M: {
+    activeBorder: "border-amber-500 dark:border-amber-400",
+    activeBg: "bg-amber-50/70 dark:bg-amber-950/30",
+    activeRing: "ring-2 ring-amber-500/20",
+    badgeActive: "bg-amber-500 text-white dark:bg-amber-400 dark:text-gray-950",
+    badgeInactive: "bg-amber-100/80 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300",
+  },
+  A: {
+    activeBorder: "border-sky-500 dark:border-sky-400",
+    activeBg: "bg-sky-50/70 dark:bg-sky-950/30",
+    activeRing: "ring-2 ring-sky-500/20",
+    badgeActive: "bg-sky-500 text-white dark:bg-sky-400 dark:text-gray-950",
+    badgeInactive: "bg-sky-100/80 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300",
+  },
+  N: {
+    activeBorder: "border-indigo-500 dark:border-indigo-400",
+    activeBg: "bg-indigo-50/70 dark:bg-indigo-950/30",
+    activeRing: "ring-2 ring-indigo-500/20",
+    badgeActive: "bg-indigo-600 text-white dark:bg-indigo-500 dark:text-white",
+    badgeInactive: "bg-indigo-100/80 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300",
+  },
+};
 
 /** Tone per shift, kept muted so the names stay the loudest thing on screen. */
 const SHIFT_TONE: Record<ShiftCode, { header: string; badge: string; dot: string }> = {
@@ -151,7 +198,7 @@ function ShiftPanel({
     : 0;
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden border-border/80 shadow-sm">
       <div className={cn("border-b px-3 py-3", tone.header)}>
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2.5">
@@ -225,7 +272,7 @@ function ShiftPanel({
   );
 }
 
-export default function ShiftRosterView({ actions, description }: Props) {
+export default function ShiftRosterView({ actions, description, hideHeaderTitle }: Props) {
   const today = useMemo(() => new Date(), []);
   const [selectedDate, setSelectedDate] = useState(() => format(today, "yyyy-MM-dd"));
   const [anchorDate, setAnchorDate] = useState(() => today);
@@ -315,185 +362,288 @@ export default function ShiftRosterView({ actions, description }: Props) {
     // `crisp-borders` is not a layout hook — it lifts the dark theme's border
     // tokens for this page so the grid's 1px rules stay visible (see index.css).
     <div className="crisp-borders space-y-3">
-      {/* ── Title ── */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold leading-tight sm:text-3xl">Shift Roster</h1>
-          <p className="text-sm text-muted-foreground">
-            {description || "Pick a date and a shift — the team on duty comes from the duty rotation."}
-          </p>
+      {/* ── Title (Only when not rendered in DashboardLayout header) ── */}
+      {!hideHeaderTitle && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold leading-tight sm:text-3xl">Shift Roster</h1>
+            <p className="text-sm text-muted-foreground">
+              {description || "Pick a date and a shift — the team on duty comes from the duty rotation."}
+            </p>
+          </div>
+          {actions && (
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {actions({ isoDate: selectedDate, shift: activeSlot.name })}
+            </div>
+          )}
         </div>
-        {actions && (
-          <div className="flex shrink-0 flex-wrap gap-2">
-            {actions({ isoDate: selectedDate, shift: activeSlot.name })}
-          </div>
-        )}
-      </div>
+      )}
 
-      {/* ── Selection: date ── */}
-      <Card>
-        <CardContent className="space-y-2 p-2 sm:p-3">
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              onClick={() => setAnchorDate((current) => addDays(current, -7))}
-              aria-label="Previous week"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-
-            <div className="flex flex-1 gap-1.5 overflow-x-auto pb-0.5">
-              {dayStrip.map((date) => {
-                const dateKey = format(date, "yyyy-MM-dd");
-                const isSelected = dateKey === selectedDate;
-                const marksToday = isToday(date);
-
-                return (
-                  <button
-                    key={dateKey}
-                    ref={isSelected ? selectedDayRef : undefined}
-                    type="button"
-                    onClick={() => setSelectedDate(dateKey)}
-                    className={cn(
-                      "flex min-w-[58px] shrink-0 flex-col items-center rounded-lg border px-2 py-1 transition",
-                      isSelected
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "bg-background hover:bg-muted",
-                      !isSelected && marksToday && "border-primary text-primary",
-                    )}
-                  >
-                    <span className="text-[10px] font-normal opacity-75">{format(date, "EEE")}</span>
-                    <span className="text-sm font-semibold leading-tight">{format(date, "d MMM")}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              onClick={() => setAnchorDate((current) => addDays(current, 7))}
-              aria-label="Next week"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Full width on a phone: sharing the row with the date picker
-                squeezed the field down to a single character. */}
-            <div className="relative w-full min-w-0 sm:w-auto sm:flex-1 sm:max-w-xs">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search name, unit, position"
-                className="h-8 pl-8 pr-8 text-sm"
-              />
-              {search && (
-                <button
-                  type="button"
-                  onClick={() => setSearch("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  aria-label="Clear search"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-
-            <label className="relative shrink-0">
-              <span className="sr-only">Jump to date</span>
-              <CalendarDays className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  if (!next) return;
-                  setSelectedDate(next);
-                  setAnchorDate(parseISO(next));
-                }}
-                className="h-8 rounded-md border border-input bg-background pl-8 pr-2 text-sm"
-              />
-            </label>
-
-            <Button
-              type="button"
-              variant={isSameDay(selectedDateObj, today) ? "secondary" : "outline"}
-              size="sm"
-              className="h-8 shrink-0"
-              onClick={goToToday}
-            >
-              Today
-            </Button>
-
-            {/* Only offered when a grid can actually be built for this date. */}
-            {gridModel && (
-              <ToggleGroup
-                type="single"
-                value={viewMode}
-                onValueChange={(value) => value && setViewMode(value as ViewMode)}
+      {/* ── Redesigned Unified Selection & Control Console ── */}
+      <Card className="overflow-hidden border-border/80 shadow-sm">
+        <CardContent className="space-y-2.5 p-2.5 sm:p-3.5">
+          {/* Row 1: 7-Day Week Carousel + 3-Shift Selector side-by-side on desktop */}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 sm:gap-2.5">
+            {/* Left: 7-Day Strip with < and > week navigation */}
+            <div className="flex items-center gap-1 sm:gap-1.5 flex-1 min-w-0">
+              <Button
+                type="button"
                 variant="outline"
-                size="sm"
-                className="shrink-0"
+                size="icon"
+                className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 rounded-lg border-border/80 hover:bg-muted"
+                onClick={() => setAnchorDate((current) => addDays(current, -7))}
+                aria-label="Previous week"
+                title="Previous week"
               >
-                <ToggleGroupItem value="grid" aria-label="Grid view" className="h-8 px-2">
-                  <LayoutGrid className="h-3.5 w-3.5" />
-                </ToggleGroupItem>
-                <ToggleGroupItem value="list" aria-label="List view" className="h-8 px-2">
-                  <List className="h-3.5 w-3.5" />
-                </ToggleGroupItem>
-              </ToggleGroup>
-            )}
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
 
-            {viewMode === "grid" && search.trim() && (
-              <Badge variant="secondary" className="h-6 shrink-0">
-                {gridMatches} {gridMatches === 1 ? "match" : "matches"}
-              </Badge>
-            )}
+              <div className="flex-1 min-w-0 overflow-x-auto pb-0.5">
+                <div className="grid grid-cols-7 min-w-[380px] sm:min-w-0 gap-1 sm:gap-1.5">
+                  {dayStrip.map((date) => {
+                    const dateKey = format(date, "yyyy-MM-dd");
+                    const isSelected = dateKey === selectedDate;
+                    const marksToday = isToday(date);
 
-            {isFetching && !isLoading && (
-              <Badge variant="secondary" className="h-6 shrink-0">
-                Refreshing
-              </Badge>
-            )}
+                    return (
+                      <button
+                        key={dateKey}
+                        ref={isSelected ? selectedDayRef : undefined}
+                        type="button"
+                        onClick={() => setSelectedDate(dateKey)}
+                        className={cn(
+                          "group relative flex flex-col items-center justify-center rounded-lg border py-1 sm:py-1.5 px-0.5 text-center transition-all duration-150 cursor-pointer select-none",
+                          isSelected
+                            ? "border-primary bg-primary text-primary-foreground shadow-2xs shadow-primary/25 ring-1 ring-primary/20"
+                            : marksToday
+                            ? "border-primary/60 bg-primary/5 text-foreground hover:bg-primary/10 hover:border-primary"
+                            : "border-border/70 bg-card/60 hover:border-border hover:bg-muted/50 text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "text-[9px] sm:text-[10px] font-bold uppercase tracking-wider",
+                            isSelected ? "text-primary-foreground/90" : "text-muted-foreground group-hover:text-foreground",
+                          )}
+                        >
+                          {format(date, "EEE")}
+                        </span>
+                        <span
+                          className={cn(
+                            "my-0.5 text-sm sm:text-base font-bold leading-none",
+                            isSelected ? "text-primary-foreground" : "text-foreground",
+                          )}
+                        >
+                          {format(date, "d")}
+                        </span>
+                        <span
+                          className={cn(
+                            "text-[9px] sm:text-[10px] font-medium",
+                            isSelected ? "text-primary-foreground/80" : "text-muted-foreground/75",
+                          )}
+                        >
+                          {format(date, "MMM")}
+                        </span>
+                        {marksToday && (
+                          <span className="absolute top-0.5 right-1 flex h-1.5 w-1.5 items-center justify-center" title="Today">
+                            <span className={cn("h-1 w-1 rounded-full", isSelected ? "bg-white" : "bg-primary")} />
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 rounded-lg border-border/80 hover:bg-muted"
+                onClick={() => setAnchorDate((current) => addDays(current, 7))}
+                aria-label="Next week"
+                title="Next week"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+
+            {/* Right: 3 Shift Buttons side-by-side (bounded width on desktop, full width on mobile) */}
+            <div className="w-full lg:w-[320px] xl:w-[360px] shrink-0">
+              <div className="grid grid-cols-3 gap-1 sm:gap-1.5">
+                {SHIFT_SLOTS.map((slot) => {
+                  const config = SHIFT_CONFIG[slot.code];
+                  const isSelected = selectedShift === slot.code;
+                  const teamLabel = shiftTeams[slot.code].join(" / ") || "—";
+
+                  return (
+                    <button
+                      key={slot.code}
+                      type="button"
+                      onClick={() => setSelectedShift(slot.code)}
+                      aria-label={`${slot.name} shift, Team ${teamLabel}`}
+                      className={cn(
+                        "relative flex flex-col items-center justify-center rounded-lg border py-1.5 px-1 sm:px-1.5 text-center transition-all duration-150 cursor-pointer select-none",
+                        isSelected
+                          ? cn("border-2 shadow-2xs", config.activeBorder, config.activeBg, config.activeRing)
+                          : "border-border/70 bg-card/60 hover:border-border hover:bg-muted/40 text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <div className="flex items-center gap-1">
+                        <span className={cn("text-xs sm:text-sm font-bold tracking-tight", isSelected ? "text-foreground" : "text-foreground/90")}>
+                          {slot.name}
+                        </span>
+                      </div>
+                      <span
+                        className={cn(
+                          "mt-0.5 rounded px-1.5 py-0.2 text-[10px] sm:text-[11px] font-semibold transition-colors truncate max-w-full",
+                          isSelected ? config.badgeActive : config.badgeInactive,
+                        )}
+                      >
+                        Team {teamLabel}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2: Search, Jump to Date, Today, View Toggle, and Actions */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-2 border-t border-border/60">
+            {/* Left side: Search input + match count */}
+            <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto">
+              <div className="relative flex-1 sm:flex-initial sm:w-60 lg:w-72">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search name, position, unit..."
+                  className="h-8 pl-8 pr-8 text-xs sm:text-sm bg-background/80"
+                />
+                {search && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {viewMode === "grid" && search.trim() && (
+                <Badge variant="secondary" className="h-7 px-2 text-xs font-medium shrink-0">
+                  {gridMatches} {gridMatches === 1 ? "match" : "matches"}
+                </Badge>
+              )}
+
+              {isFetching && !isLoading && (
+                <Badge variant="outline" className="h-7 px-2 text-xs text-muted-foreground animate-pulse shrink-0">
+                  Refreshing
+                </Badge>
+              )}
+
+              {/* Off-duty summary badges in toolbar on wide screens */}
+              <div className="hidden xl:flex items-center gap-2.5 text-xs text-muted-foreground pl-1">
+                {offDuty.nightOffTeams.length > 0 && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                    Night off: <span className="font-semibold text-foreground">Team {offDuty.nightOffTeams.join(", ")}</span>
+                  </span>
+                )}
+                {offDuty.clearOffTeams.length > 0 && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                    Clear off: <span className="font-semibold text-foreground">Team {offDuty.clearOffTeams.join(", ")}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Right side: Popover calendar, Today button, View toggle, Actions */}
+            <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2 w-full sm:w-auto shrink-0">
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 gap-1.5 px-2.5 text-xs font-medium border-border/80 hover:bg-muted/80 shadow-2xs whitespace-nowrap shrink-0"
+                    >
+                      <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span>{format(selectedDateObj, "dd MMM yyyy")}</span>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="end">
+                    <Calendar
+                      mode="single"
+                      selected={selectedDateObj}
+                      onSelect={(d) => {
+                        if (!d) return;
+                        const next = format(d, "yyyy-MM-dd");
+                        setSelectedDate(next);
+                        setAnchorDate(d);
+                      }}
+                      initialFocus
+                      className="p-3 pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
+
+                <Button
+                  type="button"
+                  variant={isSameDay(selectedDateObj, today) ? "secondary" : "outline"}
+                  size="sm"
+                  className="h-8 px-2.5 text-xs font-medium shadow-2xs shrink-0"
+                  onClick={goToToday}
+                >
+                  Today
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                {gridModel && (
+                  <ToggleGroup
+                    type="single"
+                    value={viewMode}
+                    onValueChange={(value) => value && setViewMode(value as ViewMode)}
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 h-8 border border-border/80 rounded-lg p-0.5 bg-background shadow-2xs"
+                  >
+                    <ToggleGroupItem
+                      value="grid"
+                      aria-label="Grid view"
+                      className="h-7 px-2 sm:px-2.5 text-xs gap-1.5 data-[state=on]:bg-muted data-[state=on]:text-foreground"
+                    >
+                      <LayoutGrid className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline font-medium">Grid</span>
+                    </ToggleGroupItem>
+                    <ToggleGroupItem
+                      value="list"
+                      aria-label="List view"
+                      className="h-7 px-2 sm:px-2.5 text-xs gap-1.5 data-[state=on]:bg-muted data-[state=on]:text-foreground"
+                    >
+                      <List className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline font-medium">List</span>
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                )}
+
+                {actions && (
+                  <div className="shrink-0">
+                    {actions({ isoDate: selectedDate, shift: activeSlot.name })}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* ── Selection: shift.  Each option shows the team the rotation puts on
-             it for the selected date, so the team is visible before choosing. ── */}
-      <ToggleGroup
-        type="single"
-        value={selectedShift}
-        onValueChange={(value) => value && setSelectedShift(value as ShiftCode)}
-        variant="outline"
-        className="grid grid-cols-3 gap-1.5"
-      >
-        {SHIFT_SLOTS.map((slot) => {
-          const teamLabel = shiftTeams[slot.code].join(" / ") || "—";
-          return (
-            <ToggleGroupItem
-              key={slot.code}
-              value={slot.code}
-              aria-label={`${slot.name} shift, Team ${teamLabel}`}
-              className="h-auto flex-col gap-0 py-2 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground"
-            >
-              <span className="text-xs font-semibold sm:text-sm">{slot.name}</span>
-              <span className="text-[10px] opacity-80 sm:text-xs">Team {teamLabel}</span>
-            </ToggleGroupItem>
-          );
-        })}
-      </ToggleGroup>
-
-      {/* ── The selected shift.  The header renders immediately from the
-             rotation rule; only the roster list waits on data. ── */}
+      {/* ── The selected shift roster panel ── */}
       <ShiftPanel
         slot={activeSlot}
         teams={shiftTeams[activeSlot.code]}
@@ -504,26 +654,37 @@ export default function ShiftRosterView({ actions, description }: Props) {
       />
 
       {/* ── Context line ── */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 text-xs text-muted-foreground">
-        {offDuty.nightOffTeams.length > 0 && (
-          <span>
-            Night off:{" "}
-            <span className="font-medium text-foreground">Team {offDuty.nightOffTeams.join(", ")}</span>
-          </span>
-        )}
-        {offDuty.clearOffTeams.length > 0 && (
-          <span>
-            Clear off:{" "}
-            <span className="font-medium text-foreground">Team {offDuty.clearOffTeams.join(", ")}</span>
-          </span>
-        )}
-        {day && <span>{day.totalMembers} entries across all shifts</span>}
-        {day?.source === "schedules" && (
-          <span className="text-amber-600 dark:text-amber-400">
-            Derived from duty schedules — no published roster for this date
-          </span>
-        )}
-        {day?.source === "empty" && !search && <span>No roster published for this date</span>}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 px-1 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {offDuty.nightOffTeams.length > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+              Night off:{" "}
+              <span className="font-semibold text-foreground">Team {offDuty.nightOffTeams.join(", ")}</span>
+            </span>
+          )}
+          {offDuty.clearOffTeams.length > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+              Clear off:{" "}
+              <span className="font-semibold text-foreground">Team {offDuty.clearOffTeams.join(", ")}</span>
+            </span>
+          )}
+          {day && (
+            <span className="inline-flex items-center gap-1">
+              <Users className="h-3 w-3 text-muted-foreground" />
+              <span className="font-medium text-foreground">{day.totalMembers}</span> entries across all shifts
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {day?.source === "schedules" && (
+            <span className="text-amber-600 dark:text-amber-400 font-medium">
+              Derived from duty schedules — no published roster for this date
+            </span>
+          )}
+          {day?.source === "empty" && !search && <span>No roster published for this date</span>}
+        </div>
       </div>
     </div>
   );

@@ -39,6 +39,7 @@ import {
   useHolidaysByType,
   type Holiday,
 } from "@/hooks/useHolidayDashboard";
+import { STICKY_HEADER_SHADOW } from "@/lib/stickyShadow";
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH_SHORT = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -502,7 +503,7 @@ export default function HolidayManagement() {
 
               return (
                 <div key={monthKey} className="pb-8 relative pl-8">
-                  <div className="sticky top-[200px] z-20 flex items-center py-2 relative mb-3 bg-background/95 backdrop-blur-sm -mx-2 px-2 rounded-lg">
+                  <div className={`sticky top-[200px] z-20 flex items-center py-2 relative mb-3 bg-background -mx-2 px-2 rounded-lg ${STICKY_HEADER_SHADOW}`}>
                     <div className="absolute -left-[31px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-500 ring-4 ring-white dark:ring-neutral-950" />
                     <span className="text-xs font-bold text-slate-400 dark:text-neutral-500 uppercase tracking-[0.15em]">
                       {monthName} <span className="mx-1 text-slate-300 dark:text-neutral-700">/</span> {items.length} {items.length === 1 ? 'HOLIDAY' : 'HOLIDAYS'}

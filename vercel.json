@@ -3,7 +3,10 @@
     "api/upload/profile-picture.ts": { "maxDuration": 30 },
     "api/upload/leave-document.ts": { "maxDuration": 30 },
     "api/leave-document-url.ts": { "maxDuration": 10 },
-    "api/leave-sheet-push.ts": { "maxDuration": 30 }
+    "api/leave-sheet-push.ts": { "maxDuration": 30 },
+    "api/working-hours.ts": { "maxDuration": 60 },
+    "api/leave-roster.ts": { "maxDuration": 30 },
+    "api/metrics.ts": { "maxDuration": 30 }
   },
   "headers": [
     {

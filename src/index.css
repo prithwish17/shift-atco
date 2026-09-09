@@ -77,6 +77,13 @@ All colors MUST be HSL.
     --cell-occupied: 220 20% 15%;
     --cell-empty: 220 10% 70%;
 
+    /* The roster matrix's zebra stripe, pre-blended against --background.
+       The frozen unit column paints its own background over the names
+       scrolling beneath it, so it cannot use the translucent `muted/30` the
+       open cells get away with — at 30% the column reads straight through.
+       These are that same blend, flattened. */
+    --roster-stripe: 210 33% 99%;
+
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 215 25% 27%;
     --sidebar-primary: 220 77% 39%;
@@ -217,6 +224,8 @@ All colors MUST be HSL.
     --header-shift-fg: 220 20% 30%;
     --cell-occupied: 210 40% 98%;
     --cell-empty: 215 20% 65%;
+
+    --roster-stripe: 220 42% 13%;
   }
 }
 

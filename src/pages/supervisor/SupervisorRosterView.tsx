@@ -31,6 +31,7 @@ import {
   getSupervisorLegendTone,
 } from "@/lib/supervisorTableTheme";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchLatestRosterMonth, fetchRosterRowsInRange } from "@/data-access/roster-reads";
 import { buildRosterMatrix, SHIFT_NAME_TO_DUTY_CODE, SHIFT_ORDER, type RosterMatrixData, type RosterMatrixRow } from "@/lib/rosterMatrix";
 import { parseRosterDate, type RosterEntry } from "@/hooks/useRosters";
 import { getDutyShiftMatches, normalizeTeamKey, type TeamDutyCode } from "@/lib/teamDutyRotation";
@@ -717,56 +718,52 @@ export default function SupervisorRosterView() {
     return () => window.removeEventListener("resize", check);
   }, []);
 
+  // The chart opens on the current month, but the roster for it may not be
+  // published yet.  Resolving the latest published month first (one indexed
+  // row) means the page lands on real data, and keeps the month arrows moving
+  // relative to a month that actually exists — previously they stepped away
+  // from today while the grid kept falling back to the last month with rows,
+  // so "next month" looked like it did nothing.
+  const { data: latestRosterMonth = null, isLoading: latestMonthLoading } = useQuery<string | null>({
+    queryKey: ["supervisor-roster-view", "latest-month"],
+    queryFn: fetchLatestRosterMonth,
+    staleTime: 5 * 60_000,
+  });
+
+  const targetMonthDate = useMemo(() => {
+    const thisMonth = startOfMonth(new Date());
+    const latest = latestRosterMonth ? startOfMonth(new Date(`${latestRosterMonth}-01T00:00:00`)) : null;
+    const base = latest && latest < thisMonth ? latest : thisMonth;
+    return addMonths(base, monthOffset);
+  }, [latestRosterMonth, monthOffset]);
+
+  const monthKey = format(targetMonthDate, "yyyy-MM");
+
   // Always cover the full selected month regardless of what roster data exists
-  const currentMonthDateKeys = useMemo(() => {
-    const target = addMonths(new Date(), monthOffset);
-    return eachDayOfInterval({ start: startOfMonth(target), end: endOfMonth(target) }).map((d) =>
-      format(d, "yyyy-MM-dd"),
-    );
-  }, [monthOffset]);
+  const currentMonthDateKeys = useMemo(
+    () =>
+      eachDayOfInterval({ start: startOfMonth(targetMonthDate), end: endOfMonth(targetMonthDate) }).map((d) =>
+        format(d, "yyyy-MM-dd"),
+      ),
+    [targetMonthDate],
+  );
 
-  const { data: rosterRows = [], isLoading, isError, refetch } = useQuery<RosterEntry[]>({
-    // Fix 3: Include monthOffset in the query key so each month gets its own
-    // cache entry — previously all months shared the same stale cache.
-    queryKey: ["supervisor-roster-view", monthOffset],
-    queryFn: async () => {
-      // Fix 4: The old .limit(5000) with no date filter silently dropped
-      // E team data when the rosters table exceeded 5000 rows (easy at scale:
-      // 5 teams × 3 shifts × 30 days × ~30 employees = ~13,500 rows/month).
-      //
-      // The rosters.date column stores dates as text in "d-MMM-yyyy" format,
-      // so we cannot do server-side date-range filtering with .gte()/.lte().
-      // Instead, fetch all 5 teams' roster entries (no arbitrary limit) and
-      // let buildRosterMatrix() handle month-based filtering client-side.
-      // A single month rarely exceeds 15K rows; the limit is kept as a safety net.
-      const PAGE_SIZE = 5000;
-      let allRows: RosterEntry[] = [];
-      let from = 0;
-      let hasMore = true;
-
-      while (hasMore) {
-        const { data, error } = await (supabase.from("rosters" as any)
-          .select("id, date, shift, team, unit, employee_name, position, created_at")
-          .order("created_at", { ascending: false })
-          .range(from, from + PAGE_SIZE - 1));
-
-        if (error) throw error;
-
-        const rows = ((data || []) as unknown) as RosterEntry[];
-        allRows = allRows.concat(rows);
-        hasMore = rows.length === PAGE_SIZE;
-        from += PAGE_SIZE;
-
-        // Safety cap: stop after 30K rows to prevent runaway memory usage
-        if (allRows.length >= 30_000) break;
-      }
-
-      return allRows;
-    },
+  const { data: rosterRows = [], isLoading: rosterRowsLoading, isError, refetch } = useQuery<RosterEntry[]>({
+    queryKey: ["supervisor-roster-view", monthKey],
+    // The month is only known once the latest published month has resolved;
+    // firing before then would fetch a month the user never sees.
+    enabled: Boolean(monthKey) && !latestMonthLoading,
+    queryFn: () =>
+      fetchRosterRowsInRange({
+        fromIsoDate: currentMonthDateKeys[0],
+        toIsoDate: currentMonthDateKeys[currentMonthDateKeys.length - 1],
+      }),
     staleTime: 60_000,
   });
 
-  const matrixData = useMemo(() => buildRosterMatrix(rosterRows, addMonths(new Date(), monthOffset)), [rosterRows, monthOffset]);
+  const isLoading = latestMonthLoading || rosterRowsLoading;
+
+  const matrixData = useMemo(() => buildRosterMatrix(rosterRows, targetMonthDate), [rosterRows, targetMonthDate]);
 
   const scheduleRangeStart = currentMonthDateKeys[0];
   const scheduleRangeEnd = currentMonthDateKeys[currentMonthDateKeys.length - 1];

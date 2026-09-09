@@ -27,37 +27,37 @@ export const SUPERVISOR_SCROLLBAR_THUMB = "cursor-grab border-slate-600/80 bg-sl
 export const SUPERVISOR_SCROLLBAR_THUMB_DISABLED = "cursor-default border-slate-300/80 bg-slate-300/90 opacity-70 dark:border-slate-700 dark:bg-slate-700/90";
 
 export const SUPERVISOR_WEEKEND_DATE_HEADER = "bg-indigo-950 text-indigo-100 border-indigo-800 shadow-[inset_0_-1px_0_rgba(255,255,255,0.06)] dark:bg-indigo-900 dark:text-indigo-50 dark:border-indigo-700";
-export const SUPERVISOR_WEEKEND_SHIFT_HEADER = "bg-indigo-100/95 text-indigo-900 border-indigo-200 dark:bg-indigo-900/80 dark:text-indigo-100 dark:border-indigo-700/80";
-export const SUPERVISOR_WEEKEND_TEAM_HEADER = "bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/95 dark:text-indigo-100 dark:border-indigo-700/80";
+export const SUPERVISOR_WEEKEND_SHIFT_HEADER = "bg-indigo-100 text-indigo-900 border-indigo-200 dark:bg-indigo-900 dark:text-indigo-100 dark:border-indigo-700/80";
+export const SUPERVISOR_WEEKEND_TEAM_HEADER = "bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-950 dark:text-indigo-100 dark:border-indigo-700/80";
 export const SUPERVISOR_WEEKEND_CELL = "bg-indigo-50/70 dark:bg-indigo-950/35";
 
-export const SUPERVISOR_REPORT_AVAILABILITY_HEADER = "bg-violet-600/95 text-white dark:bg-violet-900/85 dark:text-violet-50 dark:border-violet-700/80";
-export const SUPERVISOR_REPORT_AVAILABILITY_SUBHEADER = "bg-violet-100/95 text-violet-900 dark:bg-violet-950/70 dark:text-violet-100 dark:border-violet-800/80";
-export const SUPERVISOR_REPORT_SHORTAGE_HEADER = "bg-rose-600/95 text-white dark:bg-rose-900/85 dark:text-rose-50 dark:border-rose-700/80";
-export const SUPERVISOR_REPORT_SHORTAGE_SUBHEADER = "bg-rose-100/95 text-rose-900 dark:bg-rose-950/70 dark:text-rose-100 dark:border-rose-800/80";
+export const SUPERVISOR_REPORT_AVAILABILITY_HEADER = "bg-violet-600 text-white dark:bg-violet-900 dark:text-violet-50 dark:border-violet-700/80";
+export const SUPERVISOR_REPORT_AVAILABILITY_SUBHEADER = "bg-violet-100 text-violet-900 dark:bg-violet-950 dark:text-violet-100 dark:border-violet-800/80";
+export const SUPERVISOR_REPORT_SHORTAGE_HEADER = "bg-rose-600 text-white dark:bg-rose-900 dark:text-rose-50 dark:border-rose-700/80";
+export const SUPERVISOR_REPORT_SHORTAGE_SUBHEADER = "bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-100 dark:border-rose-800/80";
 export const SUPERVISOR_REPORT_ROW_EVEN = "bg-white/98 dark:bg-slate-950/96";
 export const SUPERVISOR_REPORT_ROW_ODD = "bg-slate-50/98 dark:bg-slate-900/92";
 export const SUPERVISOR_REPORT_TEAM_CELL = "bg-slate-100/90 text-slate-700 dark:bg-slate-800/95 dark:text-slate-100";
 
 const SHIFT_TONES: Record<SupervisorShiftCode, { header: string; subHeader: string; team: string; cell: string; badge: string }> = {
   M: {
-    header: "bg-emerald-200/95 text-emerald-950 border-emerald-300 shadow-inner dark:bg-emerald-900/70 dark:text-emerald-50 dark:border-emerald-700/80",
-    subHeader: "bg-emerald-100/90 text-emerald-900 border-emerald-200 dark:bg-emerald-900/55 dark:text-emerald-100 dark:border-emerald-700/70",
-    team: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950/90 dark:text-emerald-100",
+    header: "bg-emerald-200 text-emerald-950 border-emerald-300 shadow-inner dark:bg-emerald-900 dark:text-emerald-50 dark:border-emerald-700/80",
+    subHeader: "bg-emerald-100 text-emerald-900 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-100 dark:border-emerald-700/70",
+    team: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100",
     cell: "bg-emerald-50/60 dark:bg-emerald-950/28",
     badge: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/70 dark:bg-emerald-900/30 dark:text-emerald-200",
   },
   A: {
-    header: "bg-amber-200/95 text-amber-950 border-amber-300 shadow-inner dark:bg-amber-900/70 dark:text-amber-50 dark:border-amber-700/80",
-    subHeader: "bg-amber-100/90 text-amber-900 border-amber-200 dark:bg-amber-900/55 dark:text-amber-100 dark:border-amber-700/70",
-    team: "bg-amber-100 text-amber-900 dark:bg-amber-950/90 dark:text-amber-100",
+    header: "bg-amber-200 text-amber-950 border-amber-300 shadow-inner dark:bg-amber-900 dark:text-amber-50 dark:border-amber-700/80",
+    subHeader: "bg-amber-100 text-amber-900 border-amber-200 dark:bg-amber-950 dark:text-amber-100 dark:border-amber-700/70",
+    team: "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-100",
     cell: "bg-amber-50/60 dark:bg-amber-950/28",
     badge: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/70 dark:bg-amber-900/30 dark:text-amber-200",
   },
   N: {
-    header: "bg-sky-200/95 text-sky-950 border-sky-300 shadow-inner dark:bg-sky-900/70 dark:text-sky-50 dark:border-sky-700/80",
-    subHeader: "bg-sky-100/90 text-sky-900 border-sky-200 dark:bg-sky-900/55 dark:text-sky-100 dark:border-sky-700/70",
-    team: "bg-sky-100 text-sky-900 dark:bg-sky-950/90 dark:text-sky-100",
+    header: "bg-sky-200 text-sky-950 border-sky-300 shadow-inner dark:bg-sky-900 dark:text-sky-50 dark:border-sky-700/80",
+    subHeader: "bg-sky-100 text-sky-900 border-sky-200 dark:bg-sky-950 dark:text-sky-100 dark:border-sky-700/70",
+    team: "bg-sky-100 text-sky-900 dark:bg-sky-950 dark:text-sky-100",
     cell: "bg-sky-50/60 dark:bg-sky-950/28",
     badge: "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-800/70 dark:bg-sky-900/30 dark:text-sky-200",
   },
@@ -153,6 +153,30 @@ export function getSupervisorDefaultCellBg(rowType: string, shiftCode: Superviso
   }
 
   return weekend ? SUPERVISOR_WEEKEND_CELL : getSupervisorShiftTone(shiftCode).cell;
+}
+
+/**
+ * The same tint as getSupervisorDefaultCellBg, minus the alpha.  A row that
+ * pins itself under the header cannot use the translucent version: the rows
+ * sliding beneath it would show straight through.
+ */
+export function getSupervisorOpaqueCellBg(rowType: string, shiftCode: SupervisorShiftCode, weekend: boolean) {
+  if (rowType === "summary") {
+    return weekend ? "bg-slate-100 dark:bg-slate-800" : "bg-slate-50 dark:bg-slate-900";
+  }
+
+  if (weekend) {
+    return "bg-indigo-50 dark:bg-indigo-950";
+  }
+
+  switch (shiftCode) {
+    case "M":
+      return "bg-emerald-50 dark:bg-emerald-950";
+    case "A":
+      return "bg-amber-50 dark:bg-amber-950";
+    case "N":
+      return "bg-sky-50 dark:bg-sky-950";
+  }
 }
 
 export function getSupervisorSignedDeltaTone(delta: number) {

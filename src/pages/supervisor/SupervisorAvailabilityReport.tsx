@@ -37,6 +37,7 @@ import {
   getSupervisorShiftTone,
   getSupervisorSignedDeltaTone,
 } from "@/lib/supervisorTableTheme";
+import { STICKY_COLUMN_SHADOW, STICKY_CORNER_SHADOW, STICKY_HEADER_SHADOW } from "@/lib/stickyShadow";
 import {
   buildMonthDateKeys,
   buildMonthlyAvailabilityReport,
@@ -125,7 +126,7 @@ function isWeekendDayLabel(dayLabel: string) {
 
 function getReportDateCellTone(dayLabel: string, rowIndex: number) {
   if (isWeekendDayLabel(dayLabel)) {
-    return "bg-indigo-50 text-slate-900 dark:bg-indigo-950/45 dark:text-slate-50";
+    return "bg-indigo-50 text-slate-900 dark:bg-indigo-950 dark:text-slate-50";
   }
 
   return rowIndex % 2 === 0
@@ -585,7 +586,7 @@ export default function SupervisorAvailabilityReport() {
               <table ref={tableRef} className="min-w-[1880px] border-collapse text-[12px] leading-snug">
                 <thead className="sticky top-0 z-30">
                   <tr>
-                    <th rowSpan={2} className={`sticky left-0 z-40 min-w-[140px] border-r bg-slate-900 px-3 py-2 text-left text-[12px] font-bold text-slate-50 dark:bg-slate-900 ${SUPERVISOR_GRID_LINE_STRONG}`}>
+                    <th rowSpan={2} className={`sticky left-0 z-40 min-w-[140px] border-r bg-slate-900 px-3 py-2 text-left text-[12px] font-bold text-slate-50 dark:bg-slate-900 ${STICKY_CORNER_SHADOW} ${SUPERVISOR_GRID_LINE_STRONG}`}>
                       <div>Date</div>
                       <div className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-300">Day</div>
                     </th>
@@ -603,36 +604,36 @@ export default function SupervisorAvailabilityReport() {
                   </tr>
                   <tr>
                     {SHIFT_ORDER.map((shiftCode) => (
-                      <th key={`availability-${shiftCode}`} className={`border-r px-2 py-1.5 text-center font-semibold ${SUPERVISOR_REPORT_AVAILABILITY_SUBHEADER} ${SUPERVISOR_GRID_LINE}`}>
+                      <th key={`availability-${shiftCode}`} className={`border-r px-2 py-1.5 text-center font-semibold ${SUPERVISOR_REPORT_AVAILABILITY_SUBHEADER} ${STICKY_HEADER_SHADOW} ${SUPERVISOR_GRID_LINE}`}>
                         {shiftCode}
                       </th>
                     ))}
                     {SHIFT_ORDER.map((shiftCode) => (
-                      <th key={`net-${shiftCode}`} className={`border-r px-2 py-1.5 text-center font-semibold ${SUPERVISOR_REPORT_SHORTAGE_SUBHEADER} ${SUPERVISOR_GRID_LINE} ${shiftCode === "M" ? SUPERVISOR_TABLE_SECTION_DIVIDER : ""}`}>
+                      <th key={`net-${shiftCode}`} className={`border-r px-2 py-1.5 text-center font-semibold ${SUPERVISOR_REPORT_SHORTAGE_SUBHEADER} ${STICKY_HEADER_SHADOW} ${SUPERVISOR_GRID_LINE} ${shiftCode === "M" ? SUPERVISOR_TABLE_SECTION_DIVIDER : ""}`}>
                         {shiftCode}
                       </th>
                     ))}
                     {SHIFT_SECTION_CONFIG.map((section) => (
                       <Fragment key={section.shiftCode}>
-                        <th key={`${section.shiftCode}-team`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${SUPERVISOR_GRID_LINE} ${SUPERVISOR_TABLE_SECTION_DIVIDER}`}>
+                        <th key={`${section.shiftCode}-team`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${STICKY_HEADER_SHADOW} ${SUPERVISOR_GRID_LINE} ${SUPERVISOR_TABLE_SECTION_DIVIDER}`}>
                           Team
                         </th>
-                        <th key={`${section.shiftCode}-rsr`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${SUPERVISOR_GRID_LINE}`}>
+                        <th key={`${section.shiftCode}-rsr`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${STICKY_HEADER_SHADOW} ${SUPERVISOR_GRID_LINE}`}>
                           RSR
                         </th>
-                        <th key={`${section.shiftCode}-asr`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${SUPERVISOR_GRID_LINE}`}>
+                        <th key={`${section.shiftCode}-asr`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${STICKY_HEADER_SHADOW} ${SUPERVISOR_GRID_LINE}`}>
                           ASR
                         </th>
-                        <th key={`${section.shiftCode}-accoocc`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${SUPERVISOR_GRID_LINE}`}>
+                        <th key={`${section.shiftCode}-accoocc`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${STICKY_HEADER_SHADOW} ${SUPERVISOR_GRID_LINE}`}>
                           ACC/OCC
                         </th>
-                        <th key={`${section.shiftCode}-adcsmc`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${SUPERVISOR_GRID_LINE}`}>
+                        <th key={`${section.shiftCode}-adcsmc`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${STICKY_HEADER_SHADOW} ${SUPERVISOR_GRID_LINE}`}>
                           ADC/SMC
                         </th>
-                        <th key={`${section.shiftCode}-alpha`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${SUPERVISOR_GRID_LINE}`}>
+                        <th key={`${section.shiftCode}-alpha`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${STICKY_HEADER_SHADOW} ${SUPERVISOR_GRID_LINE}`}>
                           ALPHA
                         </th>
-                        <th key={`${section.shiftCode}-total`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${SUPERVISOR_GRID_LINE}`}>
+                        <th key={`${section.shiftCode}-total`} className={`border-r px-2 py-1.5 text-center font-semibold ${section.subTone} ${STICKY_HEADER_SHADOW} ${SUPERVISOR_GRID_LINE}`}>
                           Total
                         </th>
                       </Fragment>
@@ -642,7 +643,7 @@ export default function SupervisorAvailabilityReport() {
                 <tbody>
                   {reportRows.map((row, rowIndex) => (
                     <tr key={row.isoDate} className={rowIndex % 2 === 0 ? SUPERVISOR_REPORT_ROW_EVEN : SUPERVISOR_REPORT_ROW_ODD}>
-                      <td className={`sticky left-0 z-20 border-r border-b px-3 py-2 shadow-[6px_0_14px_-10px_rgba(15,23,42,0.24)] dark:shadow-[6px_0_16px_-10px_rgba(2,6,23,0.95)] ${SUPERVISOR_GRID_LINE} ${getReportDateCellTone(row.dayLabel, rowIndex)}`}>
+                      <td className={`sticky left-0 z-20 border-r border-b px-3 py-2 ${STICKY_COLUMN_SHADOW} ${SUPERVISOR_GRID_LINE} ${getReportDateCellTone(row.dayLabel, rowIndex)}`}>
                         <div className="font-semibold text-[13px] text-inherit">{row.dateLabel}</div>
                         <div className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${getReportDayBadgeTone(row.dayLabel)}`}>
                           {row.dayLabel}
