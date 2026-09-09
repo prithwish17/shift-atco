@@ -28,7 +28,7 @@ import { Shield, RefreshCw, Search, X, Eye, Pencil, Save, Plus, Trash2, Graduati
 import { format, startOfDay } from 'date-fns';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { getFunctionsProxyBaseUrl } from '@/lib/appConfig';
+import { invokeEdgeFunction } from '@/lib/invokeEdgeFunction';
 import { useUsers } from '@/hooks/useUsers';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
@@ -200,91 +200,6 @@ function clearEditableTraineeStatusData(record: EditableTraineeRecord): Editable
     };
 }
 
-async function getCurrentOrRefreshedSession(forceRefresh = false) {
-    if (forceRefresh) {
-        const { data, error } = await supabase.auth.refreshSession();
-        if (!error && data.session) {
-            return data.session;
-        }
-    }
-
-    const {
-        data: { session },
-    } = await supabase.auth.getSession();
-
-    return session;
-}
-
-function isUnauthorizedError(error: unknown) {
-    const message = error instanceof Error ? error.message : String(error || '');
-    const normalized = message.toLowerCase();
-    return normalized.includes('unauthorized') || normalized.includes('401');
-}
-
-async function invokeEdgeFunctionViaProxy<T>(functionName: string, body: Record<string, unknown>, forceRefresh = false) {
-    const session = await getCurrentOrRefreshedSession(forceRefresh);
-
-    if (!session) {
-        throw new Error('Unauthorized');
-    }
-
-    const base = getFunctionsProxyBaseUrl();
-    const response = await fetch(`${base}/api/functions/${functionName}`, {
-        method: 'POST',
-        headers: {
-            Authorization: `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-    });
-
-    if (response.ok) {
-        return (await response.json()) as T;
-    }
-
-    const contentType = response.headers.get('content-type') || '';
-    let message = `Edge function ${functionName} failed: HTTP ${response.status}`;
-
-    if (contentType.includes('application/json')) {
-        const errBody = await response.json().catch(() => ({}));
-        message = errBody.error || errBody.message || message;
-    }
-
-    if (response.status === 401 && !forceRefresh) {
-        return invokeEdgeFunctionViaProxy<T>(functionName, body, true);
-    }
-
-    throw new Error(message);
-}
-
-async function invokeEdgeFunctionWithProxyFallback<T>(functionName: string, body: Record<string, unknown> = {}) {
-    try {
-        const { data, error } = await supabase.functions.invoke(functionName, { body });
-        if (!error) {
-            return data as T;
-        }
-
-        throw error;
-    } catch (error) {
-        if (isUnauthorizedError(error)) {
-            await getCurrentOrRefreshedSession(true);
-
-            try {
-                const { data, error: retryError } = await supabase.functions.invoke(functionName, { body });
-                if (!retryError) {
-                    return data as T;
-                }
-
-                throw retryError;
-            } catch (retryError) {
-                error = retryError;
-            }
-        }
-
-        return invokeEdgeFunctionViaProxy<T>(functionName, body, isUnauthorizedError(error));
-    }
-}
-
 // ---------- Hooks ----------
 function useRatingSyncData() {
     return useQuery<RatingSyncRecord[]>({
@@ -368,7 +283,7 @@ function useSyncRatingData() {
     const qc = useQueryClient();
 
     return useMutation({
-        mutationFn: async () => invokeEdgeFunctionWithProxyFallback<{ upserted?: number }>('fetch-rating-data'),
+        mutationFn: async () => invokeEdgeFunction<{ upserted?: number }>('fetch-rating-data'),
         onSuccess: async (result: { upserted?: number } | undefined) => {
             await qc.invalidateQueries({ queryKey: ['rating-sync-data'] });
             toast.success(`Rating data synced${result?.upserted ? ` (${result.upserted} records)` : ''}`);
@@ -579,7 +494,7 @@ function useSyncTraineeData() {
     const qc = useQueryClient();
 
     return useMutation({
-        mutationFn: async () => invokeEdgeFunctionWithProxyFallback<{ upserted?: number; unmatched?: number; cleared?: number }>('fetch-trainee-data'),
+        mutationFn: async () => invokeEdgeFunction<{ upserted?: number; unmatched?: number; cleared?: number }>('fetch-trainee-data'),
         onSuccess: async (result: { upserted?: number; unmatched?: number; cleared?: number } | undefined) => {
             await qc.invalidateQueries({ queryKey: ['trainee-sync-data'] });
             toast.success(
@@ -593,7 +508,7 @@ function useSyncTraineeData() {
 }
 
 async function invokeUpdateTrainingRecord(empId: string, updates: Record<string, unknown>) {
-    return invokeEdgeFunctionWithProxyFallback('update-training-record', { emp_id: empId, updates });
+    return invokeEdgeFunction('update-training-record', { emp_id: empId, updates });
 }
 
 function useUpdateRatingRecord() {

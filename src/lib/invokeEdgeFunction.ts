@@ -6,8 +6,9 @@
  * as a same-origin path through. This helper tries the direct call, refreshes an
  * expired session once on 401, and falls back to the proxy.
  *
- * This mirrors the local copies inside RatingsManagement.tsx and
- * AdminDashboard.tsx. New callers should import this one.
+ * Every edge-function caller in the app goes through here — a direct
+ * supabase.functions.invoke() that fails leaves the user with a bare
+ * "Failed to send a request to the Edge Function" and no retry.
  */
 
 import { getFunctionsProxyBaseUrl } from '@/lib/appConfig';
