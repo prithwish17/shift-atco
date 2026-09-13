@@ -64,57 +64,23 @@ interface Props {
   hideHeaderTitle?: boolean;
 }
 
-/** Config and accents for the 3 operational shifts */
-const SHIFT_CONFIG: Record<
-  ShiftCode,
-  {
-    activeBorder: string;
-    activeBg: string;
-    activeRing: string;
-    badgeActive: string;
-    badgeInactive: string;
-  }
-> = {
-  M: {
-    activeBorder: "border-amber-500 dark:border-amber-400",
-    activeBg: "bg-amber-50/70 dark:bg-amber-950/30",
-    activeRing: "ring-2 ring-amber-500/20",
-    badgeActive: "bg-amber-500 text-white dark:bg-amber-400 dark:text-gray-950",
-    badgeInactive: "bg-amber-100/80 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300",
-  },
-  A: {
-    activeBorder: "border-sky-500 dark:border-sky-400",
-    activeBg: "bg-sky-50/70 dark:bg-sky-950/30",
-    activeRing: "ring-2 ring-sky-500/20",
-    badgeActive: "bg-sky-500 text-white dark:bg-sky-400 dark:text-gray-950",
-    badgeInactive: "bg-sky-100/80 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300",
-  },
-  N: {
-    activeBorder: "border-indigo-500 dark:border-indigo-400",
-    activeBg: "bg-indigo-50/70 dark:bg-indigo-950/30",
-    activeRing: "ring-2 ring-indigo-500/20",
-    badgeActive: "bg-indigo-600 text-white dark:bg-indigo-500 dark:text-white",
-    badgeInactive: "bg-indigo-100/80 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300",
-  },
+/**
+ * One accent for every shift — the same primary colour that marks the selected
+ * date — so the highlight reads as "selected", not as a colour code to learn.
+ */
+const SHIFT_ACCENT = {
+  activeBorder: "border-primary",
+  activeBg: "bg-primary/5",
+  activeRing: "ring-2 ring-primary/20",
+  badgeActive: "bg-primary text-primary-foreground",
+  badgeInactive: "bg-muted text-muted-foreground",
 };
 
-/** Tone per shift, kept muted so the names stay the loudest thing on screen. */
-const SHIFT_TONE: Record<ShiftCode, { header: string; badge: string; dot: string }> = {
-  M: {
-    header: "bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:border-amber-900/60",
-    badge: "bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-100",
-    dot: "bg-amber-500",
-  },
-  A: {
-    header: "bg-sky-50 border-sky-200 dark:bg-sky-950/40 dark:border-sky-900/60",
-    badge: "bg-sky-100 text-sky-900 dark:bg-sky-900/60 dark:text-sky-100",
-    dot: "bg-sky-500",
-  },
-  N: {
-    header: "bg-indigo-50 border-indigo-200 dark:bg-indigo-950/40 dark:border-indigo-900/60",
-    badge: "bg-indigo-100 text-indigo-900 dark:bg-indigo-900/60 dark:text-indigo-100",
-    dot: "bg-indigo-500",
-  },
+/** Panel tone, kept muted so the names stay the loudest thing on screen. */
+const SHIFT_TONE = {
+  header: "bg-primary/5 border-primary/20",
+  badge: "bg-primary/10 text-foreground",
+  dot: "bg-primary",
 };
 
 const DAY_STRIP_RADIUS = 3;
@@ -192,7 +158,7 @@ function ShiftPanel({
   gridModel: RosterGridModel | null;
   search: string;
 }) {
-  const tone = SHIFT_TONE[slot.code];
+  const tone = SHIFT_TONE;
   const onDutyCount = group
     ? group.members.length + group.extraDuty.length + group.dutyChange.length
     : 0;
@@ -382,8 +348,8 @@ export default function ShiftRosterView({ actions, description, hideHeaderTitle 
       {/* ── Redesigned Unified Selection & Control Console ── */}
       <Card className="overflow-hidden border-border/80 shadow-sm">
         <CardContent className="space-y-2.5 p-2.5 sm:p-3.5">
-          {/* Row 1: 7-Day Week Carousel + 3-Shift Selector side-by-side on desktop */}
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2 sm:gap-2.5">
+          {/* Row 1: 7-Day Week Carousel */}
+          <div className="flex items-center">
             {/* Left: 7-Day Strip with < and > week navigation */}
             <div className="flex items-center gap-1 sm:gap-1.5 flex-1 min-w-0">
               <Button
@@ -468,45 +434,6 @@ export default function ShiftRosterView({ actions, description, hideHeaderTitle 
               </Button>
             </div>
 
-            {/* Right: 3 Shift Buttons side-by-side (bounded width on desktop, full width on mobile) */}
-            <div className="w-full lg:w-[320px] xl:w-[360px] shrink-0">
-              <div className="grid grid-cols-3 gap-1 sm:gap-1.5">
-                {SHIFT_SLOTS.map((slot) => {
-                  const config = SHIFT_CONFIG[slot.code];
-                  const isSelected = selectedShift === slot.code;
-                  const teamLabel = shiftTeams[slot.code].join(" / ") || "—";
-
-                  return (
-                    <button
-                      key={slot.code}
-                      type="button"
-                      onClick={() => setSelectedShift(slot.code)}
-                      aria-label={`${slot.name} shift, Team ${teamLabel}`}
-                      className={cn(
-                        "relative flex flex-col items-center justify-center rounded-lg border py-1.5 px-1 sm:px-1.5 text-center transition-all duration-150 cursor-pointer select-none",
-                        isSelected
-                          ? cn("border-2 shadow-2xs", config.activeBorder, config.activeBg, config.activeRing)
-                          : "border-border/70 bg-card/60 hover:border-border hover:bg-muted/40 text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      <div className="flex items-center gap-1">
-                        <span className={cn("text-xs sm:text-sm font-bold tracking-tight", isSelected ? "text-foreground" : "text-foreground/90")}>
-                          {slot.name}
-                        </span>
-                      </div>
-                      <span
-                        className={cn(
-                          "mt-0.5 rounded px-1.5 py-0.2 text-[10px] sm:text-[11px] font-semibold transition-colors truncate max-w-full",
-                          isSelected ? config.badgeActive : config.badgeInactive,
-                        )}
-                      >
-                        Team {teamLabel}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
           </div>
 
           {/* Row 2: Search, Jump to Date, Today, View Toggle, and Actions */}
@@ -642,6 +569,44 @@ export default function ShiftRosterView({ actions, description, hideHeaderTitle 
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Shift selector, directly above the roster it controls ── */}
+      <div className="grid grid-cols-3 gap-1 sm:gap-1.5">
+        {SHIFT_SLOTS.map((slot) => {
+          const config = SHIFT_ACCENT;
+          const isSelected = selectedShift === slot.code;
+          const teamLabel = shiftTeams[slot.code].join(" / ") || "—";
+
+          return (
+            <button
+              key={slot.code}
+              type="button"
+              onClick={() => setSelectedShift(slot.code)}
+              aria-label={`${slot.name} shift, Team ${teamLabel}`}
+              className={cn(
+                "relative flex flex-col items-center justify-center rounded-lg border py-1.5 px-1 sm:px-1.5 text-center transition-all duration-150 cursor-pointer select-none",
+                isSelected
+                  ? cn("border-2 shadow-2xs", config.activeBorder, config.activeBg, config.activeRing)
+                  : "border-border/70 bg-card/60 hover:border-border hover:bg-muted/40 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <div className="flex items-center gap-1">
+                <span className={cn("text-xs sm:text-sm font-bold tracking-tight", isSelected ? "text-foreground" : "text-foreground/90")}>
+                  {slot.name}
+                </span>
+              </div>
+              <span
+                className={cn(
+                  "mt-0.5 rounded px-1.5 py-0.2 text-[10px] sm:text-[11px] font-semibold transition-colors truncate max-w-full",
+                  isSelected ? config.badgeActive : config.badgeInactive,
+                )}
+              >
+                Team {teamLabel}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
       {/* ── The selected shift roster panel ── */}
       <ShiftPanel
