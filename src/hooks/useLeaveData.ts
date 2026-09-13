@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
+import { invokeEdgeFunction } from "@/lib/invokeEdgeFunction";
 import { normalizeLeaveRecords } from "@/utils/leaveCalculations";
 import { COMP_OFF_EXPIRY_DAYS } from "@/lib/leaveConstants";
 import type { RawLeaveRecord } from "@/services/leaveApi";
@@ -375,45 +375,7 @@ export function useLeaveData(year?: number, empId?: string | null, options: Leav
   const refresh = useMutation({
     mutationFn: async () => {
       if (!url) throw new Error("Leave API URL is not configured");
-
-      // Try direct Supabase edge function first
-      let directError: any = null;
-      try {
-        const { data, error } = await supabase.functions.invoke("fetch-leave-data", { body: {} });
-        if (!error) return data;
-        directError = error;
-      } catch (err) {
-        // CORS or network error — direct call failed
-        directError = err;
-      }
-
-      // Fallback to Vercel proxy in dev
-      if (import.meta.env.DEV) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) throw directError;
-
-        const base = getFunctionsProxyBaseUrl();
-
-        const res = await fetch(`${base}/api/functions/fetch-leave-data`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({}),
-        });
-
-        if (res.ok) return res.json();
-
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(
-          errBody.error ||
-          directError?.message ||
-          `Edge function failed via proxy: HTTP ${res.status}`
-        );
-      }
-
-      throw directError;
+      return invokeEdgeFunction("fetch-leave-data");
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["leave-data-structured"] });
@@ -444,45 +406,7 @@ export function useLeaveRefresh() {
   return useMutation({
     mutationFn: async () => {
       if (!url) throw new Error("Leave API URL is not configured");
-
-      // Try direct Supabase edge function first
-      let directError: any = null;
-      try {
-        const { data, error } = await supabase.functions.invoke("fetch-leave-data", { body: {} });
-        if (!error) return data;
-        directError = error;
-      } catch (err) {
-        // CORS or network error — direct call failed
-        directError = err;
-      }
-
-      // Fallback to Vercel proxy in dev
-      if (import.meta.env.DEV) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) throw directError;
-
-        const base = getFunctionsProxyBaseUrl();
-
-        const res = await fetch(`${base}/api/functions/fetch-leave-data`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({}),
-        });
-
-        if (res.ok) return res.json();
-
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(
-          errBody.error ||
-          directError?.message ||
-          `Edge function failed via proxy: HTTP ${res.status}`
-        );
-      }
-
-      throw directError;
+      return invokeEdgeFunction("fetch-leave-data");
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["leave-data-structured"] });

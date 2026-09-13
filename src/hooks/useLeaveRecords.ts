@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
+import { invokeEdgeFunction } from "@/lib/invokeEdgeFunction";
 
 // Leave categories from Google Sheets
 export const LEAVE_CATEGORIES = [
@@ -115,38 +115,7 @@ export function useLeaveRecordSummary(empId?: string, year?: number) {
 export function useFetchLeaveData() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: async () => {
-            const { data, error } = await supabase.functions.invoke("fetch-leave-data", { body: {} });
-            if (!error) return data;
-
-            // Fallback to Vercel proxy in dev (same pattern as useFetchSchedule)
-            if (import.meta.env.DEV) {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (!session) throw error;
-
-                const base = getFunctionsProxyBaseUrl();
-
-                const res = await fetch(`${base}/api/functions/fetch-leave-data`, {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${session.access_token}`,
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({}),
-                });
-
-                if (res.ok) return res.json();
-
-                const errBody = await res.json().catch(() => ({}));
-                throw new Error(
-                    errBody.error ||
-                    error.message ||
-                    `Edge function failed via proxy: HTTP ${res.status}`
-                );
-            }
-
-            throw error;
-        },
+        mutationFn: async () => invokeEdgeFunction("fetch-leave-data"),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ["leave-records"] });
             qc.invalidateQueries({ queryKey: ["leave-record-summary"] });

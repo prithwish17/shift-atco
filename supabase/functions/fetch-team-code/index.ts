@@ -133,6 +133,11 @@ Deno.serve(async (req) => {
                 : [];
 
         // --- Update profiles.current_shift ---
+        // Bucket by team code first, so the whole sheet costs one UPDATE per
+        // shift instead of one per employee. The per-employee version made a
+        // few hundred sequential round trips and outlived the request.
+        const validValues = ["general", "a", "b", "c", "d", "e"];
+        const byTeamCode = new Map<string, Set<string>>();
         let updated = 0;
         let skipped = 0;
         let notFound = 0;
@@ -151,26 +156,43 @@ Deno.serve(async (req) => {
                 ? "general"
                 : rawTeam.toLowerCase();
 
-            const validValues = ["general", "a", "b", "c", "d", "e"];
             if (!validValues.includes(teamCode)) {
                 console.warn(`Unknown team_code "${rawTeam}" for ${empId}, skipping`);
                 skipped++;
                 continue;
             }
 
-            const { data: updateData, error: updateError } = await adminClient
-                .from("profiles")
-                .update({ current_shift: teamCode })
-                .eq("employee_id", empId)
-                .select("id");
-
-            if (updateError) {
-                console.error(`Failed to update team code for ${empId}:`, updateError);
-                skipped++;
-            } else if (!updateData || updateData.length === 0) {
-                notFound++;
+            const bucket = byTeamCode.get(teamCode);
+            if (bucket) {
+                bucket.add(empId);
             } else {
-                updated++;
+                byTeamCode.set(teamCode, new Set([empId]));
+            }
+        }
+
+        // Keep each filter list short enough for the PostgREST query string.
+        const ID_CHUNK = 200;
+
+        for (const [teamCode, empIdSet] of byTeamCode) {
+            const empIds = [...empIdSet];
+
+            for (let i = 0; i < empIds.length; i += ID_CHUNK) {
+                const chunk = empIds.slice(i, i + ID_CHUNK);
+                const { data: updateData, error: updateError } = await adminClient
+                    .from("profiles")
+                    .update({ current_shift: teamCode })
+                    .in("employee_id", chunk)
+                    .select("employee_id");
+
+                if (updateError) {
+                    console.error(`Failed to update team code "${teamCode}":`, updateError);
+                    skipped += chunk.length;
+                    continue;
+                }
+
+                const matched = updateData?.length ?? 0;
+                updated += matched;
+                notFound += chunk.length - matched;
             }
         }
 

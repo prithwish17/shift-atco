@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { getFunctionsProxyBaseUrl } from "@/lib/appConfig";
+import { invokeEdgeFunction } from "@/lib/invokeEdgeFunction";
 
 export function useElApiUrl() {
     return useQuery({
@@ -158,55 +158,8 @@ export function useSyncElData() {
     const qc = useQueryClient();
 
     return useMutation({
-        mutationFn: async () => {
-            // Try direct Supabase edge function first
-            let directError: any = null;
-            try {
-                const { data, error } = await supabase.functions.invoke("fetch-el-data", { body: {} });
-                if (!error) return data;
-                directError = error;
-            } catch (err) {
-                // CORS or network error — direct call failed
-                directError = err;
-            }
-
-            // Fallback to Vercel proxy in dev
-            if (import.meta.env.DEV) {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (!session) throw directError;
-
-                const base = getFunctionsProxyBaseUrl();
-
-                const res = await fetch(`${base}/api/functions/fetch-el-data`, {
-                    method: "POST",
-                    headers: {
-                        Authorization: `Bearer ${session.access_token}`,
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({}),
-                });
-
-                if (res.ok) return res.json();
-
-                // Guard against HTML error pages
-                const contentType = res.headers.get("content-type") || "";
-                if (contentType.includes("application/json")) {
-                    const errBody = await res.json().catch(() => ({}));
-                    throw new Error(
-                        errBody.error ||
-                        directError?.message ||
-                        `Edge function failed via proxy: HTTP ${res.status}`,
-                    );
-                }
-
-                throw new Error(
-                    directError?.message ||
-                    `Edge function failed via proxy: HTTP ${res.status}`,
-                );
-            }
-
-            throw directError;
-        },
+        mutationFn: async () =>
+            invokeEdgeFunction<{ employees?: number; details?: number }>("fetch-el-data"),
         onSuccess: async (result: { employees?: number; details?: number } | undefined) => {
             await qc.invalidateQueries({ queryKey: ["el-data"] });
             await qc.invalidateQueries({ queryKey: ["el-details"] });

@@ -175,7 +175,7 @@ Deno.serve(async (req) => {
     // Fetch all existing profiles in one query
     const { data: allProfiles } = await adminClient
       .from("profiles")
-      .select("id, employee_id, designation, mobile, alternate_email, gender, profile_details")
+      .select("id, employee_id, full_name, designation, mobile, station, alternate_email, gender, profile_details")
       .not("employee_id", "is", null);
 
     const profileMap = new Map<string, any>();
@@ -194,6 +194,12 @@ Deno.serve(async (req) => {
     }
 
     // --- 1 & 2: Batch update existing profiles ---
+    const pendingUpdates: Array<{
+      empId: string;
+      id: string;
+      updates: Record<string, string | null | Record<string, unknown>>;
+    }> = [];
+
     for (const [empId, emp] of empMap) {
       const existing = profileMap.get(empId);
       if (!existing) continue;
@@ -220,10 +226,24 @@ Deno.serve(async (req) => {
       }
 
       if (Object.keys(updates).length > 0) {
-        const { error: updateError } = await adminClient
-          .from("profiles")
-          .update(updates)
-          .eq("id", existing.id);
+        pendingUpdates.push({ empId, id: existing.id, updates });
+      }
+    }
+
+    // Every profile needs its own UPDATE, so run them in parallel chunks.
+    // Sequentially this was slow enough for the request to be dropped before
+    // the function could answer.
+    const UPDATE_CONCURRENCY = 25;
+    for (let i = 0; i < pendingUpdates.length; i += UPDATE_CONCURRENCY) {
+      const chunk = pendingUpdates.slice(i, i + UPDATE_CONCURRENCY);
+      const results = await Promise.all(
+        chunk.map(async ({ empId, id, updates }) => {
+          const { error } = await adminClient.from("profiles").update(updates).eq("id", id);
+          return { empId, error };
+        }),
+      );
+
+      for (const { empId, error: updateError } of results) {
         if (updateError) {
           errors.push(`Profile update failed for ${empId}: ${updateError.message}`);
         } else {

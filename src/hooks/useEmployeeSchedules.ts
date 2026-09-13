@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { eachDayOfInterval, format, isAfter, isBefore, parseISO, startOfMonth, subDays, subMonths } from 'date-fns';
 import { getFunctionsProxyBaseUrl } from '@/lib/appConfig';
+import { invokeEdgeFunction } from '@/lib/invokeEdgeFunction';
 import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from '@/lib/scheduleQueryConfig';
 import { logSupervisorEdit } from '@/lib/supervisorAuditLog';
 
@@ -40,7 +41,7 @@ export const DUTY_DESCRIPTIONS: Record<string, string> = {
     'SAT+N': 'Saturday + Night',
     'CO+N': 'Clear off + Night',
     SL: 'Sick Leave',
-    Tr: 'Transfer',
+    Tr: 'Training',
     'CO+A': 'Clear off + Afternoon',
     'CO+M': 'Clear off + Morning',
     GO: 'General Oscar',
@@ -301,39 +302,7 @@ export function useMySchedule(employeeId?: string, startDate?: string, endDate?:
 export function useFetchSchedule() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: async () => {
-            const { data, error } = await supabase.functions.invoke('fetch-schedule', { body: {} });
-            if (!error) return data;
-
-            // In some local networks, direct calls to *.supabase.co Edge Functions fail.
-            // Retry via deployed Vercel proxy in dev as a fallback.
-            if (import.meta.env.DEV) {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (!session) throw error;
-
-                const base = getFunctionsProxyBaseUrl();
-
-                const res = await fetch(`${base}/api/functions/fetch-schedule`, {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${session.access_token}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({}),
-                });
-
-                if (res.ok) return res.json();
-
-                const errBody = await res.json().catch(() => ({}));
-                throw new Error(
-                    errBody.error ||
-                    error.message ||
-                    `Edge function failed via proxy: HTTP ${res.status}`
-                );
-            }
-
-            throw error;
-        },
+        mutationFn: async () => invokeEdgeFunction('fetch-schedule'),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: scheduleKeys.all });
         },

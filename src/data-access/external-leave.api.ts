@@ -2,6 +2,7 @@
 
 import type { RawLeaveRecord } from '@/domain/leave';
 import { supabase } from '@/integrations/supabase/client';
+import { invokeEdgeFunction } from '@/lib/invokeEdgeFunction';
 
 export interface LeaveApiResponse {
   status?: string;
@@ -41,9 +42,7 @@ export class ExternalLeaveAPI {
    * Trigger Supabase edge function to sync leave data
    */
   async triggerSync(): Promise<any> {
-    const { data, error } = await supabase.functions.invoke('fetch-leave-data', { body: {} });
-    if (error) throw error;
-    return data;
+    return invokeEdgeFunction('fetch-leave-data');
   }
 
   /**

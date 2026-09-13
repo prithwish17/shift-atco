@@ -18,7 +18,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { format, differenceInDays, startOfDay } from 'date-fns';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { getFunctionsProxyBaseUrl } from '@/lib/appConfig';
+import { invokeEdgeFunction } from '@/lib/invokeEdgeFunction';
 import { useUsers } from '@/hooks/useUsers';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { toast } from 'sonner';
@@ -76,37 +76,7 @@ function useSyncTrainingData() {
     const qc = useQueryClient();
 
     return useMutation({
-        mutationFn: async () => {
-            const { data, error } = await supabase.functions.invoke('fetch-training-data', { body: {} });
-            if (!error) return data;
-
-            if (import.meta.env.DEV) {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (!session) throw error;
-
-                const base = getFunctionsProxyBaseUrl();
-
-                const res = await fetch(`${base}/api/functions/fetch-training-data`, {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${session.access_token}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({}),
-                });
-
-                if (res.ok) return res.json();
-
-                const errBody = await res.json().catch(() => ({}));
-                throw new Error(
-                    errBody.error ||
-                    error.message ||
-                    `Edge function failed via proxy: HTTP ${res.status}`,
-                );
-            }
-
-            throw error;
-        },
+        mutationFn: async () => invokeEdgeFunction<{ upserted?: number }>('fetch-training-data'),
         onSuccess: async (result: { upserted?: number } | undefined) => {
             await qc.invalidateQueries({ queryKey: ['training-data'] });
             toast.success(`Training data synced${result?.upserted ? ` (${result.upserted} records)` : ''}`);
@@ -118,29 +88,10 @@ function useSyncTrainingData() {
 }
 
 async function invokeUpdateTrainingRecord(empId: string, updates: Record<string, unknown>) {
-    const { data, error } = await supabase.functions.invoke('update-training-record', {
-        body: { emp_id: empId, updates },
+    const data = await invokeEdgeFunction<{ error?: string } | null>('update-training-record', {
+        emp_id: empId,
+        updates,
     });
-
-    if (error) {
-        if (import.meta.env.DEV) {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) throw error;
-            const base = getFunctionsProxyBaseUrl();
-            const res = await fetch(`${base}/api/functions/update-training-record`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${session.access_token}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ emp_id: empId, updates }),
-            });
-            if (res.ok) return res.json();
-            const errBody = await res.json().catch(() => ({}));
-            throw new Error(errBody.error || error.message || `Edge function failed: HTTP ${res.status}`);
-        }
-        throw error;
-    }
 
     if (data?.error) throw new Error(data.error);
     return data;
@@ -269,37 +220,7 @@ function useSyncElpaData() {
     const qc = useQueryClient();
 
     return useMutation({
-        mutationFn: async () => {
-            const { data, error } = await supabase.functions.invoke('fetch-elpa-data', { body: {} });
-            if (!error) return data;
-
-            if (import.meta.env.DEV) {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (!session) throw error;
-
-                const base = getFunctionsProxyBaseUrl();
-
-                const res = await fetch(`${base}/api/functions/fetch-elpa-data`, {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${session.access_token}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({}),
-                });
-
-                if (res.ok) return res.json();
-
-                const errBody = await res.json().catch(() => ({}));
-                throw new Error(
-                    errBody.error ||
-                    error.message ||
-                    `Edge function failed via proxy: HTTP ${res.status}`,
-                );
-            }
-
-            throw error;
-        },
+        mutationFn: async () => invokeEdgeFunction<{ upserted?: number }>('fetch-elpa-data'),
         onSuccess: async (result: { upserted?: number } | undefined) => {
             await qc.invalidateQueries({ queryKey: ['elpa-data'] });
             toast.success(`ELPA data synced${result?.upserted ? ` (${result.upserted} records)` : ''}`);
@@ -347,37 +268,7 @@ function useSyncMedicalData() {
     const qc = useQueryClient();
 
     return useMutation({
-        mutationFn: async () => {
-            const { data, error } = await supabase.functions.invoke('fetch-medical-data', { body: {} });
-            if (!error) return data;
-
-            if (import.meta.env.DEV) {
-                const { data: { session } } = await supabase.auth.getSession();
-                if (!session) throw error;
-
-                const base = getFunctionsProxyBaseUrl();
-
-                const res = await fetch(`${base}/api/functions/fetch-medical-data`, {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${session.access_token}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({}),
-                });
-
-                if (res.ok) return res.json();
-
-                const errBody = await res.json().catch(() => ({}));
-                throw new Error(
-                    errBody.error ||
-                    error.message ||
-                    `Edge function failed via proxy: HTTP ${res.status}`,
-                );
-            }
-
-            throw error;
-        },
+        mutationFn: async () => invokeEdgeFunction<{ upserted?: number }>('fetch-medical-data'),
         onSuccess: async (result: { upserted?: number } | undefined) => {
             await qc.invalidateQueries({ queryKey: ['medical-sync-data'] });
             toast.success(`Medical data synced${result?.upserted ? ` (${result.upserted} records)` : ''}`);
