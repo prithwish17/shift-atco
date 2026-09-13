@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Moon, Sun, Eye, EyeOff, AlertCircle, HelpCircle } from "lucide-react";
-import LoginHelpDialog from "@/components/auth/LoginHelpDialog";
+import LoginHelpDialog, { SUPPORT_WHATSAPP_LINK } from "@/components/auth/LoginHelpDialog";
 import { useToast } from "@/hooks/use-toast";
 import { getHomeRouteForRole } from "@/lib/roleRoutes";
 import { loginSchema, LoginInput } from "@/lib/validations";
@@ -207,11 +207,16 @@ export default function Login() {
                 {isBusy ? "Logging in..." : "Login"}
               </Button>
 
-              <div className="text-center text-sm">
-                Don't have an account?{" "}
-                <Link to="/register" className="text-primary hover:underline font-medium">
-                  Register here
-                </Link>
+              <div className="text-center text-sm text-muted-foreground">
+                Unable to locate your account?{" "}
+                <a
+                  href={SUPPORT_WHATSAPP_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline font-medium"
+                >
+                  Contact support
+                </a>
               </div>
             </form>
           </CardContent>

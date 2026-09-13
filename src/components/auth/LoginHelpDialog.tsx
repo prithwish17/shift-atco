@@ -25,7 +25,9 @@ import { AtSign, KeyRound, MessageCircle } from "lucide-react";
 const SUPPORT_WHATSAPP = "9064262945";
 // Deliberately neutral: the same button carries sign-in trouble and feedback,
 // so the draft must not put words in the mouth of someone sending a suggestion.
-const SUPPORT_WHATSAPP_LINK = `https://wa.me/91${SUPPORT_WHATSAPP}?text=${encodeURIComponent(
+// Exported so other entry points (e.g. the login page's "Contact support" link)
+// resolve to the same WhatsApp thread instead of drifting to a second number.
+export const SUPPORT_WHATSAPP_LINK = `https://wa.me/91${SUPPORT_WHATSAPP}?text=${encodeURIComponent(
   "Hi! I'm messaging about ATCORA.",
 )}`;
 
