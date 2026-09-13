@@ -217,7 +217,7 @@ export default function EmployeeDutyMarked() {
                 {/* ── MINIMALIST TIMELINE ── */}
                 {/* ══════════════════════════════════════ */}
                 {isLoading ? (
-                    <div className="relative space-y-4 before:absolute before:left-[21px] sm:before:left-[23px] before:top-4 before:bottom-4 before:w-[2px] before:bg-slate-200 dark:before:bg-neutral-800">
+                    <div className="relative isolate space-y-4 before:absolute before:left-[21px] sm:before:left-[23px] before:top-4 before:bottom-4 before:w-[2px] before:bg-slate-200 dark:before:bg-neutral-800">
                         {Array.from({ length: 5 }).map((_, i) => (
                             <div key={i} className="relative flex items-start gap-3 sm:gap-4">
                                 <div className="relative z-10 shrink-0 w-11 sm:w-12 h-12 sm:h-14 rounded-xl bg-slate-100 dark:bg-neutral-800/80 animate-pulse border border-slate-200 dark:border-neutral-800" />
@@ -226,7 +226,7 @@ export default function EmployeeDutyMarked() {
                         ))}
                     </div>
                 ) : (
-                    <div className="relative space-y-3.5 before:absolute before:left-[21px] sm:before:left-[23px] before:top-4 before:bottom-4 before:w-[2px] before:bg-slate-200 dark:before:bg-neutral-800">
+                    <div className="relative isolate space-y-3.5 before:absolute before:left-[21px] sm:before:left-[23px] before:top-4 before:bottom-4 before:w-[2px] before:bg-slate-200 dark:before:bg-neutral-800">
                         {timelineDays.map((entry) => {
                             const shiftDisplay = entry.shift || 'Scheduled Shift';
                             const shiftCodeTag = entry.dutyCode && !shiftDisplay.includes(entry.dutyCode) ? ` (${entry.dutyCode})` : '';
@@ -345,14 +345,10 @@ export default function EmployeeDutyMarked() {
                                                     </div>
                                                 )}
 
-                                                {/* ── SUBTITLE: Shift & Date ── */}
+                                                {/* ── SUBTITLE: Shift ── */}
                                                 <p className="text-xs sm:text-sm text-slate-500 dark:text-neutral-400 flex items-center gap-1.5 font-normal truncate">
                                                     <span className="font-medium text-slate-700 dark:text-neutral-300">
                                                         {shiftDisplay}{shiftCodeTag}
-                                                    </span>
-                                                    <span className="text-slate-300 dark:text-neutral-600">•</span>
-                                                    <span>
-                                                        {format(entry.date, 'd MMM')}
                                                     </span>
                                                 </p>
                                             </div>
