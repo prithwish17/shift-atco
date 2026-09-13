@@ -41,7 +41,7 @@ export const DUTY_DESCRIPTIONS: Record<string, string> = {
     'SAT+N': 'Saturday + Night',
     'CO+N': 'Clear off + Night',
     SL: 'Sick Leave',
-    Tr: 'Transfer',
+    Tr: 'Training',
     'CO+A': 'Clear off + Afternoon',
     'CO+M': 'Clear off + Morning',
     GO: 'General Oscar',
