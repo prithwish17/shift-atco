@@ -1,17 +1,16 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Input } from "@/components/ui/input";
 import {
   Activity,
-  Search,
   CalendarDays,
   AlertCircle,
   CheckCircle2,
   Clock3,
   User,
+  Users,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -32,6 +31,7 @@ interface BATestRow {
   test_time: string | null;
   remarks: string | null;
   shift: string | null;
+  team: string | null;
   test_date: string;
   fetched_at: string;
   expires_at: string;
@@ -92,7 +92,6 @@ function getRowShift(row: BATestRow): string {
 export default function EmployeeBATestList() {
   const { user } = useAuth();
   const { profile } = useUserProfile(user?.id);
-  const [search, setSearch] = useState("");
 
   const myCode = normaliseCode(profile?.employee_id);
   const myName = normaliseCode(profile?.full_name);
@@ -153,20 +152,6 @@ export default function EmployeeBATestList() {
     return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
   }, [rows]);
 
-  // Filter rows by search
-  const filtered = useMemo<DateGroup[]>(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return byDate;
-    const matches = (r: BATestRow) =>
-      r.employee_name.toLowerCase().includes(q) ||
-      (r.employee_code ?? "").toLowerCase().includes(q) ||
-      (r.test_time ?? "").toLowerCase().includes(q);
-
-    return byDate
-      .map((g) => ({ date: g.date, main: g.main.filter(matches), standby: g.standby.filter(matches) }))
-      .filter((g) => g.main.length > 0 || g.standby.length > 0);
-  }, [byDate, search]);
-
   const isMyRow = useCallback(
     (r: BATestRow) =>
       Boolean(
@@ -220,9 +205,6 @@ export default function EmployeeBATestList() {
             <th className="whitespace-nowrap px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 sm:px-3">
               Emp No.
             </th>
-            <th className="px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 sm:px-3">
-              Shift
-            </th>
           </tr>
         </thead>
         <tbody>
@@ -266,9 +248,6 @@ export default function EmployeeBATestList() {
                 <td className="whitespace-nowrap border-b border-slate-100 px-2 py-2 align-top tabular-nums text-slate-600 dark:border-slate-800 dark:text-slate-300 sm:px-3">
                   {row.employee_code ?? "—"}
                 </td>
-                <td className="whitespace-nowrap border-b border-slate-100 px-2 py-2 align-top font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200 sm:px-3">
-                  {getRowShift(row) || "—"}
-                </td>
               </tr>
             );
           })}
@@ -295,16 +274,6 @@ export default function EmployeeBATestList() {
           </div>
         )}
 
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <Input
-            className="pl-9"
-            placeholder="Search by name, code, or time…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
 
         {/* Loading */}
         {isLoading && (
@@ -340,10 +309,11 @@ export default function EmployeeBATestList() {
 
         {/* Grouped date sections */}
         {!isLoading &&
-          filtered.map((group) => {
+          byDate.map((group) => {
             const headRow = group.main[0] ?? group.standby[0];
             const fetchedAt = headRow?.fetched_at ? formatFetchedAt(headRow.fetched_at) : null;
             const groupShift = headRow ? getRowShift(headRow) : "";
+            const groupTeam = (group.main.concat(group.standby).find((r) => r.team?.trim())?.team ?? "").trim();
 
             return (
               <div key={group.date} className="space-y-3">
@@ -359,12 +329,6 @@ export default function EmployeeBATestList() {
                       }
                     })()}
                   </span>
-                  {groupShift && (
-                    <Badge className="whitespace-nowrap bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-slate-200">
-                      <Clock3 className="mr-1 h-3 w-3" />
-                      {groupShift} Shift
-                    </Badge>
-                  )}
                   <Badge variant="secondary" className="text-xs">
                     {group.main.length} main
                   </Badge>
@@ -373,12 +337,34 @@ export default function EmployeeBATestList() {
                       {group.standby.length} standby
                     </Badge>
                   )}
-                  {fetchedAt && (
-                    <span className="ml-auto hidden text-[11px] text-slate-400 sm:block">
-                      Fetched {fetchedAt}
-                    </span>
-                  )}
                 </div>
+
+                {/* Shift and team — shared by every row in this list */}
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900 sm:px-4">
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      <Clock3 className="h-3 w-3" />
+                      Shift
+                    </div>
+                    <p className="mt-0.5 text-base font-bold text-slate-900 dark:text-slate-100 sm:text-lg">
+                      {groupShift || "—"}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900 sm:px-4">
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                      <Users className="h-3 w-3" />
+                      Team
+                    </div>
+                    <p className="mt-0.5 text-base font-bold text-slate-900 dark:text-slate-100 sm:text-lg">
+                      {groupTeam ? `Team ${groupTeam.replace(/^team\s*/i, "")}` : "—"}
+                    </p>
+                  </div>
+                </div>
+                {fetchedAt && (
+                  <p className="-mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+                    Fetched {fetchedAt}
+                  </p>
+                )}
 
                 {/* Main list */}
                 {group.main.length > 0 && (

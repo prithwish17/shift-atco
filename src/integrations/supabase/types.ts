@@ -205,6 +205,7 @@ export type Database = {
           remarks: string | null
           shift: string | null
           sl_no: number | null
+          team: string | null
           test_date: string
           test_time: string | null
         }
@@ -219,6 +220,7 @@ export type Database = {
           remarks?: string | null
           shift?: string | null
           sl_no?: number | null
+          team?: string | null
           test_date?: string
           test_time?: string | null
         }
@@ -233,6 +235,7 @@ export type Database = {
           remarks?: string | null
           shift?: string | null
           sl_no?: number | null
+          team?: string | null
           test_date?: string
           test_time?: string | null
         }

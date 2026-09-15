@@ -166,6 +166,7 @@ Deno.serve(async (req) => {
             test_time: string | null;
             remarks: string | null;
             shift: string | null;
+            team: string | null;
             test_date: string;
             fetched_at: string;
             expires_at: string;
@@ -191,6 +192,7 @@ Deno.serve(async (req) => {
             idx: number,
             listType: ListType,
             shift: string,
+            team: string,
             expiresAt: string,
         ): Row | null {
             const name = String(e["name"] ?? e["employee_name"] ?? e["Name"] ?? "").trim();
@@ -205,6 +207,7 @@ Deno.serve(async (req) => {
                 test_time:     String(e["test_time"] ?? e["time"] ?? "").trim() || null,
                 remarks:       String(e["status"] ?? e["remarks"] ?? e["Remarks"] ?? "").trim() || null,
                 shift:         normaliseShift(shift) || null,
+                team:          team || null,
                 test_date:     todayIST,
                 fetched_at:    now,
                 expires_at:    expiresAt,
@@ -215,6 +218,7 @@ Deno.serve(async (req) => {
         if (isObj(json) && (Array.isArray(json.main_list) || Array.isArray(json.standby_list) ||
                             Array.isArray(json.main) || Array.isArray(json.standby))) {
             const shift     = String(json.shift ?? "").trim();
+            const team      = String(json.team ?? "").trim();
             const expiresAt = shiftExpiresAt(shift, todayIST);
 
             const mainRaw    = asArray(json.main_list ?? json.main);
@@ -223,19 +227,20 @@ Deno.serve(async (req) => {
             // Main first — if a name somehow appears on both lists, the dedupe
             // below keeps the main entry.
             rows = [
-                ...mainRaw.map((e, i) => toRow(e, i, "MAIN", shift, expiresAt)),
-                ...standbyRaw.map((e, i) => toRow(e, i, "STANDBY", shift, expiresAt)),
+                ...mainRaw.map((e, i) => toRow(e, i, "MAIN", shift, team, expiresAt)),
+                ...standbyRaw.map((e, i) => toRow(e, i, "STANDBY", shift, team, expiresAt)),
             ].filter(Boolean) as Row[];
         }
         // ── Previous format: { team, shift, employees: [...] } ────────────────
         else if (isObj(json) && Array.isArray(json.employees)) {
             const shift     = String(json.shift ?? "").trim();
+            const team      = String(json.team ?? "").trim();
             const expiresAt = shiftExpiresAt(shift, todayIST);
 
             rows = asArray(json.employees)
                 .map((e, i) => {
                     const declared = String(e["list_type"] ?? "").trim().toUpperCase();
-                    return toRow(e, i, declared === "STANDBY" ? "STANDBY" : "MAIN", shift, expiresAt);
+                    return toRow(e, i, declared === "STANDBY" ? "STANDBY" : "MAIN", shift, team, expiresAt);
                 })
                 .filter(Boolean) as Row[];
         }
@@ -246,11 +251,12 @@ Deno.serve(async (req) => {
             rows = rawRows
                 .map((r, idx) => {
                     const shift = String(r["shift"] ?? "").trim();
+                    const team  = String(r["team"] ?? "").trim();
                     const expiresAt = shift
                         ? shiftExpiresAt(shift, todayIST)
                         : new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
                     const declared = String(r["list_type"] ?? "").trim().toUpperCase();
-                    return toRow(r, idx, declared === "STANDBY" ? "STANDBY" : "MAIN", shift, expiresAt);
+                    return toRow(r, idx, declared === "STANDBY" ? "STANDBY" : "MAIN", shift, team, expiresAt);
                 })
                 .filter(Boolean) as Row[];
         }
