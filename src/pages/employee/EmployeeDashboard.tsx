@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Calendar, CalendarDays, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye, Phone, MapPin, Hash, FileCheck, Globe, Star, ChevronLeft, ChevronRight, ArrowLeftRight, FlaskConical, X, Palmtree } from "lucide-react";
+import { Calendar, CalendarDays, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye, Phone, MapPin, Hash, FileCheck, Globe, Star, ChevronLeft, ChevronRight, ArrowLeftRight, FlaskConical, X, Palmtree, Download } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
@@ -15,6 +15,8 @@ import { buildEmployeeLicenseHealth, type LicenseWithExtras } from "@/hooks/useL
 import { useHolidaysByYear, useNextHoliday } from "@/hooks/useHolidayDashboard";
 import { extractTraineeMilestone, getScheduledTraineeMilestone } from "@/lib/traineeMilestones";
 import { OjtDashboardSummary } from "@/components/ojt/OjtDashboardSummary";
+import { InstallInstructionsDialog } from "@/components/InstallInstructionsDialog";
+import { usePWAOnboarding } from "@/contexts/PWAOnboardingContext";
 import { format, addDays, isSameDay, parse, parseISO, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, isAfter, isBefore } from "date-fns";
 import { parseRosterDate } from "@/lib/rosterDate";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -204,6 +206,8 @@ export default function EmployeeDashboard() {
   const currentYear = new Date().getFullYear();
   const [currentMonthDate, setCurrentMonthDate] = useState(() => new Date());
   const [isBaBannerDismissed, setIsBaBannerDismissed] = useState(false);
+  const [installHintOpen, setInstallHintOpen] = useState(false);
+  const { isInstalled, canInstall, installApp, isWorking } = usePWAOnboarding();
 
   // Check localStorage for banner dismissal (resets daily)
   useEffect(() => {
@@ -715,8 +719,9 @@ export default function EmployeeDashboard() {
             </div>
           </div>
 
-          {/* Six tiles: three columns keep the desktop rows even (3 + 3) where
-              four would leave a stranded pair on the second row. */}
+          {/* Six fixed tiles (plus the install tile when the app isn't installed):
+              three columns keep the desktop rows even (3 + 3) where four would
+              leave a stranded pair on the second row. */}
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
             <Link
               to="/employee/roster"
@@ -844,8 +849,33 @@ export default function EmployeeDashboard() {
               )}
             </div>
             </Link>
+
+            {!isInstalled && (
+              <button
+                type="button"
+                onClick={() => (canInstall ? installApp() : setInstallHintOpen(true))}
+                disabled={isWorking}
+                className="block w-full text-left rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-60 dark:focus:ring-offset-gray-900"
+              >
+              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
+                <div className="flex items-center justify-between mb-2 md:mb-3">
+                  <div>
+                    <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Install App</span>
+                    <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">
+                      Add Atcora to your home screen for faster access
+                    </div>
+                  </div>
+                  <div className="size-6 md:size-8 bg-sky-100 dark:bg-sky-900/40 rounded-lg flex items-center justify-center">
+                    <Download className="size-3 md:size-4 text-sky-600 dark:text-sky-400" />
+                  </div>
+                </div>
+              </div>
+              </button>
+            )}
           </div>
         </div>
+
+        <InstallInstructionsDialog open={installHintOpen} onOpenChange={setInstallHintOpen} />
 
         {/* ─── Bottom Two-Column Grid ─── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">

@@ -19,6 +19,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePWAOnboarding } from "@/contexts/PWAOnboardingContext";
+import { InstallInstructionsDialog } from "@/components/InstallInstructionsDialog";
 import { ShareAppDialog } from "@/components/ShareAppDialog";
 import { NavCommandPalette } from "@/components/NavCommandPalette";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -87,8 +88,8 @@ export function AppSidebar({ role }: SidebarProps) {
   const [flyout, setFlyout] = useState<{ groupId: string; top: number; left: number } | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const { isInstalled, canInstall, shouldShowIOSInstallHint, installApp } = usePWAOnboarding();
-  const showInstallItem = !isInstalled && (canInstall || shouldShowIOSInstallHint);
+  const { isInstalled, canInstall, installApp } = usePWAOnboarding();
+  const [installHintOpen, setInstallHintOpen] = useState(false);
 
   // Toggle event from the DashboardLayout header
   useEffect(() => {
@@ -538,9 +539,9 @@ export function AppSidebar({ role }: SidebarProps) {
                 <div className="text-xs capitalize text-gray-500 dark:text-gray-400">{role} Portal</div>
               </div>
               <DropdownMenuSeparator className="bg-gray-200 dark:bg-gray-700" />
-              {showInstallItem && (
+              {!isInstalled && (
                 <DropdownMenuItem
-                  onSelect={() => (canInstall ? installApp() : setShareOpen(true))}
+                  onSelect={() => (canInstall ? installApp() : setInstallHintOpen(true))}
                   className="gap-2 py-2 text-gray-700 focus:bg-gray-100 focus:text-gray-900 dark:text-gray-200 dark:focus:bg-gray-800 dark:focus:text-white"
                 >
                   <Download className="size-4" />
@@ -568,6 +569,7 @@ export function AppSidebar({ role }: SidebarProps) {
 
       {collapsed && renderFlyout()}
       <ShareAppDialog open={shareOpen} onOpenChange={setShareOpen} />
+      <InstallInstructionsDialog open={installHintOpen} onOpenChange={setInstallHintOpen} />
       <NavCommandPalette role={role} open={paletteOpen} onOpenChange={setPaletteOpen} />
     </>
   );
