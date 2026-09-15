@@ -207,17 +207,20 @@ export default function EmployeeBATestList() {
         };
 
   const renderTable = (rowList: BATestRow[], listType: ListType) => (
-    <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800">
-      <table className="w-full border-collapse text-sm">
+    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+      <table className="w-full border-collapse text-[13px] sm:text-sm">
         <thead>
           <tr className="border-b border-slate-200 bg-slate-900 text-left dark:border-slate-700">
-            <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
-              Employee Name
+            <th className="w-10 px-2 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-slate-400 sm:w-12 sm:px-3">
+              #
             </th>
-            <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
-              Employee Number
+            <th className="px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 sm:px-3">
+              Name
             </th>
-            <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+            <th className="whitespace-nowrap px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 sm:px-3">
+              Emp No.
+            </th>
+            <th className="px-2 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400 sm:px-3">
               Shift
             </th>
           </tr>
@@ -240,11 +243,14 @@ export default function EmployeeBATestList() {
                     : "bg-slate-50 dark:bg-slate-900"
                 }`}
               >
-                <td className="border-b border-slate-100 px-4 py-2.5 dark:border-slate-800">
-                  <div className="flex items-center gap-2">
+                <td className="border-b border-slate-100 px-2 py-2 text-right align-top tabular-nums text-xs font-semibold text-slate-400 dark:border-slate-800 dark:text-slate-500 sm:px-3">
+                  {idx + 1}
+                </td>
+                <td className="border-b border-slate-100 px-2 py-2 align-top dark:border-slate-800 sm:px-3">
+                  <div className="flex items-center gap-1.5">
                     {mine && <User className="h-3.5 w-3.5 shrink-0 text-amber-500" />}
                     <p
-                      className={`font-medium ${
+                      className={`break-words font-medium leading-snug ${
                         mine
                           ? "text-amber-700 dark:text-amber-400"
                           : "text-slate-900 dark:text-slate-100"
@@ -253,15 +259,15 @@ export default function EmployeeBATestList() {
                       {row.employee_name}
                     </p>
                     {mine && (
-                      <Badge className="ml-1 bg-amber-500 text-white text-[10px]">You</Badge>
+                      <Badge className="shrink-0 bg-amber-500 px-1.5 py-0 text-[10px] text-white">You</Badge>
                     )}
                   </div>
                 </td>
-                <td className="border-b border-slate-100 px-4 py-2.5 tabular-nums text-slate-600 dark:border-slate-800 dark:text-slate-300">
+                <td className="whitespace-nowrap border-b border-slate-100 px-2 py-2 align-top tabular-nums text-slate-600 dark:border-slate-800 dark:text-slate-300 sm:px-3">
                   {row.employee_code ?? "—"}
                 </td>
-                <td className="border-b border-slate-100 px-4 py-2.5 text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                  {row.shift ?? (guessShift(row.test_time) || "—")}
+                <td className="whitespace-nowrap border-b border-slate-100 px-2 py-2 align-top font-medium text-slate-700 dark:border-slate-800 dark:text-slate-200 sm:px-3">
+                  {getRowShift(row) || "—"}
                 </td>
               </tr>
             );
@@ -277,7 +283,7 @@ export default function EmployeeBATestList() {
       title="BA Test List"
       subtitle="Current Breath Analyser test roster"
     >
-      <div className="space-y-5 max-w-3xl">
+      <div className="w-full max-w-3xl space-y-5">
 
         {/* Personal status banner */}
         {!isLoading && rows.length > 0 && (
@@ -337,11 +343,12 @@ export default function EmployeeBATestList() {
           filtered.map((group) => {
             const headRow = group.main[0] ?? group.standby[0];
             const fetchedAt = headRow?.fetched_at ? formatFetchedAt(headRow.fetched_at) : null;
+            const groupShift = headRow ? getRowShift(headRow) : "";
 
             return (
               <div key={group.date} className="space-y-3">
                 {/* Date header */}
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                   <CalendarDays className="h-4 w-4 text-slate-400" />
                   <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
                     {(() => {
@@ -352,9 +359,10 @@ export default function EmployeeBATestList() {
                       }
                     })()}
                   </span>
-                  {headRow?.shift && (
-                    <Badge className="text-xs bg-slate-700 text-slate-200">
-                      {headRow.shift} Shift
+                  {groupShift && (
+                    <Badge className="whitespace-nowrap bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-slate-800 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-slate-200">
+                      <Clock3 className="mr-1 h-3 w-3" />
+                      {groupShift} Shift
                     </Badge>
                   )}
                   <Badge variant="secondary" className="text-xs">
