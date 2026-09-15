@@ -1,0 +1,270 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Bespoke Luxury Mobile Bottom Navigation
+   ═══════════════════════════════════════════════════════════════════════════
+   Key architectural features:
+   - 100% solid opaque surface (zero glass/blur artifacts on scrolling content)
+   - Seamless fluid cutout notch without upper border line
+   - Elevated floating bubble with luxury specular bevel and ambient aura glow
+   - High-contrast highlighted active glyphs matching uploaded icon designs
+   - Elegant typography for non-selected tab items
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.navWrapper {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0.75rem;
+  z-index: 40;
+  pointer-events: none;
+  padding-left: 0.875rem;
+  padding-right: 0.875rem;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+@media (min-width: 1024px) {
+  .navWrapper {
+    display: none;
+  }
+}
+
+.navContainer {
+  --nav-bar-height: 68px;
+  --nav-body-top: 18px;
+  --cutout-size: 54px;
+  --dot-size: 46px;
+
+  /* Theme tokens - Light Mode */
+  --nav-bg: #ffffff;
+  --nav-surface: #ffffff;
+  --nav-border: transparent;
+  --nav-shadow: rgba(18, 30, 24, 0.12);
+  --nav-active: #1b6644;
+  --nav-active-glow: rgba(27, 102, 68, 0.28);
+  --nav-inactive: #64748b;
+  --nav-inactive-hover: #1e293b;
+
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  height: var(--nav-bar-height);
+  pointer-events: auto;
+  user-select: none;
+}
+
+/* Theme tokens - Dark Mode */
+:global(.dark) .navContainer {
+  --nav-bg: #141b17;
+  --nav-surface: #1d2722;
+  --nav-border: transparent;
+  --nav-shadow: rgba(0, 0, 0, 0.6);
+  --nav-active: #4ee1a0;
+  --nav-active-glow: rgba(78, 225, 160, 0.35);
+  --nav-inactive: #8c9e94;
+  --nav-inactive-hover: #f1f5f3;
+}
+
+.navBar {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 1.125rem 1.125rem 1.625rem 1.625rem;
+  display: flex;
+  align-items: stretch;
+  box-shadow:
+    0 16px 36px -4px var(--nav-shadow),
+    0 4px 12px -2px rgba(0, 0, 0, 0.06);
+}
+
+/* ── Sliding cutout & bubble layer ───────────────────────────────────────── */
+
+.bgTrack {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  pointer-events: none;
+  transition:
+    transform 0.36s cubic-bezier(0.34, 1.4, 0.64, 1),
+    opacity 0.25s ease;
+  z-index: 1;
+}
+
+.cutout {
+  position: absolute;
+  top: 0;
+  left: calc((100% - var(--cutout-size)) / 2);
+  width: var(--cutout-size);
+  height: var(--cutout-size);
+  border-radius: 50%;
+  z-index: 3;
+  box-shadow:
+    calc(var(--cutout-size) / 2) calc(var(--cutout-size) / 2) 0 0 var(--nav-bg),
+    calc(-1 * var(--cutout-size) / 2) calc(var(--cutout-size) / 2) 0 0 var(--nav-bg),
+    0 var(--cutout-size) 0 0 var(--nav-bg);
+}
+
+.cutout::before,
+.cutout::after {
+  content: "";
+  position: absolute;
+  width: 800%;
+  height: calc(var(--nav-bar-height) - var(--nav-body-top) + 2px);
+  top: var(--nav-body-top);
+  background: var(--nav-bg);
+  border: none;
+}
+
+.cutout::before {
+  right: 100%;
+  border-top-right-radius: 14px;
+}
+
+.cutout::after {
+  left: 100%;
+  border-top-left-radius: 14px;
+}
+
+.dot {
+  position: absolute;
+  top: calc((var(--cutout-size) - var(--dot-size)) / 2);
+  left: calc((100% - var(--dot-size)) / 2);
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: 50%;
+  background: var(--nav-surface);
+  border: none;
+  box-shadow:
+    0 10px 24px -2px var(--nav-active-glow),
+    0 4px 10px rgba(0, 0, 0, 0.1),
+    inset 0 1.5px 1px rgba(255, 255, 255, 0.9);
+  z-index: 2;
+  transition:
+    transform 0.36s cubic-bezier(0.34, 1.4, 0.64, 1),
+    background-color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+:global(.dark) .dot {
+  box-shadow:
+    0 10px 28px -2px var(--nav-active-glow),
+    0 4px 12px rgba(0, 0, 0, 0.5),
+    inset 0 1px 1px rgba(255, 255, 255, 0.15);
+}
+
+/* ── Tab navigation items ────────────────────────────────────────────────── */
+
+.navList {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  z-index: 5;
+}
+
+.navListItem {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.navLink {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding-bottom: 7px;
+  text-decoration: none;
+  color: var(--nav-inactive);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+  transition: color 0.2s ease;
+}
+
+.navLink:focus-visible {
+  outline: 2px solid var(--nav-active);
+  outline-offset: -2px;
+  border-radius: 0.875rem;
+}
+
+.iconSlot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 2px;
+  color: var(--nav-inactive);
+  transition:
+    transform 0.36s cubic-bezier(0.34, 1.4, 0.64, 1),
+    color 0.25s ease,
+    filter 0.25s ease;
+}
+
+.label {
+  display: block;
+  font-size: 10px;
+  font-weight: 550;
+  line-height: 12px;
+  height: 12px;
+  max-width: 100%;
+  padding: 0 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--nav-inactive);
+  letter-spacing: -0.015em;
+  transition:
+    opacity 0.22s ease,
+    transform 0.32s cubic-bezier(0.34, 1.4, 0.64, 1),
+    color 0.22s ease;
+}
+
+/* ── Hover (pointer devices) ─────────────────────────────────────────────── */
+
+@media (hover: hover) {
+  .navLink:hover .iconSlot,
+  .navLink:hover .label {
+    color: var(--nav-inactive-hover);
+  }
+}
+
+/* ── Active state styling ────────────────────────────────────────────────── */
+
+.navLink[data-active="true"] {
+  color: var(--nav-active);
+}
+
+.navLink[data-active="true"] .iconSlot {
+  transform: translateY(-6px);
+  color: var(--nav-active);
+  filter: drop-shadow(0 2px 8px var(--nav-active-glow));
+}
+
+.navLink[data-active="true"] .label {
+  opacity: 0;
+  transform: translateY(4px) scale(0.85);
+  pointer-events: none;
+}
+
+/* ── Reduced motion ──────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .bgTrack,
+  .dot,
+  .iconSlot,
+  .label {
+    transition-duration: 0.01ms !important;
+  }
+}

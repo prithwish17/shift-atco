@@ -715,52 +715,8 @@ export default function EmployeeDashboard() {
             </div>
           </div>
 
-          {/* Six tiles: three columns keep the desktop rows even (3 + 3) where
-              four would leave a stranded pair on the second row. */}
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-            <Link
-              to="/employee/roster"
-              className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-            >
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
-              <div className="flex items-center justify-between mb-2 md:mb-3">
-                <div>
-                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Shift Roster</span>
-                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">See who is on each shift today</div>
-                </div>
-                <div className="size-6 md:size-8 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg flex items-center justify-center">
-                  <Users className="size-3 md:size-4 text-indigo-600 dark:text-indigo-400" />
-                </div>
-              </div>
-            </div>
-            </Link>
-
-            <Link
-              to="/employee/ba-test-list"
-              className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-            >
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
-              <div className="flex items-center justify-between mb-2 md:mb-3">
-                <div>
-                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">BA Test List</span>
-                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">See who is selected for today's breath analyzer test</div>
-                </div>
-                <div className={`size-6 md:size-8 rounded-lg flex items-center justify-center ${myBaTestEntry ? "bg-red-100 dark:bg-red-900/40" : "bg-purple-100 dark:bg-purple-900/40"}`}>
-                  <FlaskConical className={`size-3 md:size-4 ${myBaTestEntry ? "text-red-600 dark:text-red-400" : "text-purple-600 dark:text-purple-400"}`} />
-                </div>
-              </div>
-              {myBaTestEntry ? (
-                <div className="text-[10px] md:text-xs font-medium text-red-600 dark:text-red-400">
-                  You are on today's list{myBaTestEntry.shift ? ` — ${myBaTestEntry.shift} shift` : ""}
-                </div>
-              ) : baTestRows.length > 0 ? (
-                <div className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400">
-                  {baTestRows.length} listed today
-                </div>
-              ) : null}
-            </div>
-            </Link>
-
+          {/* Four tiles: 2 + 2 on mobile, a single row of four on desktop. */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
             <Link
               to="/employee/leave-dashboard"
               className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"

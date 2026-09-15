@@ -3,6 +3,19 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Height the floating mobile bottom nav claims (bar + its 12px float + the iOS
+   home indicator). Set only while <BottomNav> is mounted and below lg, so
+   bottom-fixed UI can use calc(… + var(--bottom-nav-offset, 0px)). */
+html[data-bottom-nav] {
+  --bottom-nav-offset: calc(80px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 1024px) {
+  html[data-bottom-nav] {
+    --bottom-nav-offset: 0px;
+  }
+}
+
 /* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
 All colors MUST be HSL.
 */

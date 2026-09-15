@@ -10,6 +10,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
+      // Lift bottom toasts above the mobile bottom nav while it is mounted.
+      offset={{ bottom: "calc(32px + var(--bottom-nav-offset, 0px))" }}
+      mobileOffset={{ bottom: "calc(16px + var(--bottom-nav-offset, 0px))" }}
       toastOptions={{
         classNames: {
           toast:

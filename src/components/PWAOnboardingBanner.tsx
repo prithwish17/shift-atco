@@ -23,7 +23,7 @@ export function PWAOnboardingBanner() {
     <>
       {/* ── Install banner (unchanged bottom card) ── */}
       {showInstallUI && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(1rem+var(--bottom-nav-offset,0px))] z-50 flex justify-center px-4">
           <div className="pointer-events-auto w-full max-w-lg rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-2xl backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
             <div className="flex items-start gap-3">
               <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-200">

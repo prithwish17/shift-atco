@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { AppSidebar } from "./AppSidebar";
 import { EmployeePageNoticeGate } from "./EmployeePageNoticeGate";
 import { NotificationDropdown } from "./NotificationDropdown";
+import { BottomNav } from "./shell/BottomNav";
 import { getHomeRouteForRole } from "@/lib/roleRoutes";
 import { STICKY_HEADER_SHADOW } from "@/lib/stickyShadow";
 
@@ -32,6 +33,8 @@ export function DashboardLayout({ role, title, subtitle, headerActions, children
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Mobile bottom nav: employee and WSO portals only (not supervisor/admin for now).
+  const showBottomNav = role === "employee" || role === "wso";
   const homeRoute = getHomeRouteForRole(role);
   const currentPath = location.pathname + location.search;
 
@@ -156,10 +159,14 @@ export function DashboardLayout({ role, title, subtitle, headerActions, children
         </header>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-auto p-4 md:p-6">
+        {/* pb-28 below lg reserves room for the floating bottom nav, or the
+            last card of every page sits underneath it. */}
+        <main className={`flex-1 overflow-auto p-4 md:p-6 ${showBottomNav ? "pb-28 md:pb-28 lg:pb-6" : ""}`}>
           {children}
         </main>
       </div>
+
+      {role === "employee" || role === "wso" ? <BottomNav role={role} /> : null}
 
     </div>
   );
