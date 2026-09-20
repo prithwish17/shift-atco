@@ -24,6 +24,7 @@ import {
   NIGHT_DATE_PATTERN,
   actorName,
   loadState,
+  missingServiceEnv,
   parseIncomingState,
   recordAudit,
   saveState,
@@ -97,6 +98,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const user = await authenticateRequest(req, res);
   if (!user) return;
+
+  // Checked once, up front: every route needs the service role, and a missing
+  // variable should name itself rather than surface as a library crash.
+  const missing = missingServiceEnv();
+  if (missing.length) {
+    console.error("[night-allocation] missing server env", missing);
+    return res.status(500).json({
+      error: `Server misconfigured: ${missing.join(" and ")} not set on this deployment.`,
+    });
+  }
 
   try {
     const supabase = serviceClient();

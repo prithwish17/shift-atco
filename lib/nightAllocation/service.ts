@@ -23,10 +23,33 @@ import { normalizeEmployeeMatchName } from "../../src/lib/nameMatching.js";
 /** A night is keyed by its 13:30 date, and only ever by that. */
 export const NIGHT_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * The server-side Supabase URL. Falls back to the public name, as `apiAuth`
+ * does, because deployments differ in which of the two they set.
+ */
+const serviceUrl = () => process.env.SUPABASE_URL ?? process.env.VITE_PUBLIC_SUPABASE_URL ?? "";
+
+/**
+ * Deliberately no `VITE_PUBLIC_` fallback for the key. Anything with that
+ * prefix is bundled into the browser, and a service-role key there would hand
+ * every visitor unrestricted access to the database.
+ */
+const serviceKey = () => process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+
+/**
+ * Which server-side environment variables are missing, for a message that says
+ * what to fix. `createClient` otherwise throws a bare "supabaseKey is
+ * required.", which says nothing about which name or which environment.
+ */
+export function missingServiceEnv(): string[] {
+  const missing: string[] = [];
+  if (!serviceUrl()) missing.push("SUPABASE_URL");
+  if (!serviceKey()) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  return missing;
+}
+
 export function serviceClient(): SupabaseClient {
-  return createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
-    auth: { persistSession: false },
-  });
+  return createClient(serviceUrl(), serviceKey(), { auth: { persistSession: false } });
 }
 
 // ── Seeding from the shift roster ───────────────────────────────────────────

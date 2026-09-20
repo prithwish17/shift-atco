@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { readRouteSegments } from "../../api/night-allocation/[...route].js";
 
 /**
@@ -53,5 +53,43 @@ describe("reading the route segments", () => {
   it("returns nothing when there is no path to read", () => {
     expect(readRouteSegments(undefined, undefined)).toEqual([]);
     expect(readRouteSegments(undefined, "/api/something-else/2026-09-20")).toEqual([]);
+  });
+});
+
+describe("server environment guard", () => {
+  const snapshot = { ...process.env };
+  afterEach(() => {
+    process.env = { ...snapshot };
+  });
+
+  it("names the service-role key when it is missing", async () => {
+    const { missingServiceEnv } = await import("./service.js");
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    process.env.SUPABASE_URL = "https://example.supabase.co";
+    expect(missingServiceEnv()).toEqual(["SUPABASE_SERVICE_ROLE_KEY"]);
+  });
+
+  it("names both when neither is set", async () => {
+    const { missingServiceEnv } = await import("./service.js");
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    delete process.env.SUPABASE_URL;
+    delete process.env.VITE_PUBLIC_SUPABASE_URL;
+    expect(missingServiceEnv()).toEqual(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]);
+  });
+
+  it("accepts the public URL name as a fallback", async () => {
+    const { missingServiceEnv } = await import("./service.js");
+    delete process.env.SUPABASE_URL;
+    process.env.VITE_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role";
+    expect(missingServiceEnv()).toEqual([]);
+  });
+
+  it("never reads a VITE_ name for the key — that would ship it to the browser", async () => {
+    const { missingServiceEnv } = await import("./service.js");
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    process.env.SUPABASE_URL = "https://example.supabase.co";
+    (process.env as Record<string, string>).VITE_PUBLIC_SUPABASE_SERVICE_ROLE_KEY = "leaked";
+    expect(missingServiceEnv()).toEqual(["SUPABASE_SERVICE_ROLE_KEY"]);
   });
 });
