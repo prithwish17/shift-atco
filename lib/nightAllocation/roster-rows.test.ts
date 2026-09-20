@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTowerUnit, readCrewRow } from "./service.js";
+import { channelsFromRosterUnits, isTowerUnit, readCrewRow } from "./service.js";
 
 /**
  * The shift roster is a Google Sheet. Its name column carries working notes as
@@ -73,5 +73,50 @@ describe("reading a roster row", () => {
       unit: "CLD",
       half: "2nd",
     });
+  });
+});
+
+describe("positions from the roster units", () => {
+  const inUse = (units: string[]) =>
+    channelsFromRosterUnits(units)
+      .filter(channel => channel.inUse)
+      .map(channel => channel.code);
+
+  it("runs one SMC when the roster lists one", () => {
+    // The page used to tick SMC-S and SMC-N by default. That phantom fifth
+    // position was enough to make an otherwise workable night impossible.
+    expect(inUse(["TWR", "SMC", "CLD", "TSO"])).toEqual(["TWR", "SMC-S", "CLD", "TSO"]);
+  });
+
+  it("treats the combined SMC row as one position", () => {
+    expect(inUse(["TWR", "SMC-N & SMC-S", "CLD"])).toEqual(["TWR", "SMC-S", "CLD"]);
+  });
+
+  it("runs both only when the roster names SMC-N separately", () => {
+    expect(inUse(["TWR", "SMC-S", "SMC-N"])).toEqual(["TWR", "SMC-S", "SMC-N"]);
+  });
+
+  it("gives AIMS and TWR-A no position of their own", () => {
+    // Those people are on the crew and can hold a channel; AIMS is not one.
+    expect(inUse(["TWR", "AIMS", "TWR-A/ AIMS"])).toEqual(["TWR"]);
+  });
+
+  it("falls back to every position when the roster lists none", () => {
+    expect(inUse([])).toEqual(["TWR", "SMC-S", "SMC-N", "CLD", "TSO"]);
+  });
+
+  it("keeps every channel present, just unticked", () => {
+    // Unticked rather than absent, so the WSO can turn one on by hand.
+    expect(channelsFromRosterUnits(["TWR"]).map(channel => channel.code)).toEqual([
+      "TWR",
+      "SMC-S",
+      "SMC-N",
+      "CLD",
+      "TSO",
+    ]);
+  });
+
+  it("ignores case and spacing, as the sheet does not", () => {
+    expect(inUse([" twr ", "smc-n  &  smc-s"])).toEqual(["TWR", "SMC-S"]);
   });
 });

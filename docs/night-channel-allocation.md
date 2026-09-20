@@ -63,6 +63,18 @@ positions:
 That is typically nine to eleven people, against the sixty-odd on nights across
 the whole unit.
 
+**The positions in use are seeded from the same units.** A night whose roster
+lists one `SMC` runs one, not SMC-S *and* SMC-N; a combined `SMC-N & SMC-S` row
+is likewise one position, because it is one person. `AIMS` and `TWR-A` map to no
+channel — those people are on the crew and can hold one, but AIMS is not itself
+a position here. Every channel stays present and tickable, just unticked.
+
+This matters more than it sounds. Defaulting to all five positions put a phantom
+SMC on most nights, and that one extra position was enough to make an otherwise
+workable night impossible — the generator would refuse, correctly, and the
+refusal looked like a fault in the module rather than a configuration that never
+matched the night.
+
 **Halves come from the sheet.** `rosters.position` already reads `1st Half` or
 `2nd Half`, which is the same thing this module means by a half, so it is taken
 as read rather than inferred. It stays editable on the page.

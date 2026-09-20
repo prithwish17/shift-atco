@@ -81,6 +81,32 @@ const NIGHT_ROSTER_UNITS = new Set([
   "TWR-A/AIMS",
 ]);
 
+/**
+ * Which module channel each roster unit stands for.
+ *
+ * The roster writes one `SMC` when a single person works the ground positions
+ * and `SMC-N & SMC-S` when they are combined on one row — both are *one*
+ * position, so both map to SMC-S and leave SMC-N unticked. Only a night that
+ * lists SMC-N as a unit of its own runs two.
+ *
+ * AIMS and TWR-A map to nothing: those people are on the crew and can be given
+ * a channel, but AIMS is not itself a channel here.
+ */
+const UNIT_TO_CHANNEL: Record<string, string | null> = {
+  TWR: "TWR",
+  CLD: "CLD",
+  TSO: "TSO",
+  SMC: "SMC-S",
+  "SMC-S": "SMC-S",
+  "SMC-N & SMC-S": "SMC-S",
+  "SMC-N&SMC-S": "SMC-S",
+  "SMC-N": "SMC-N",
+  AIMS: null,
+  "TWR-A": null,
+  "TWR-A/ AIMS": null,
+  "TWR-A/AIMS": null,
+};
+
 /** Units that are never a person: leave columns, remarks, training notes. */
 const NON_CREW_UNITS = new Set(["LEAVE", "LEAVES", "REMARK", "REMARKS", "TRAINING", "SPECIAL"]);
 
@@ -238,17 +264,21 @@ export type RosterStatus = "missing" | "empty" | "filled";
 export async function seedPeopleFromRoster(
   supabase: SupabaseClient,
   nightDate: string,
-): Promise<{ people: NightPerson[]; status: RosterStatus }> {
+): Promise<{ people: NightPerson[]; status: RosterStatus; units: string[] }> {
   const rows = await nightRosterRows(supabase, nightDate);
-  if (!rows.length) return { people: [], status: "missing" };
+  if (!rows.length) return { people: [], status: "missing", units: [] };
 
   const crew: Array<{ name: string; unit: string; half: HalfKey }> = [];
+  const units = new Set<string>();
   for (const row of rows) {
-    if (!NIGHT_ROSTER_UNITS.has(normaliseUnit(row.unit))) continue;
+    const unit = normaliseUnit(row.unit);
+    if (!NIGHT_ROSTER_UNITS.has(unit)) continue;
     const parsed = readCrewRow(row);
-    if (parsed) crew.push(parsed);
+    if (!parsed) continue;
+    units.add(unit);
+    crew.push(parsed);
   }
-  if (!crew.length) return { people: [], status: "empty" };
+  if (!crew.length) return { people: [], status: "empty", units: [] };
 
   const profiles = await profilesByName(supabase, crew.map(entry => entry.name));
 
@@ -291,7 +321,26 @@ export async function seedPeopleFromRoster(
   return {
     people: people.map((person, index) => ({ ...person, colorIndex: index })),
     status: "filled",
+    units: [...units],
   };
+}
+
+/**
+ * The positions in use, from the units the roster actually lists.
+ *
+ * Ticking every default channel is wrong more often than it is right: a night
+ * that runs one SMC would start with two, and that single phantom position is
+ * enough to make an otherwise workable night impossible. An empty roster falls
+ * back to the defaults, and every channel stays tickable by hand.
+ */
+export function channelsFromRosterUnits(units: string[]): NightChannel[] {
+  const wanted = new Set<string>();
+  for (const unit of units) {
+    const channel = UNIT_TO_CHANNEL[normaliseUnit(unit)];
+    if (channel) wanted.add(channel);
+  }
+  if (!wanted.size) return defaultChannels();
+  return defaultChannels().map(channel => ({ ...channel, inUse: wanted.has(channel.code) }));
 }
 
 /** "HITESH RATHORE" → "Hitesh Rathore", for someone with no account to name them. */
@@ -357,7 +406,7 @@ export async function seedState(
   supabase: SupabaseClient,
   nightDate: string,
 ): Promise<{ state: NightAllocationState; rosterStatus: RosterStatus }> {
-  const { people, status } = await seedPeopleFromRoster(supabase, nightDate);
+  const { people, status, units } = await seedPeopleFromRoster(supabase, nightDate);
   return {
     rosterStatus: status,
     state: {
@@ -366,7 +415,7 @@ export async function seedState(
       status: "draft",
       version: 0,
       people,
-      channels: defaultChannels(),
+      channels: channelsFromRosterUnits(units),
       duties: [],
       savedByName: null,
       savedAt: null,
