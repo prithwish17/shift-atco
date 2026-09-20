@@ -8,6 +8,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
 import { Settings, Save, Loader2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { NIGHT_ALLOCATION_SETTING_KEY } from "@/hooks/useNightAllocationEnabled";
 
 const DEFAULT_TRAINING_DATA_URL = "https://script.google.com/macros/s/AKfycbzkGpqGjRkvOPAOOsDsjnjPz1FIU0ceRLAv2xsogsKkozKClZTL1WsPnRPvdduaIouS/exec";
 
@@ -37,6 +39,7 @@ export default function AdminSettings() {
     const [workingHoursExportUrl, setWorkingHoursExportUrl] = useState("");
     const [auditLogUrl, setAuditLogUrl] = useState("");
     const [baTestSheetUrl, setBaTestSheetUrl] = useState("");
+    const [nightAllocationEnabled, setNightAllocationEnabled] = useState(true);
 
     const { data: settings, isLoading } = useQuery({
         queryKey: ["app-settings"],
@@ -84,6 +87,9 @@ export default function AdminSettings() {
             if (baTest) setBaTestSheetUrl(baTest.value);
             const atcoMaster = settings.find((s) => s.key === "atco_master_webapp_url");
             if (atcoMaster) setAtcoMasterUrl(atcoMaster.value);
+            // Absent means on: the module ships enabled and is switched off here.
+            const nightAllocation = settings.find((s) => s.key === NIGHT_ALLOCATION_SETTING_KEY);
+            setNightAllocationEnabled(nightAllocation ? nightAllocation.value !== "false" : true);
         }
     }, [settings]);
 
@@ -310,6 +316,44 @@ export default function AdminSettings() {
                         Configure application-wide settings
                     </p>
                 </div>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Modules</CardTitle>
+                        <CardDescription>
+                            Turn a module off to hide its page, its navigation entries and its dashboard cards for
+                            everyone, without a deploy.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <label className="flex items-center justify-between gap-4 rounded-md border border-border px-4 py-3">
+                            <span>
+                                <span className="block text-sm font-medium">Night Channel Allocation</span>
+                                <span className="block text-xs text-muted-foreground">
+                                    Nightly TWR / SMC / CLD / TSO allocation, 13:30 to 01:30.
+                                </span>
+                            </span>
+                            <Switch
+                                checked={nightAllocationEnabled}
+                                aria-label="Night Channel Allocation enabled"
+                                onCheckedChange={(checked) => {
+                                    setNightAllocationEnabled(checked);
+                                    updateSetting.mutate(
+                                        {
+                                            key: NIGHT_ALLOCATION_SETTING_KEY,
+                                            value: checked ? "true" : "false",
+                                            label: "Night Channel Allocation module",
+                                        },
+                                        {
+                                            onSuccess: () =>
+                                                qc.invalidateQueries({ queryKey: ["night-allocation-enabled"] }),
+                                        },
+                                    );
+                                }}
+                            />
+                        </label>
+                    </CardContent>
+                </Card>
 
                 <Card>
                     <CardHeader>

@@ -1,0 +1,319 @@
+/**
+ * The page's own state transitions — availability, halves, TSO flags, channel
+ * settings, adding and removing people.
+ *
+ * Kept out of the components and out of the rules module: these are not rules,
+ * they are what the page does when a control is used, including the sentence it
+ * says afterwards. Turning something off has to clear whatever depended on it,
+ * and the person has to be told what was cleared.
+ *
+ * Pure functions: each returns the next state and the line for the status bar.
+ */
+import {
+  MERGE_SOURCE_CHANNEL,
+  MERGE_WINDOW,
+  TSO_CHANNEL,
+  coerceChannelWindow,
+  formatRange,
+  mergeTargetFor,
+  findChannel,
+  formatDuration,
+  formatMinutes,
+  refitChannel,
+  type HalfKey,
+  type NightAllocationState,
+  type NightPerson,
+} from "@/domain/night-allocation";
+
+export interface Applied {
+  state: NightAllocationState;
+  note: string;
+}
+
+const halfLabel = (half: HalfKey) => (half === "1st" ? "1st Half" : half === "2nd" ? "2nd Half" : "no half");
+
+/** Clear every dependent selection a person has when they stop being eligible. */
+function clearDependencies(state: NightAllocationState, personKey: string) {
+  const startedChannels = state.channels
+    .filter(channel => channel.starterKey === personKey)
+    .map(channel => channel.code);
+  return {
+    channels: state.channels.map(channel =>
+      channel.starterKey === personKey ? { ...channel, starterKey: null } : channel,
+    ),
+    startedChannels,
+  };
+}
+
+export function setAvailability(state: NightAllocationState, personKey: string, available: boolean): Applied {
+  const person = state.people.find(entry => entry.key === personKey);
+  if (!person) return { state, note: "" };
+
+  if (available) {
+    return {
+      state: { ...state, people: state.people.map(entry => (entry.key === personKey ? { ...entry, available } : entry)) },
+      note: `${person.name} is available tonight.`,
+    };
+  }
+
+  const { channels, startedChannels } = clearDependencies(state, personKey);
+  const dutyCount = state.duties.filter(duty => duty.personKey === personKey).length;
+  const clearedHalf = person.half ? halfLabel(person.half) : null;
+
+  return {
+    state: {
+      ...state,
+      channels,
+      people: state.people.map(entry =>
+        entry.key === personKey ? { ...entry, available: false, half: null } : entry,
+      ),
+    },
+    note:
+      `${person.name} marked not available.` +
+      (clearedHalf ? ` Removed from ${clearedHalf}.` : "") +
+      (startedChannels.length ? ` Pick a new starter for ${startedChannels.join(", ")}.` : "") +
+      (dutyCount ? ` Reassign their ${dutyCount} ${dutyCount === 1 ? "duty" : "duties"}.` : ""),
+  };
+}
+
+export function setHalf(state: NightAllocationState, personKey: string, half: HalfKey): Applied {
+  const person = state.people.find(entry => entry.key === personKey);
+  if (!person || !person.available || person.half === half) return { state, note: "" };
+
+  return {
+    state: { ...state, people: state.people.map(entry => (entry.key === personKey ? { ...entry, half } : entry)) },
+    note: `${person.name} set to ${halfLabel(half)}.`,
+  };
+}
+
+export function toggleTso(state: NightAllocationState, personKey: string): Applied {
+  const person = state.people.find(entry => entry.key === personKey);
+  if (!person) return { state, note: "" };
+
+  const canTakeTso = !person.canTakeTso;
+  let channels = state.channels;
+  let note = `${person.name} ${canTakeTso ? "can" : "can't"} take TSO.`;
+
+  if (!canTakeTso) {
+    const tso = findChannel(state, TSO_CHANNEL);
+    if (tso?.starterKey === personKey) {
+      channels = state.channels.map(channel =>
+        channel.code === TSO_CHANNEL ? { ...channel, starterKey: null } : channel,
+      );
+      note += " Pick a new starter for TSO.";
+    }
+    const held = state.duties.filter(duty => duty.personKey === personKey && duty.channelCode === TSO_CHANNEL).length;
+    if (held) note += ` Change their ${held} TSO ${held === 1 ? "duty" : "duties"}.`;
+  }
+
+  return {
+    state: {
+      ...state,
+      channels,
+      people: state.people.map(entry => (entry.key === personKey ? { ...entry, canTakeTso } : entry)),
+    },
+    note,
+  };
+}
+
+/**
+ * Add someone the roster puts on nights but who is not marked on one of the
+ * tower units. They arrive with their real identity, so their TSO
+ * qualification and employee code come with them.
+ */
+export function addShiftPerson(
+  state: NightAllocationState,
+  candidate: { key: string; userId: string | null; name: string; code: string; role: string; canTakeTso: boolean },
+): Applied {
+  if (state.people.some(person => person.key === candidate.key)) {
+    return { state, note: `${candidate.name} is already on tonight's list.` };
+  }
+
+  const person: NightPerson = {
+    key: candidate.key,
+    userId: candidate.userId,
+    name: candidate.name,
+    code: candidate.code,
+    role: candidate.role,
+    available: true,
+    canTakeTso: candidate.canTakeTso,
+    half: null,
+    manual: true,
+    colorIndex: state.people.reduce((max, entry) => Math.max(max, entry.colorIndex), -1) + 1,
+  };
+
+  return {
+    state: { ...state, people: [...state.people, person] },
+    note: `${candidate.name} added from tonight's shift.`,
+  };
+}
+
+/** Someone who is not on the roster at all — typed in by hand. */
+export function addPerson(state: NightAllocationState, name: string): Applied {
+  const trimmed = name.trim();
+  if (!trimmed) return { state, note: "" };
+
+  const code = trimmed
+    .split(/\s+/)
+    .map(word => word[0] ?? "")
+    .join("")
+    .slice(0, 3)
+    .toUpperCase();
+
+  const person: NightPerson = {
+    key: `manual:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    userId: null,
+    name: trimmed,
+    code,
+    role: "Employee",
+    available: true,
+    canTakeTso: false,
+    half: null,
+    manual: true,
+    colorIndex: state.people.reduce((max, entry) => Math.max(max, entry.colorIndex), -1) + 1,
+  };
+
+  return {
+    state: { ...state, people: [...state.people, person] },
+    note: `${trimmed} added to tonight's shift.`,
+  };
+}
+
+export function removePerson(state: NightAllocationState, personKey: string): Applied {
+  const person = state.people.find(entry => entry.key === personKey);
+  if (!person) return { state, note: "" };
+
+  const { channels } = clearDependencies(state, personKey);
+  const dutyCount = state.duties.filter(duty => duty.personKey === personKey).length;
+
+  return {
+    state: {
+      ...state,
+      channels,
+      people: state.people.filter(entry => entry.key !== personKey),
+      // Their duties stay on the board rather than vanishing: an empty stretch
+      // is a problem the checks panel must show, not one the page hides.
+      duties: state.duties,
+    },
+    note:
+      `${person.name} removed from tonight's shift.` +
+      (dutyCount ? ` Reassign their ${dutyCount} ${dutyCount === 1 ? "duty" : "duties"}.` : ""),
+  };
+}
+
+export function setChannelInUse(state: NightAllocationState, code: string, inUse: boolean): Applied {
+  const channels = state.channels.map(channel => (channel.code === code ? { ...channel, inUse } : channel));
+
+  if (inUse) {
+    return { state: { ...state, channels }, note: `${code} back in use. Pick who starts it, then generate again.` };
+  }
+
+  const dropped = state.duties.filter(duty => duty.channelCode === code).length;
+  return {
+    state: {
+      ...state,
+      channels: channels.map(channel => (channel.code === code ? { ...channel, starterKey: null } : channel)),
+      duties: state.duties.filter(duty => duty.channelCode !== code),
+    },
+    note:
+      `${code} not needed tonight.` +
+      (dropped ? ` Removed its ${dropped} ${dropped === 1 ? "duty" : "duties"}.` : ""),
+  };
+}
+
+/** Move one end of a channel's window and re-fit its duties to the new one. */
+export function setChannelWindow(
+  state: NightAllocationState,
+  code: string,
+  value: number,
+  moved: "open" | "close",
+): Applied {
+  const channel = findChannel(state, code);
+  if (!channel) return { state, note: "" };
+
+  const { openAt, closeAt } = coerceChannelWindow(
+    moved === "open" ? value : channel.openAt,
+    moved === "close" ? value : channel.closeAt,
+    moved,
+  );
+  const result = refitChannel(state, code, openAt, closeAt);
+  return { state: result.state, note: result.note };
+}
+
+export function setChannelStarter(state: NightAllocationState, code: string, starterKey: string | null): Applied {
+  const channel = findChannel(state, code);
+  if (!channel) return { state, note: "" };
+  const person = starterKey ? state.people.find(entry => entry.key === starterKey) : null;
+
+  return {
+    state: {
+      ...state,
+      channels: state.channels.map(entry => (entry.code === code ? { ...entry, starterKey } : entry)),
+    },
+    note: person
+      ? `${person.name} starts ${code} at ${formatMinutes(channel.openAt)}.`
+      : `No starter chosen for ${code}.`,
+  };
+}
+
+/**
+ * Fold CLD into the SMC in use for the merge window, or separate them again.
+ *
+ * The generator can reach for this itself as a last resort; this is the manual
+ * switch for a WSO who already knows the 1st Half is too thin.
+ */
+export function setMergeSmcCld(state: NightAllocationState, merged: boolean): Applied {
+  const target = merged ? mergeTargetFor(state) : null;
+  if (merged && !target) {
+    return {
+      state,
+      note: `No SMC is in use and open across ${formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1])}, so there is nothing to merge ${MERGE_SOURCE_CHANNEL} into.`,
+    };
+  }
+
+  const channels = state.channels.map(channel =>
+    channel.code === MERGE_SOURCE_CHANNEL ? { ...channel, mergedInto: target } : channel,
+  );
+
+  if (!merged) {
+    return {
+      state: { ...state, channels },
+      note: `${MERGE_SOURCE_CHANNEL} is a position of its own again. It needs its own cover ${formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1])}.`,
+    };
+  }
+
+  // Duties on the folded stretch would now conflict, so they go with it.
+  const dropped = state.duties.filter(
+    duty =>
+      duty.channelCode === MERGE_SOURCE_CHANNEL &&
+      duty.startMin < MERGE_WINDOW[1] &&
+      duty.endMin > MERGE_WINDOW[0],
+  ).length;
+
+  return {
+    state: {
+      ...state,
+      channels,
+      duties: state.duties.filter(
+        duty =>
+          !(
+            duty.channelCode === MERGE_SOURCE_CHANNEL &&
+            duty.startMin < MERGE_WINDOW[1] &&
+            duty.endMin > MERGE_WINDOW[0]
+          ),
+      ),
+    },
+    note:
+      `${MERGE_SOURCE_CHANNEL} merged into ${target} ${formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1])} — whoever holds ${target} holds both.` +
+      (dropped ? ` Removed ${dropped} ${dropped === 1 ? "duty" : "duties"} from that stretch.` : ""),
+  };
+}
+
+export function setDutyLengthPreference(state: NightAllocationState, minutes: number): Applied {
+  return {
+    state: { ...state, dutyLengthPref: minutes },
+    note: minutes
+      ? `Usual duty length set to ${formatDuration(minutes)}. Generate again to apply it.`
+      : "Usual duty length set to Auto. Generate again to apply it.",
+  };
+}

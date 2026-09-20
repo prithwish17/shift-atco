@@ -27,6 +27,7 @@ const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const Register = lazy(() => import("./pages/Register"));
 const SetupAdmin = lazy(() => import("./pages/admin/SetupAdmin"));
 const AppSettingsPage = lazy(() => import("./pages/AppSettingsPage"));
+const NightChannelAllocation = lazy(() => import("./pages/NightChannelAllocation"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Admin
@@ -312,6 +313,10 @@ function App() {
                     <Route path="/register" element={<Register />} />
                     <Route path="/setup-admin" element={<SetupAdmin />} />
                     <Route path="/settings" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><AppSettingsPage /></ProtectedRoute>} />
+
+                    {/* Night Channel Allocation — one route for everyone. The WSO and
+                        anyone on that night's shift have identical rights here. */}
+                    <Route path="/night-allocation" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><NightChannelAllocation /></ProtectedRoute>} />
 
                     {/* Admin Routes */}
                     <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />

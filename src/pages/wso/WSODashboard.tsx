@@ -4,12 +4,13 @@ import { StatCard } from "@/components/StatCard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Users, FileText, Shield, Clock, Calendar } from "lucide-react";
+import { Users, FileText, Shield, Clock, Calendar, Moon } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
 import { useDutyExchanges } from "@/hooks/useDutyExchanges";
 import { useBaTests } from "@/hooks/useBaTests";
+import { useNightAllocationEnabled } from "@/hooks/useNightAllocationEnabled";
 import { useAllLeaveRequests } from "@/hooks/useLeaveRequests";
 import {
   useDutyRoster,
@@ -41,6 +42,7 @@ type TeamProfileSummary = {
 export default function WSODashboard() {
   const { user } = useAuth();
   const { profile } = useUserProfile(user?.id);
+  const { enabled: nightAllocationEnabled } = useNightAllocationEnabled();
   const todayDate = new Date();
   const today = format(todayDate, "yyyy-MM-dd");
 
@@ -434,7 +436,7 @@ export default function WSODashboard() {
             <CardTitle>Quick Actions</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-5">
+            <div className="grid gap-4 md:grid-cols-6">
               <Link to="/wso/roster">
                 <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
                   <Calendar className="h-6 w-6" />
@@ -465,6 +467,14 @@ export default function WSODashboard() {
                   BA Test
                 </Button>
               </Link>
+              {nightAllocationEnabled && (
+                <Link to="/night-allocation?portal=wso">
+                  <Button variant="outline" className="w-full h-20 flex flex-col gap-2">
+                    <Moon className="h-6 w-6" />
+                    Night Channels
+                  </Button>
+                </Link>
+              )}
             </div>
           </CardContent>
         </Card>

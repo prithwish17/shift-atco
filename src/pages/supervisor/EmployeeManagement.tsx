@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
 import { UserPlus, Search, MoreHorizontal, Edit, Eye, LayoutGrid, List, X } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -42,6 +43,7 @@ export default function EmployeeManagement() {
     mobile: "",
     designation: "",
     current_shift: "general",
+    can_take_tso: false,
   });
   const [addEmpOpen, setAddEmpOpen] = useState(false);
 
@@ -93,6 +95,7 @@ export default function EmployeeManagement() {
       mobile: employee.mobile || "",
       designation: employee.designation || "",
       current_shift: employee.current_shift || "general",
+      can_take_tso: !!employee.can_take_tso,
     });
   };
 
@@ -107,6 +110,9 @@ export default function EmployeeManagement() {
       mobile: editForm.mobile.trim() || null,
       designation: editForm.designation.trim() || null,
       current_shift: editForm.current_shift as any,
+      // Whether this person may hold TSO at night. Read by Night Channel
+      // Allocation, which snapshots it per night.
+      can_take_tso: editForm.can_take_tso,
     };
 
     updateProfile(
@@ -526,6 +532,21 @@ export default function EmployeeManagement() {
                     <SelectItem value="e">Shift E</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <label className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2">
+                  <span>
+                    <span className="block text-[11px] font-medium sm:text-sm">Can take TSO</span>
+                    <span className="block text-[10px] text-muted-foreground sm:text-xs">
+                      Lets this person be rostered on TSO in Night Channel Allocation.
+                    </span>
+                  </span>
+                  <Switch
+                    checked={editForm.can_take_tso}
+                    onCheckedChange={(checked) => setEditForm((prev) => ({ ...prev, can_take_tso: checked }))}
+                    aria-label="Can take TSO"
+                  />
+                </label>
               </div>
             </div>
 

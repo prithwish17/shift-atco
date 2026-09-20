@@ -14,6 +14,8 @@ export default defineConfig({
     environment: "node",
     // Edge-function tests cover the pure parsing modules only (e.g.
     // fetch-ojt-data/parse.ts); handlers that touch Deno globals stay untested here.
-    include: ["src/**/*.test.ts", "supabase/functions/**/*.test.ts"],
+    // `lib/` holds the serverless functions' shared modules; the pure ones
+    // (payload parsing, roster rendering) are tested here alongside src.
+    include: ["src/**/*.test.ts", "supabase/functions/**/*.test.ts", "lib/**/*.test.ts"],
   },
 });

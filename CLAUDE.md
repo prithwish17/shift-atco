@@ -52,3 +52,4 @@ npx tsc --noEmit     # type-check (do this before every build/deploy)
 
 ## Reference docs in this folder
 `README.md`, `ENTERPRISE_RULE_ENGINE_PLAN.md`, `ROSTER_RULES_COMPILED.md`, `LEAVE_RULES_AND_SCHEMA_SUMMARY.txt`, `REDIS_CACHING.md`, `SECURITY.md`, and the various `*_IMPLEMENTATION_*` / `PHASE*` notes. Check these before changing roster, leave, or caching logic.
+`docs/night-channel-allocation.md` covers the Night Channel Allocation module — the rule set, the solver, the API and how to add a channel. Read it before touching anything under `src/domain/night-allocation`.

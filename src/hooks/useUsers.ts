@@ -16,6 +16,8 @@ export interface UserWithRole {
   role: string | null;
   approved: boolean;
   is_hidden: boolean;
+  /** May hold TSO at night. Read by Night Channel Allocation. */
+  can_take_tso: boolean;
   created_at: string;
 }
 
@@ -227,6 +229,7 @@ export function useUsers() {
           role: userRole?.role || null,
           approved: userRole?.approved || false,
           is_hidden: profile.is_hidden || false,
+          can_take_tso: profile.can_take_tso || false,
         } as UserWithRole;
       });
     },

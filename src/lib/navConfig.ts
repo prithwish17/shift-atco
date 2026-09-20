@@ -12,6 +12,7 @@ import {
   CalendarRange,
   ClipboardCheck,
   ClipboardList,
+  Moon,
   Clock,
   Database,
   FileBarChart,
@@ -315,6 +316,15 @@ const wsoNav: NavGroup[] = [
         keywords: ["who is on duty", "team", "shift", "roster data"],
       },
       { title: "OPE Duty", url: "/wso/ope-assignments", icon: Activity },
+      {
+        title: "Night Channel Allocation",
+        // `portal` keeps the page in the shell it was opened from: it is shared
+        // by every role, so without it a supervisor opening it from the WSO
+        // portal would be dropped into the supervisor one.
+        url: "/night-allocation?portal=wso",
+        icon: Moon,
+        keywords: ["night", "channel", "tower", "tso", "position", "handover", "allocation"],
+      },
     ],
   },
   {
@@ -352,6 +362,12 @@ const employeeNav: NavGroup[] = [
         keywords: ["who is on duty", "team", "shift"],
       },
       { title: "Duty Exchange", url: "/employee/duty-exchange", icon: ArrowLeftRight },
+      {
+        title: "Night Channel Allocation",
+        url: "/night-allocation?portal=employee",
+        icon: Moon,
+        keywords: ["night", "channel", "position", "handover", "tso", "allocation"],
+      },
     ],
   },
   {
@@ -400,10 +416,16 @@ export const switchDashboardItems: Record<Role, { title: string; url: string }> 
   employee: { title: "Employee Dashboard", url: "/employee" },
 };
 
-/** True when `url` is the active route, matched by prefix unless `end` is set. */
+/**
+ * True when `url` is the active route, matched by prefix unless `end` is set.
+ *
+ * A nav entry may carry a query string — shared pages take `?portal=<role>` to
+ * pin which shell they render in — so only the path part is compared.
+ */
 export function matchesPath(currentPath: string, url: string, end?: boolean) {
-  if (end) return currentPath === url;
-  return currentPath === url || currentPath.startsWith(url + "/");
+  const path = url.split("?")[0];
+  if (end) return currentPath === path;
+  return currentPath === path || currentPath.startsWith(path + "/");
 }
 
 export interface FlatNavEntry {

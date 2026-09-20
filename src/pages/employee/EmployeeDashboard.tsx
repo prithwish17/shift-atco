@@ -1,11 +1,12 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Calendar, CalendarDays, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye, Phone, MapPin, Hash, FileCheck, Globe, Star, ChevronLeft, ChevronRight, ArrowLeftRight, FlaskConical, X, Palmtree } from "lucide-react";
+import { Calendar, CalendarDays, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye, Phone, MapPin, Hash, FileCheck, Globe, Star, ChevronLeft, ChevronRight, ArrowLeftRight, FlaskConical, X, Palmtree, Moon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
+import { useNightAllocationEnabled } from "@/hooks/useNightAllocationEnabled";
 import { useLeaveBalances } from "@/hooks/useLeaves";
 import { useMyRoster } from "@/hooks/useRosters";
 import { useMySchedule, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
@@ -201,6 +202,7 @@ const DASHBOARD_LEAVE_CALENDAR_STYLES = {
 export default function EmployeeDashboard() {
   const { user, userRole } = useAuth();
   const { profile, isLoading: profileLoading } = useUserProfile(user?.id);
+  const { enabled: nightAllocationEnabled } = useNightAllocationEnabled();
   const currentYear = new Date().getFullYear();
   const [currentMonthDate, setCurrentMonthDate] = useState(() => new Date());
   const [isBaBannerDismissed, setIsBaBannerDismissed] = useState(false);
@@ -715,8 +717,8 @@ export default function EmployeeDashboard() {
             </div>
           </div>
 
-          {/* Four tiles: 2 + 2 on mobile, a single row of four on desktop. */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+          {/* Five tiles: two per row on mobile, a single row on desktop. */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
             <Link
               to="/employee/leave-dashboard"
               className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
@@ -800,6 +802,25 @@ export default function EmployeeDashboard() {
               )}
             </div>
             </Link>
+
+            {nightAllocationEnabled && (
+              <Link
+                to="/night-allocation?portal=employee"
+                className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+              >
+              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
+                <div className="flex items-center justify-between mb-2 md:mb-3">
+                  <div>
+                    <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Night Channels</span>
+                    <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Tonight's positions, halves and handovers</div>
+                  </div>
+                  <div className="size-6 md:size-8 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg flex items-center justify-center">
+                    <Moon className="size-3 md:size-4 text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                </div>
+              </div>
+              </Link>
+            )}
           </div>
         </div>
 
