@@ -7,7 +7,7 @@
     "api/leave/*.ts": { "maxDuration": 30 },
     "api/working-hours.ts": { "maxDuration": 60 },
     "api/metrics.ts": { "maxDuration": 30 },
-    "api/night-allocation/[...route].ts": { "maxDuration": 30 }
+    "api/night-allocation/*.ts": { "maxDuration": 30 }
   },
   "headers": [
     {
@@ -68,6 +68,10 @@
     {
       "source": "/api/leave-sheet-push",
       "destination": "/api/leave/[...route]?route=sheet-push"
+    },
+    {
+      "source": "/api/night-allocation/(.*)",
+      "destination": "/api/night-allocation/[...route]?route=$1"
     },
     {
       "source": "/((?!api/).*)",

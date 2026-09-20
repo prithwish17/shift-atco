@@ -46,11 +46,46 @@ const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 const MAX_RECIPIENTS = 40;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * The path segments after `/api/night-allocation/`.
+ *
+ * Deliberately does not trust one source. A catch-all's `route` param arrives
+ * as an array when the platform routes to the file directly, as a slash-joined
+ * string when a rewrite passes it through, and not at all if neither happens —
+ * which is exactly how this endpoint failed in production while working in dev.
+ * The URL is the one thing always present, so it is the fallback.
+ */
+export function readRouteSegments(routeParam: unknown, url?: string): string[] {
+  const raw = Array.isArray(routeParam)
+    ? routeParam
+    : typeof routeParam === "string"
+      ? routeParam.split("/")
+      : [];
+  const fromQuery = raw.map(segment => String(segment).trim()).filter(Boolean);
+  if (fromQuery.length) return fromQuery;
+
+  const path = (url ?? "").split("?")[0];
+  const marker = "/api/night-allocation/";
+  const index = path.indexOf(marker);
+  if (index < 0) return [];
+  return path
+    .slice(index + marker.length)
+    .split("/")
+    .map(segment => {
+      try {
+        return decodeURIComponent(segment).trim();
+      } catch {
+        return segment.trim();
+      }
+    })
+    .filter(Boolean);
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleCorsPreflight(req, res, "GET, PUT, POST, OPTIONS")) return;
   setCorsHeaders(req, res);
 
-  const segments = ([] as string[]).concat((req.query.route as string[] | string) ?? []);
+  const segments = readRouteSegments(req.query.route, req.url);
   const [nightDate, action] = segments;
 
   if (!nightDate || !NIGHT_DATE_PATTERN.test(nightDate)) {
@@ -80,9 +115,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method === "POST" && action === "email") return await handleEmail(supabase, req, res, nightDate, user);
 
     return res.status(404).json({ error: `Unknown route: ${segments.join("/")}` });
-  } catch (error: any) {
-    console.error("[night-allocation] request failed", { nightDate, action, message: error?.message });
-    return res.status(500).json({ error: error?.message ?? "Unexpected error" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[night-allocation] request failed", { nightDate, action, message });
+    return res.status(500).json({ error: message || "Unexpected error" });
   }
 }
 
@@ -288,10 +324,13 @@ async function handleEmail(
 
   const attachments = (Array.isArray(body.attachments) ? body.attachments : [])
     .slice(0, 2)
-    .map(entry => ({
-      filename: String((entry as any)?.filename ?? "roster").slice(0, 120),
-      content: String((entry as any)?.content ?? ""),
-    }))
+    .map(entry => {
+      const file = (entry ?? {}) as { filename?: unknown; content?: unknown };
+      return {
+        filename: String(file.filename ?? "roster").slice(0, 120),
+        content: String(file.content ?? ""),
+      };
+    })
     .filter(entry => entry.content.length > 0);
 
   const attachmentBytes = attachments.reduce((sum, file) => sum + Math.ceil((file.content.length * 3) / 4), 0);
