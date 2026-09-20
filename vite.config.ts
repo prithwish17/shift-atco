@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import { apiDevServer } from "./vite-plugins/api-dev-server";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
@@ -77,12 +78,18 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "localhost",
     port: 8080,
+    // The HMR socket deliberately does NOT pin a port. It used to hardcode
+    // 8080, which breaks the moment the dev server lands anywhere else — 8080
+    // already taken, or a second server running. The client then fails to
+    // reach the socket and Vite falls back to reloading the whole page over
+    // and over, which reads as the app refreshing itself.
     hmr: {
       host: "localhost",
-      port: 8080,
     },
   },
-  plugins: [react()],
+  // apiDevServer runs the `api/` functions on the dev server, which Vite
+  // otherwise answers with index.html. Dev only — it drops out of the build.
+  plugins: [react(), apiDevServer()],
   resolve: {
     dedupe: ["react", "react-dom"],
     alias: {
