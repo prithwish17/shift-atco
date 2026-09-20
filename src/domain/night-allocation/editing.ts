@@ -11,11 +11,11 @@
  * Every function here is pure. The dialog uses them to preview an edit, and the
  * API uses the same rules module to re-check whatever the client finally sends.
  */
-import { MIN_DUTY_MIN, NIGHT_SPAN_MIN } from "./constants";
-import { makeDutyId } from "./ids";
-import { findChannel, personName, uncoveredMinutes, validateAllocation } from "./rules";
-import { formatMinutes } from "./time";
-import type { NightAllocationState, NightChannel, NightDuty } from "./types";
+import { MIN_DUTY_MIN, NIGHT_SPAN_MIN } from "./constants.js";
+import { makeDutyId } from "./ids.js";
+import { findChannel, personName, uncoveredMinutes, validateAllocation } from "./rules.js";
+import { formatMinutes } from "./time.js";
+import type { NightAllocationState, NightChannel, NightDuty } from "./types.js";
 
 /** A change that was applied, or the reasons it was refused. */
 export type EditResult =
@@ -108,7 +108,7 @@ export function problemsForChange(
     else problems.push("This would leave a channel without cover. Someone must take over at the handover time.");
   }
 
-  return [...new Set(problems)];
+  return [...new Set<string>(problems)];
 }
 
 /** Preview a change without committing it — what the edit dialog renders. */

@@ -300,7 +300,7 @@ export function useResolveSheetConflict() {
 /**
  * Drop the Redis copy of the approved-leave roster for the months just touched.
  *
- * api/leave-roster.ts caches for 10 minutes, and nothing invalidates it today, so
+ * lib/leave/roster.ts caches for 10 minutes, and nothing invalidates it today, so
  * without this a supervisor would clear a backlog and still see the old list.
  * Fire-and-forget: a cache miss must never fail a batch.
  */
@@ -417,7 +417,7 @@ export interface SheetPushResult {
 /**
  * Push the register into the ATTENDANCE-2026 sheet.
  *
- * Goes through api/leave-sheet-push.ts rather than calling the Apps Script
+ * Goes through lib/leave/sheetPush.ts rather than calling the Apps Script
  * directly: the write token must not reach the browser, and Apps Script /exec
  * redirects in a way browsers cannot follow for a cross-origin POST anyway.
  *
@@ -434,7 +434,7 @@ export function usePushLeaveToSheet() {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session?.access_token) throw new Error('Not signed in');
 
-            const res = await fetch(`${getFunctionsProxyBaseUrl()}/api/leave-sheet-push`, {
+            const res = await fetch(`${getFunctionsProxyBaseUrl()}/api/leave/sheet-push`, {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${session.access_token}`,

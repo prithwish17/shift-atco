@@ -35,7 +35,7 @@ async function fetchLeaveAttachmentPresignedUrl(leaveRequestId: string): Promise
   if (!token) throw new Error('Not authenticated');
 
   const resp = await fetch(
-    `/api/leave-document-url?leave_request_id=${encodeURIComponent(leaveRequestId)}`,
+    `/api/leave/document-url?leave_request_id=${encodeURIComponent(leaveRequestId)}`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
 

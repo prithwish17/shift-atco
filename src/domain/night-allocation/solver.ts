@@ -26,8 +26,8 @@ import {
   SECOND_HALF,
   SECOND_HALF_PREFERRED_CHANNEL,
   SLOT_MIN,
-} from "./constants";
-import { makeDutyId } from "./ids";
+} from "./constants.js";
+import { makeDutyId } from "./ids.js";
 import {
   activeMerge,
   availablePeople,
@@ -39,10 +39,10 @@ import {
   openChannels,
   staffingNotices,
   dutyLengthNote,
-} from "./rules";
-import type { NightChannel } from "./types";
-import { formatMinutes } from "./time";
-import type { GenerateResult, NightAllocationState, NightDuty } from "./types";
+} from "./rules.js";
+import type { NightChannel } from "./types.js";
+import { formatMinutes } from "./time.js";
+import type { GenerateResult, NightAllocationState, NightDuty } from "./types.js";
 
 /**
  * A merged position is planned as two separate stretches — before the merge

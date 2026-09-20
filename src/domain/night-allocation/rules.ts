@@ -26,8 +26,8 @@ import {
   SLOT_MIN,
   TSO_CHANNEL,
   UNCAPPED_DUTY_CHANNELS,
-} from "./constants";
-import { formatDuration, formatMinutes, formatRange } from "./time";
+} from "./constants.js";
+import { formatDuration, formatMinutes, formatRange } from "./time.js";
 import type {
   HalfKey,
   NightAllocationState,
@@ -36,7 +36,7 @@ import type {
   NightPerson,
   RuleIssue,
   ValidationResult,
-} from "./types";
+} from "./types.js";
 
 // ── Small shared helpers ────────────────────────────────────────────────────
 

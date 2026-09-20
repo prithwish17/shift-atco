@@ -1,10 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { withCache } from '../lib/cacheWrapper.js';
-import { CacheKeys, CacheTTL } from '../lib/redis.js';
-import { authenticateRequest, handleCorsPreflight, setCorsHeaders } from '../lib/apiAuth.js';
+import { withCache } from '../cacheWrapper.js';
+import { CacheKeys, CacheTTL } from '../redis.js';
+import { authenticateRequest, handleCorsPreflight, setCorsHeaders } from '../apiAuth.js';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export async function handler(req: VercelRequest, res: VercelResponse) {
   if (handleCorsPreflight(req, res, 'GET, OPTIONS')) return;
 
   if (req.method !== 'GET') {

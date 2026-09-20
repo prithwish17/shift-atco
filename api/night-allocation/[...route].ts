@@ -157,7 +157,7 @@ async function handleGenerate(
   const name = await actorName(supabase, user.id, user.email);
   await recordAudit(supabase, nightDate, { id: user.id, name }, "generate", {
     ok: result.ok,
-    duties: result.ok ? result.duties.length : 0,
+    duties: result.ok ? result.state.duties.length : 0,
   });
 
   // A refusal is an answer, not a failure: 200 with `ok: false` and reasons.

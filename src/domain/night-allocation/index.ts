@@ -8,11 +8,11 @@
  *
  * Documentation: docs/night-channel-allocation.md
  */
-export * from "./constants";
-export * from "./types";
-export * from "./time";
-export * from "./rules";
-export * from "./solver";
-export * from "./editing";
-export * from "./roster-text";
-export { makeDutyId } from "./ids";
+export * from "./constants.js";
+export * from "./types.js";
+export * from "./time.js";
+export * from "./rules.js";
+export * from "./solver.js";
+export * from "./editing.js";
+export * from "./roster-text.js";
+export { makeDutyId } from "./ids.js";

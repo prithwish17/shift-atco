@@ -2,7 +2,7 @@
  * Night Channel Allocation — the one place minutes-from-13:30 become clock
  * times. Nothing else in the module formats a time.
  */
-import { NIGHT_SPAN_MIN, NIGHT_START_MIN, SLOT_MIN } from "./constants";
+import { NIGHT_SPAN_MIN, NIGHT_START_MIN, SLOT_MIN } from "./constants.js";
 
 const pad = (value: number) => String(value).padStart(2, "0");
 

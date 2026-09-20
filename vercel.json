@@ -4,10 +4,8 @@
     "api/functions/*.ts": { "maxDuration": 60 },
     "api/upload/profile-picture.ts": { "maxDuration": 30 },
     "api/upload/leave-document.ts": { "maxDuration": 30 },
-    "api/leave-document-url.ts": { "maxDuration": 10 },
-    "api/leave-sheet-push.ts": { "maxDuration": 30 },
+    "api/leave/*.ts": { "maxDuration": 30 },
     "api/working-hours.ts": { "maxDuration": 60 },
-    "api/leave-roster.ts": { "maxDuration": 30 },
     "api/metrics.ts": { "maxDuration": 30 },
     "api/night-allocation/[...route].ts": { "maxDuration": 30 }
   },
@@ -58,6 +56,18 @@
     {
       "source": "/api/functions/(.*)",
       "destination": "/api/functions/[...path]?path=$1"
+    },
+    {
+      "source": "/api/leave-document-url",
+      "destination": "/api/leave/[...route]?route=document-url"
+    },
+    {
+      "source": "/api/leave-roster",
+      "destination": "/api/leave/[...route]?route=roster"
+    },
+    {
+      "source": "/api/leave-sheet-push",
+      "destination": "/api/leave/[...route]?route=sheet-push"
     },
     {
       "source": "/((?!api/).*)",

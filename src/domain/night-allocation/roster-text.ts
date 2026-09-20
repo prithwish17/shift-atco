@@ -6,10 +6,10 @@
  * text from the saved allocation, and the browser renders the same text for the
  * clipboard and the Web Share sheet.
  */
-import { FIRST_HALF, MERGE_WINDOW, NIGHT_SPAN_MIN, SECOND_HALF } from "./constants";
-import { activeChannels, activeMerge, dutyLength, minutesOnDuty, personName } from "./rules";
-import { formatDuration, formatMinutesCompact, formatRange } from "./time";
-import type { NightAllocationState, NightDuty } from "./types";
+import { FIRST_HALF, MERGE_WINDOW, NIGHT_SPAN_MIN, SECOND_HALF } from "./constants.js";
+import { activeChannels, activeMerge, dutyLength, minutesOnDuty, personName } from "./rules.js";
+import { formatDuration, formatMinutesCompact, formatRange } from "./time.js";
+import type { NightAllocationState, NightDuty } from "./types.js";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

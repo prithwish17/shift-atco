@@ -5,12 +5,12 @@ import {
     handleCorsPreflight,
     setCorsHeaders,
     supabaseUserFetch,
-} from "../lib/apiAuth.js";
-import { getPresignedGetUrl } from "../lib/r2.js";
+} from "../apiAuth.js";
+import { getPresignedGetUrl } from "../r2.js";
 
 const URL_TTL_SECONDS = 300;
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export async function handler(req: VercelRequest, res: VercelResponse) {
     if (handleCorsPreflight(req, res, "GET, OPTIONS")) return;
     setCorsHeaders(req, res);
 

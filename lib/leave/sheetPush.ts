@@ -1,13 +1,13 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 
-import { authenticateRequest, handleCorsPreflight, setCorsHeaders } from "../lib/apiAuth.js";
+import { authenticateRequest, handleCorsPreflight, setCorsHeaders } from "../apiAuth.js";
 import {
     buildSheetPayload,
     LEAVE_RECORD_COLUMNS,
     normaliseEmpId,
     type LeaveRecordRow,
-} from "../lib/leaveSheetPayload.js";
+} from "../leaveSheetPayload.js";
 
 /**
  * Push the leave register into the ATTENDANCE-2026 sheet.
@@ -26,7 +26,7 @@ import {
  * POST body: { dryRun?, mode?, year?, empIds?, sheet? }
  * `dryRun` defaults to TRUE — writing takes an explicit `dryRun: false`.
  */
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export async function handler(req: VercelRequest, res: VercelResponse) {
     if (handleCorsPreflight(req, res, "POST, OPTIONS")) return;
 
     if (req.method !== "POST") {
