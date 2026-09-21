@@ -174,35 +174,60 @@ Deno.serve(async (req) => {
 
         console.log(`Flattened ${rows.length} schedule rows from ${employees.length} employees`);
 
-        // Upsert into employee_schedules using service role
-        let upserted = 0;
-        if (rows.length > 0) {
-            const BATCH_SIZE = 500;
-            for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-                const batch = rows.slice(i, i + BATCH_SIZE);
-                const { error: upsertError } = await adminClient
-                    .from("employee_schedules")
-                    .upsert(batch, { onConflict: "employee_code,duty_date" });
-
-                if (upsertError) {
-                    console.error("Upsert error:", upsertError);
-                } else {
-                    upserted += batch.length;
-                }
-            }
-            console.log(`Upserted ${upserted} schedule rows`);
+        // The first row for each (employee, date) wins, as it does inside the
+        // RPC and in fetch-roster. Dropped here too because the RPC sees one
+        // batch at a time: a repeat in a later batch would overwrite the first.
+        const seen = new Set<string>();
+        const uniqueRows = rows.filter((row) => {
+            const key = `${row.employee_code}|${row.duty_date}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        if (uniqueRows.length < rows.length) {
+            console.log(`Dropped ${rows.length - uniqueRows.length} duplicate schedule rows`);
         }
 
+        // Via RPC rather than .upsert() so unchanged rows are skipped instead of
+        // rewritten — PostgREST cannot put a WHERE on ON CONFLICT DO UPDATE.
+        let changed = 0;
+        let batches = 0;
+        let failedBatches = 0;
+        if (uniqueRows.length > 0) {
+            const BATCH_SIZE = 500;
+            for (let i = 0; i < uniqueRows.length; i += BATCH_SIZE) {
+                const batch = uniqueRows.slice(i, i + BATCH_SIZE);
+                batches++;
+                const { data: batchChanged, error: syncError } = await adminClient
+                    .rpc("sync_employee_schedules", { p_rows: batch });
+
+                if (syncError) {
+                    console.error("Schedule sync error:", syncError);
+                    failedBatches++;
+                } else {
+                    changed += batchChanged ?? 0;
+                }
+            }
+            console.log(`Processed ${uniqueRows.length} schedule rows, ${changed} changed`);
+        }
+
+        // A run whose batches failed is not a success, even though it finished.
+        // The admin dashboard judges sync health from these log rows, and the
+        // RPC missing (function deployed before its migration) fails every batch.
         const durationMs = Date.now() - startTime;
-        const successMsg = `Fetched ${employees.length} employees, ${rows.length} rows, upserted ${upserted}`;
-        await logApiCall("success", successMsg, durationMs, triggeredBy, upserted);
+        const status = failedBatches ? "error" : "success";
+        const summary =
+            `Fetched ${employees.length} employees, ${rows.length} rows, ${changed} changed` +
+            (failedBatches ? `, ${failedBatches} of ${batches} batches failed` : "");
+        await logApiCall(status, summary, durationMs, triggeredBy, changed);
 
         return new Response(
             JSON.stringify({
-                success: true,
+                success: failedBatches === 0,
                 employees: employees.length,
                 rows: rows.length,
-                upserted,
+                changed,
+                failedBatches,
             }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );

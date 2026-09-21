@@ -116,11 +116,27 @@ export default function AdminDashboard() {
 
       if (last24hError) throw last24hError;
 
+      // fetch-schedule writes only the rows that changed, so a quiet roster can
+      // leave updated_at alone for days while the sync runs fine. Whether it is
+      // running comes from its own run log instead.
+      const { data: lastRun, error: lastRunError } = await supabase
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- api_call_logs is missing from the generated types
+        .from("api_call_logs" as any)
+        .select("created_at")
+        .eq("endpoint", "fetch-schedule")
+        .eq("status", "success")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastRunError) throw lastRunError;
+
       const latestUpdatedAt = latestRows?.[0]?.updated_at as string | undefined;
       return {
         totalRows: count || 0,
         latestUpdatedAt: latestUpdatedAt || null,
         updatedLast24h: updatedLast24h || 0,
+        lastSuccessfulSyncAt: ((lastRun as { created_at?: string } | null)?.created_at ?? null) as string | null,
       };
     },
   });
@@ -128,7 +144,8 @@ export default function AdminDashboard() {
   const pendingApprovals = users?.filter(u => !u.approved) || [];
   const totalUsers = users?.length || 0;
   const recentUsers = users?.slice(0, 5) || [];
-  const lastSyncDate = scheduleHealth?.latestUpdatedAt ? new Date(scheduleHealth.latestUpdatedAt) : null;
+  const lastSyncDate = scheduleHealth?.lastSuccessfulSyncAt ? new Date(scheduleHealth.lastSuccessfulSyncAt) : null;
+  const lastRosterChange = scheduleHealth?.latestUpdatedAt ? new Date(scheduleHealth.latestUpdatedAt) : null;
   const minutesSinceLastSync = lastSyncDate ? Math.round((Date.now() - lastSyncDate.getTime()) / 60000) : null;
   const autoFetchHealthy = minutesSinceLastSync !== null && minutesSinceLastSync <= 26 * 60;
   const trainingApiUrl = adminSyncSettings.training_data_webapp_url;
@@ -1135,13 +1152,19 @@ export default function AdminDashboard() {
             ) : (
               <>
                 <p>
-                  Last schedule update:{" "}
+                  Last successful sync:{" "}
                   <span className="font-medium">
-                    {lastSyncDate ? lastSyncDate.toLocaleString() : "No schedule records found"}
+                    {lastSyncDate ? lastSyncDate.toLocaleString() : "No successful sync logged"}
                   </span>
                 </p>
                 <p>
-                  Rows updated in last 24h:{" "}
+                  Last roster change:{" "}
+                  <span className="font-medium">
+                    {lastRosterChange ? lastRosterChange.toLocaleString() : "No schedule records found"}
+                  </span>
+                </p>
+                <p>
+                  Rows changed in last 24h:{" "}
                   <span className="font-medium">{scheduleHealth?.updatedLast24h ?? 0}</span>
                 </p>
                 <p>
@@ -1149,7 +1172,8 @@ export default function AdminDashboard() {
                   <span className="font-medium">{scheduleHealth?.totalRows ?? 0}</span>
                 </p>
                 <p className="text-muted-foreground">
-                  Automatic sync is considered healthy when the latest schedule row update is within the last 26 hours.
+                  Automatic sync is considered healthy when a sync has succeeded within the last 26 hours. Only rows
+                  whose duty actually changed are rewritten, so a quiet roster is normal.
                 </p>
               </>
             )}
