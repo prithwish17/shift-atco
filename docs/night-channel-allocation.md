@@ -163,6 +163,11 @@ validation therefore cannot disagree.
 
 ### Preferences — advisory, never blocking
 
+- **Duty length: 1h, 1h 30m or 2h.** Anything else of an hour or more is fine;
+  under an hour is the last resort (`PREFERRED_DUTY_LENGTHS`,
+  `PREFERRED_MIN_DUTY_MIN`, ranked by `dutyLengthRank`). Every duty under an
+  hour is named in one suggestion, except on a position open for less than an
+  hour, which can do no better.
 - The 2nd Half person on CLD from 21:30, and CLD as an earlier relieving duty
   for 2nd Half people where possible.
 - Each channel's chosen starter actually holding it at its opening minute.
@@ -197,6 +202,16 @@ makes the classic case come out right: *3 channels, 4 people → 1 h 30 m duties
 channels relieved 30 minutes apart, each relieved person resting 30 minutes then
 taking the next channel.*
 
+**Duty lengths.** The first attempt allows nothing under an hour, except where
+a position has less than an hour left to cover, and never leaves such a stub.
+Only if that attempt finds no plan does the next allow 30 and 45 minutes — and
+even then they are tried last at every step. That attempt comes before the TSO
+crossover and the merge: short duties are acceptable when unavoidable, the
+other two are last resorts. Among lengths of an hour or more, Auto prefers 1h,
+1h 30m and 2h over 1h 15m and 1h 45m; a usual length someone chose outranks
+that, and a usual length under an hour skips the all-long attempt entirely.
+When short duties were needed the result says so.
+
 **Ordering heuristics.** The chosen starter first at a channel's opening minute;
 people who must open another channel shortly held back; people whose half still
 lacks a duty prioritised inside their half; then longest-rested, then
@@ -210,9 +225,10 @@ must always have a qualified, rested person available at its own handover.
 **Budget.** ~1.5 s of restarts, or ~0.5 s when the staffing check already says
 the night is impossible. It runs **server-side**, so a long search never blocks
 the board; the button shows a busy state. The budget is **shared between the
-attempts** (`restartBudgets`): the plain night keeps half, and the relaxations —
-the TSO crossover, the merge, and both together — split the rest, so each gets
-randomised restarts of its own rather than only two fixed passes.
+attempts** (`restartBudgets`), in proportion to their weights: the all-long
+night and the night with short duties allowed weigh 2 each, and the TSO
+crossover, the merge and both together weigh 1, so each gets randomised
+restarts of its own rather than only two fixed passes.
 
 **On failure** it returns `{ ok: false, error, reasons }`, where `reasons` are
 the staffing notices when there are any, or a hint to change a starter, an open
@@ -372,7 +388,7 @@ channels and gain the new one, unticked configuration and all, on next load.
 | File | Covers |
 | --- | --- |
 | `src/domain/night-allocation/__tests__/rules.test.ts` | Every hard rule, positive and negative, plus the staffing notices. |
-| `.../solver.test.ts` | The classic 3-channel/4-person night, TSO with exactly two qualified people, part-night channels, several people per half, the duty-length preference, and refusals. |
+| `.../solver.test.ts` | The classic 3-channel/4-person night, TSO with exactly two qualified people, part-night channels, several people per half, the duty-length preference, preferred lengths (1h or more wherever possible, short duties only when nothing else works), and refusals. |
 | `.../editing.test.ts` | Linked handovers, delete-merge, split, channel re-fit. Uncovered minutes stay at zero after every accepted operation, refused operations leave state untouched, and one of two already-broken duties can be fixed without the other blocking it. |
 | `.../fuzz.test.ts` | 250 random nights (5–14 people, 3–5 channels, random halves, TSO flags and close times). Every returned plan has zero uncovered minutes and zero hard-rule violations; every refusal carries an explanation; runtime stays inside budget. |
 | `.../roster-text.test.ts` | The share formats. |

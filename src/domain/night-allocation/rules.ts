@@ -20,6 +20,8 @@ import {
   MIN_BREAK_MIN,
   MIN_DUTY_MIN,
   NIGHT_SPAN_MIN,
+  PREFERRED_DUTY_LENGTHS,
+  PREFERRED_MIN_DUTY_MIN,
   RESTRICTED_CHANNELS,
   SECOND_HALF,
   SECOND_HALF_PREFERRED_CHANNEL,
@@ -181,6 +183,17 @@ export function maxDutyFor(channelCode: string): number {
 /** True when this position has no two-hour cap. */
 export function isUncappedChannel(channelCode: string): boolean {
   return UNCAPPED_DUTY_CHANNELS.includes(channelCode);
+}
+
+/**
+ * How well a duty length suits the office: 0 for 1h, 1h 30m or 2h (on a
+ * position with no cap, any whole or half hour from 1h up), 1 for anything
+ * else of an hour or more, 2 for under an hour.
+ */
+export function dutyLengthRank(length: number, channelCode: string): 0 | 1 | 2 {
+  if (length < PREFERRED_MIN_DUTY_MIN) return 2;
+  const preferred = isUncappedChannel(channelCode) ? length % 30 === 0 : PREFERRED_DUTY_LENGTHS.includes(length);
+  return preferred ? 0 : 1;
 }
 
 export function dutyLength(duty: NightDuty): number {
@@ -712,6 +725,7 @@ function collectWarnings(state: NightAllocationState): RuleIssue[] {
     });
   }
 
+  warnings.push(...shortDutyWarnings(state));
   warnings.push(...secondHalfChannelPreferences(state));
   warnings.push(...crossoverWarnings(state));
   warnings.push(...mergeWarnings(state));
@@ -750,6 +764,35 @@ function mergeWarnings(state: NightAllocationState): RuleIssue[] {
         `${formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1])} — whoever holds ${merge.targetCode} holds both. ` +
         `Only do this when the 1st Half is too thin to cover them separately.`,
       dutyIds: [],
+    },
+  ];
+}
+
+/**
+ * Duties under an hour. Legal, and sometimes the only way to keep a night
+ * continuous, but the office prefers 1h, 1h 30m or 2h, so each one is named.
+ * A position open for under an hour can only have a short duty, and is left
+ * out.
+ */
+function shortDutyWarnings(state: NightAllocationState): RuleIssue[] {
+  const short = state.duties
+    .filter(duty => {
+      const length = dutyLength(duty);
+      if (length <= 0 || length >= PREFERRED_MIN_DUTY_MIN) return false;
+      const channel = findChannel(state, duty.channelCode);
+      return !channel || channel.closeAt - channel.openAt >= PREFERRED_MIN_DUTY_MIN;
+    })
+    .sort((a, b) => a.startMin - b.startMin);
+  if (!short.length) return [];
+  return [
+    {
+      message:
+        `Preferred: duties of 1h, 1h 30m or 2h. Under an hour: ` +
+        short
+          .map(duty => `${personName(state, duty.personKey)} ${duty.channelCode} ${formatRange(duty.startMin, duty.endMin)}`)
+          .join(", ") +
+        ".",
+      dutyIds: short.map(duty => duty.id),
     },
   ];
 }

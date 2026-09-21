@@ -528,8 +528,8 @@ export function ChannelsPanel({
             </SelectContent>
           </Select>
           <p className="text-[0.72rem] leading-snug text-corp-text-soft">
-            Duties run 30 min to 2 h — except TSO, which has no maximum. The generator varies them to keep
-            handovers staggered.
+            Duties run 30 min to 2 h — except TSO, which has no maximum. The generator aims for 1 h, 1 h 30 m or
+            2 h, and uses 30 or 45 min only when nothing longer keeps every position covered.
           </p>
 
           <Button className="mt-1 w-full" onClick={onGenerate} disabled={generating}>

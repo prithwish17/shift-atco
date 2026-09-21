@@ -23,6 +23,7 @@ import {
   MAX_DUTY_MIN,
   MIN_BREAK_MIN,
   MIN_DUTY_MIN,
+  PREFERRED_MIN_DUTY_MIN,
   SECOND_HALF,
   SECOND_HALF_PREFERRED_CHANNEL,
   SLOT_MIN,
@@ -32,6 +33,7 @@ import {
   activeMerge,
   availablePeople,
   canTakeChannel,
+  dutyLengthRank,
   findPerson,
   isRestrictedChannel,
   maxDutyFor,
@@ -105,6 +107,13 @@ export interface SolveOptions {
    * reaches for it when there is no continuous plan otherwise.
    */
   allowCrossHalfTso?: boolean;
+  /**
+   * Allow duties under `PREFERRED_MIN_DUTY_MIN` where a longer one would also
+   * fit. Off, a short duty is used only where a position has less than that
+   * left to cover. On by default; the generator turns it off for its first
+   * attempt, so short duties appear only when an all-long night is impossible.
+   */
+  shortDuties?: boolean;
 }
 
 /** Nothing about a night changes while the solver runs, so this is all local. */
@@ -116,9 +125,12 @@ export function solveContinuous(
     width = 6,
     seed = 0,
     allowCrossHalfTso = false,
+    shortDuties = true,
   }: SolveOptions = {},
 ): NightDuty[] | null {
   const preferred = state.dutyLengthPref || 0;
+  // A usual length the person chose under an hour is a choice, not a fallback.
+  const holdBackShort = !preferred || preferred >= PREFERRED_MIN_DUTY_MIN;
 
   // Small deterministic PRNG so a seeded restart is reproducible.
   let randomState = seed >>> 0;
@@ -387,15 +399,18 @@ export function solveContinuous(
     // another channel's pending handover — that is what staggers them.
     const tail = channel.closeAt - at;
     if (tail < MIN_DUTY_MIN) return false;
+    // With short duties held back, nothing under an hour is offered unless the
+    // position has less than an hour left — and no end may leave such a stub.
+    const floor = shortDuties || tail < PREFERRED_MIN_DUTY_MIN ? MIN_DUTY_MIN : PREFERRED_MIN_DUTY_MIN;
     // An uncapped position can run to the end of its window, so the candidate
     // list is bounded by the window rather than by the two-hour rule.
     const longest = Math.min(maxDutyFor(channel.code), channel.closeAt - at);
     const ends: number[] = [];
-    for (let length = longest; length >= MIN_DUTY_MIN; length -= SLOT_MIN) {
+    for (let length = longest; length >= floor; length -= SLOT_MIN) {
       const end = at + length;
       if (end > channel.closeAt) continue;
       // Never leave a stub too short to be a duty at the end of the channel.
-      if (channel.closeAt - end > 0 && channel.closeAt - end < MIN_DUTY_MIN) continue;
+      if (channel.closeAt - end > 0 && channel.closeAt - end < floor) continue;
       ends.push(end);
     }
     if (!ends.length) return false;
@@ -408,10 +423,19 @@ export function solveContinuous(
       }
       return 0;
     };
+    // Lengths the office prefers: anything under an hour last of all, then
+    // staggered handovers, then 1h / 1h 30m / 2h ahead of 1h 15m / 1h 45m.
+    // A usual length someone chose outranks that last preference.
+    const rank = (end: number) => dutyLengthRank(end - at, baseCode(channel.code));
+    const isShort = (end: number) => (holdBackShort && rank(end) === 2 ? 1 : 0);
+    const fromTarget = (end: number) => Math.abs(end - at - targetDuty);
     ends.sort(
       (a, b) =>
+        isShort(a) - isShort(b) ||
         collides(a) - collides(b) ||
-        Math.abs(a - at - targetDuty) - Math.abs(b - at - targetDuty) ||
+        (preferred
+          ? fromTarget(a) - fromTarget(b) || rank(a) - rank(b)
+          : rank(a) - rank(b) || fromTarget(a) - fromTarget(b)) ||
         b - a,
     );
 
@@ -542,19 +566,18 @@ function activeChannelsShorterThanMinimum(state: NightAllocationState): string[]
 }
 
 /**
- * How the randomised-restart budget is shared between the plain night and its
- * relaxations.
+ * How the randomised-restart budget is shared between the attempts, in
+ * proportion to their weights.
  *
- * The plain night keeps half: it is the plan the office would rather have. The
- * relaxations share the rest, so each gets restarts of its own. Spent in one
- * pool, the plain night used the lot, and a night that could only be covered
- * by a relaxation got two fixed passes at it and no more.
+ * The plain night is weighted highest: it is the plan the office would rather
+ * have. Every attempt still gets restarts of its own. Spent in one pool, the
+ * first attempt used the lot, and a night that could only be covered by a
+ * relaxation got two fixed passes at it and no more.
  */
-export function restartBudgets(totalMs: number, attempts: number): number[] {
-  if (attempts <= 1) return [totalMs];
-  const plain = totalMs / 2;
-  const each = (totalMs - plain) / (attempts - 1);
-  return [plain, ...Array.from({ length: attempts - 1 }, () => each)];
+export function restartBudgets(totalMs: number, weights: number[]): number[] {
+  const sum = weights.reduce((total, weight) => total + weight, 0);
+  if (!sum) return weights.map(() => 0);
+  return weights.map(weight => (totalMs * weight) / sum);
 }
 
 export interface GenerateOptions {
@@ -600,6 +623,8 @@ export function generateAllocation(
 
   const starterNote =
     "Continuous plan made, but not every chosen starter could start their channel. See suggestions.";
+  const shortNote =
+    "Continuous plan made, but not every duty could be 1h or more. The shorter ones are listed in suggestions.";
   const crossoverNote =
     `Continuous plan made, but only by letting a 1st Half person cover ${CROSS_HALF_CHANNEL} in the 2nd Half. ` +
     "See suggestions.";
@@ -614,6 +639,7 @@ export function generateAllocation(
   const sweep = (
     state: NightAllocationState,
     allowCrossHalfTso: boolean,
+    shortDuties: boolean,
     deadline: number,
   ): GenerateResult | null => {
     const first = solveContinuous(state, {
@@ -621,6 +647,7 @@ export function generateAllocation(
       nodeLimit: 60_000,
       seed: anyStarterChosen ? 0 : baseSeed,
       allowCrossHalfTso,
+      shortDuties,
     });
     if (first) {
       return { ok: true, state: { ...state, duties: first }, note: allowCrossHalfTso ? crossoverNote : rhythmNote };
@@ -631,6 +658,7 @@ export function generateAllocation(
       nodeLimit: 60_000,
       seed: anyStarterChosen ? 0 : baseSeed,
       allowCrossHalfTso,
+      shortDuties,
     });
     if (relaxed) {
       return {
@@ -648,6 +676,7 @@ export function generateAllocation(
         width: 8,
         seed: baseSeed + attempt,
         allowCrossHalfTso,
+        shortDuties,
       });
       if (!restart) continue;
       return {
@@ -660,29 +689,51 @@ export function generateAllocation(
   };
 
   // Relaxations are tried in order of how much they change the night, and only
-  // when the plainer version found nothing. A merge the user has already ticked
-  // is not a relaxation — it is the night as configured — so it is not retried.
+  // when the plainer version found nothing. Duties under an hour come first:
+  // the office accepts them when there is no other way, while the TSO crossover
+  // and the merge are last resorts. A merge the user has already ticked is not
+  // a relaxation — it is the night as configured — so it is not retried.
   const alreadyMerged = !!activeMerge(state);
   const mergeTarget = alreadyMerged ? null : mergeCandidate(state);
   const merged = mergeTarget ? withMerge(state, mergeTarget) : null;
+  // A usual length under an hour was chosen, so there is no all-long night to try first.
+  const shortChosen = !!state.dutyLengthPref && state.dutyLengthPref < PREFERRED_MIN_DUTY_MIN;
 
-  const attempts: Array<{ state: NightAllocationState; crossover: boolean; mergedInto: string | null }> = [
-    { state, crossover: false, mergedInto: null },
-    { state, crossover: true, mergedInto: null },
-  ];
+  type Attempt = {
+    state: NightAllocationState;
+    crossover: boolean;
+    shortDuties: boolean;
+    mergedInto: string | null;
+    weight: number;
+  };
+  const attempts: Attempt[] = [];
+  if (!shortChosen) attempts.push({ state, crossover: false, shortDuties: false, mergedInto: null, weight: 2 });
+  attempts.push({ state, crossover: false, shortDuties: true, mergedInto: null, weight: 2 });
+  attempts.push({ state, crossover: true, shortDuties: true, mergedInto: null, weight: 1 });
   if (merged && mergeTarget) {
-    attempts.push({ state: merged, crossover: false, mergedInto: mergeTarget });
-    attempts.push({ state: merged, crossover: true, mergedInto: mergeTarget });
+    attempts.push({ state: merged, crossover: false, shortDuties: true, mergedInto: mergeTarget, weight: 1 });
+    attempts.push({ state: merged, crossover: true, shortDuties: true, mergedInto: mergeTarget, weight: 1 });
   }
 
   // Deadlines are cumulative, so the whole run still ends inside the budget.
-  const shares = restartBudgets(budget, attempts.length);
+  const shares = restartBudgets(
+    budget,
+    attempts.map(attempt => attempt.weight),
+  );
   let deadline = startedAt;
   for (const [index, attempt] of attempts.entries()) {
     deadline += shares[index];
-    const planned = sweep(attempt.state, attempt.crossover, deadline);
+    const planned = sweep(attempt.state, attempt.crossover, attempt.shortDuties, deadline);
     if (!planned || !planned.ok) continue;
-    if (!attempt.mergedInto) return planned;
+    if (!attempt.mergedInto) {
+      // Say so when the all-long attempt failed and the plan needed short duties.
+      const neededShort =
+        !shortChosen &&
+        !attempt.crossover &&
+        attempt.shortDuties &&
+        planned.state.duties.some(duty => duty.endMin - duty.startMin < PREFERRED_MIN_DUTY_MIN);
+      return neededShort ? { ...planned, note: shortNote } : planned;
+    }
     return {
       ...planned,
       mergedInto: attempt.mergedInto,

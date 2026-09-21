@@ -405,17 +405,101 @@ describe("merging CLD into SMC", () => {
 });
 
 describe("sharing the restart budget", () => {
-  it("keeps half for the plain night and splits the rest between the relaxations", () => {
-    expect(restartBudgets(1500, 1)).toEqual([1500]);
-    expect(restartBudgets(1500, 2)).toEqual([750, 750]);
-    expect(restartBudgets(1500, 4)).toEqual([750, 250, 250, 250]);
+  it("shares it in proportion to each attempt's weight", () => {
+    expect(restartBudgets(1500, [1])).toEqual([1500]);
+    expect(restartBudgets(1500, [2, 2, 1])).toEqual([600, 600, 300]);
+    expect(restartBudgets(1400, [2, 2, 1, 1, 1])).toEqual([400, 400, 200, 200, 200]);
   });
 
   it("never hands out more than the budget", () => {
-    for (const attempts of [1, 2, 3, 4]) {
-      const shares = restartBudgets(500, attempts);
+    for (const weights of [[1], [2, 2, 1], [2, 2, 1, 1, 1], [2, 1]]) {
+      const shares = restartBudgets(500, weights);
       expect(shares.reduce((sum, share) => sum + share, 0)).toBeCloseTo(500);
       expect(shares.every(share => share > 0)).toBe(true);
     }
+  });
+});
+
+describe("preferred duty lengths", () => {
+  const under =(duties: Array<{ startMin: number; endMin: number }>, minutes: number) =>
+    duties.filter(duty => duty.endMin - duty.startMin < minutes);
+
+  it("keeps every duty to an hour or more on the nights the office actually runs", () => {
+    const nights = [
+      night({ people: team(4), channels: [channel("TWR"), channel("SMC-S"), channel("CLD")] }),
+      night({
+        people: team(9, { tso: [1, 2, 5], halves: { 1: "1st", 2: "1st", 3: "1st", 4: "2nd", 5: "2nd", 6: "2nd" } }),
+        channels: ["TWR", "SMC-S", "CLD", "TSO"].map(code => channel(code)),
+      }),
+      night({
+        people: team(11, { tso: [1, 2, 3], halves: { 1: "1st", 2: "1st", 3: "2nd", 4: "2nd" } }),
+        channels: ["TWR", "SMC-S", "SMC-N", "CLD", "TSO"].map(code => channel(code)),
+      }),
+    ];
+    for (const [index, state] of nights.entries()) {
+      const result = generateAllocation(state, { budgetMs: 2000, seed: 3 + index });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expectContinuousAndLegal(result.state);
+      expect(under(result.state.duties, 60)).toEqual([]);
+    }
+  }, 60_000);
+
+  it("reaches for 1h, 1h 30m and 2h first", () => {
+    const state = night({
+      people: team(9, { tso: [1, 2, 5], halves: { 1: "1st", 2: "1st", 3: "1st", 4: "2nd", 5: "2nd", 6: "2nd" } }),
+      channels: ["TWR", "SMC-S", "CLD", "TSO"].map(code => channel(code)),
+    });
+    const result = generateAllocation(state, { budgetMs: 2000, seed: 4 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const capped = result.state.duties.filter(duty => duty.channelCode !== "TSO");
+    const preferred = capped.filter(duty => [60, 90, 120].includes(duty.endMin - duty.startMin));
+    expect(preferred.length / capped.length).toBeGreaterThanOrEqual(0.8);
+  }, 30_000);
+
+  it("holds short duties back entirely when asked to, and fails rather than use one", () => {
+    // Two positions 13:30–15:45 with three people. Each splits only as 60 + 75
+    // or 75 + 60, and whoever opened the other position can't be back in time:
+    // no plan without a duty under an hour exists.
+    const state = night({ people: team(3), channels: [channel("TWR", { closeAt: 135 }), channel("SMC-S", { closeAt: 135 })] });
+    expect(solveContinuous(state, { forceStarters: false, shortDuties: false })).toBeNull();
+
+    const withShort = solveContinuous(state, { forceStarters: false, shortDuties: true });
+    expect(withShort).not.toBeNull();
+    expect(under(withShort ?? [], 60).length).toBeGreaterThan(0);
+  });
+
+  it("uses a short duty when nothing longer works, and says so", () => {
+    const state = night({ people: team(3), channels: [channel("TWR", { closeAt: 135 }), channel("SMC-S", { closeAt: 135 })] });
+    const result = generateAllocation(state, { budgetMs: 200, seed: 1 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectContinuousAndLegal(result.state);
+    expect(result.note).toContain("not every duty could be 1h or more");
+    const warnings = validateAllocation(result.state).warnings.map(issue => issue.message);
+    expect(warnings.some(message => message.startsWith("Preferred: duties of 1h, 1h 30m or 2h. Under an hour:"))).toBe(true);
+  });
+
+  it("lets a position open for under an hour have its one short duty, without comment", () => {
+    const state = night({
+      people: team(4),
+      channels: [channel("TWR"), channel("CLD", { openAt: 0, closeAt: 45 })],
+    });
+    const result = generateAllocation(state, { budgetMs: 1000, seed: 2 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectContinuousAndLegal(result.state);
+    expect(result.state.duties.filter(duty => duty.channelCode === "CLD").map(duty => duty.endMin - duty.startMin)).toEqual([45]);
+    expect(result.note ?? "").not.toContain("not every duty could be 1h or more");
+    expect(validateAllocation(result.state).warnings.some(issue => issue.message.includes("Under an hour"))).toBe(false);
+  });
+
+  it("still gives short duties when someone chose a short usual length", () => {
+    const state = night({ people: team(6), channels: [channel("TWR"), channel("SMC-S")], dutyLengthPref: 45 });
+    const result = generateAllocation(state, { budgetMs: 1000, seed: 5 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(under(result.state.duties, 60).length).toBeGreaterThan(0);
   });
 });

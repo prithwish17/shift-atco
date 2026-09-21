@@ -24,6 +24,19 @@ export const MIN_DUTY_MIN = 30;
 /** A duty may not be longer than this, on every position but the exceptions. */
 export const MAX_DUTY_MIN = 120;
 
+/**
+ * The duty lengths the office prefers: 1h, 1h 30m and 2h.
+ *
+ * A preference, not a rule. The generator reaches for these first, keeps every
+ * duty to at least `PREFERRED_MIN_DUTY_MIN` wherever the night allows, and
+ * uses 30 or 45 minutes only when nothing longer gives a continuous plan.
+ * `MIN_DUTY_MIN` is still the hard floor.
+ */
+export const PREFERRED_DUTY_LENGTHS: readonly number[] = [60, 90, 120];
+
+/** Shortest duty the generator uses when it has any choice. */
+export const PREFERRED_MIN_DUTY_MIN = 60;
+
 
 /** A person needs at least this much rest between two duties. */
 export const MIN_BREAK_MIN = 30;

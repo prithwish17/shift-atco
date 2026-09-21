@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inBoardOrder, personShortLabel, staffingNotices, uncoveredMinutes, validateAllocation } from "../rules";
+import { dutyLengthRank, inBoardOrder, personShortLabel, staffingNotices, uncoveredMinutes, validateAllocation } from "../rules";
 import { channel, duty, messages, night, person, team } from "./fixtures";
 
 /** A night nobody could fault: one channel, two people, continuous cover. */
@@ -540,5 +540,43 @@ describe("board order", () => {
     expect(inBoardOrder(shuffled).map(entry => entry.code)).toEqual([
       "TWR", "SMC-S", "SMC-N", "CLD", "TSO", "AAA", "ZZZ",
     ]);
+  });
+});
+
+describe("preferred duty lengths", () => {
+  it("ranks 1h, 1h 30m and 2h first, other hour-plus lengths next, under an hour last", () => {
+    expect([60, 90, 120].map(length => dutyLengthRank(length, "TWR"))).toEqual([0, 0, 0]);
+    expect([75, 105].map(length => dutyLengthRank(length, "TWR"))).toEqual([1, 1]);
+    expect([30, 45].map(length => dutyLengthRank(length, "TWR"))).toEqual([2, 2]);
+  });
+
+  it("counts any whole or half hour from 1h up as preferred on TSO, which has no cap", () => {
+    expect([60, 150, 240, 720].map(length => dutyLengthRank(length, "TSO"))).toEqual([0, 0, 0, 0]);
+    expect(dutyLengthRank(135, "TSO")).toBe(1);
+    expect(dutyLengthRank(45, "TSO")).toBe(2);
+  });
+
+  it("names each duty under an hour, as a suggestion rather than a problem", () => {
+    const state = night({
+      people: team(2),
+      channels: [channel("TWR", { openAt: 0, closeAt: 150 })],
+      duties: [duty("TWR", "p1", 0, 60), duty("TWR", "p2", 60, 105), duty("TWR", "p1", 105, 150)],
+    });
+    const { errors, warnings } = validateAllocation(state);
+    expect(errors).toEqual([]);
+    const note = warnings.find(issue => issue.message.includes("Under an hour"));
+    expect(note?.message).toBe(
+      "Preferred: duties of 1h, 1h 30m or 2h. Under an hour: Person 2 TWR 14:30–15:15, Person 1 TWR 15:15–16:00.",
+    );
+    expect(note?.dutyIds).toHaveLength(2);
+  });
+
+  it("says nothing about a position open for under an hour, which can't do better", () => {
+    const state = night({
+      people: team(1),
+      channels: [channel("CLD", { openAt: 0, closeAt: 45 })],
+      duties: [duty("CLD", "p1", 0, 45)],
+    });
+    expect(validateAllocation(state).warnings.some(issue => issue.message.includes("Under an hour"))).toBe(false);
   });
 });
