@@ -170,6 +170,7 @@ export function AllocationBoard({
       <div className="relative w-max min-w-full">
         <Axis
           state={state}
+          view={view}
           labelWidth={labelWidth}
           pxPerMin={pxPerMin}
           boardWidth={boardWidth}
@@ -310,12 +311,14 @@ function RowLabel({ row, view, width }: { row: BoardRow; view: BoardView; width:
 
 function Axis({
   state,
+  view,
   labelWidth,
   pxPerMin,
   boardWidth,
   compact,
 }: {
   state: NightAllocationState;
+  view: BoardView;
   labelWidth: number;
   pxPerMin: number;
   boardWidth: number;
@@ -342,7 +345,7 @@ function Axis({
         style={{ width: labelWidth }}
       >
         <span className="text-[0.62rem] font-semibold uppercase tracking-[0.14em] text-corp-text-soft">
-          {compact ? "Pos" : "Position"}
+          {view === "person" ? "Person" : compact ? "Pos" : "Position"}
         </span>
       </div>
 

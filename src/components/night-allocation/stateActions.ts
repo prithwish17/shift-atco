@@ -209,15 +209,28 @@ export function setChannelInUse(state: NightAllocationState, code: string, inUse
   }
 
   const dropped = state.duties.filter(duty => duty.channelCode === code).length;
+  // A position folded into this one has nothing left to fold into. Left set,
+  // the merge would be an error the switch could no longer turn off.
+  const unmerged = state.channels.filter(channel => channel.mergedInto === code).map(channel => channel.code);
   return {
     state: {
       ...state,
-      channels: channels.map(channel => (channel.code === code ? { ...channel, starterKey: null } : channel)),
+      channels: channels.map(channel =>
+        channel.code === code
+          ? { ...channel, starterKey: null }
+          : channel.mergedInto === code
+            ? { ...channel, mergedInto: null }
+            : channel,
+      ),
       duties: state.duties.filter(duty => duty.channelCode !== code),
     },
     note:
       `${code} not needed tonight.` +
-      (dropped ? ` Removed its ${dropped} ${dropped === 1 ? "duty" : "duties"}.` : ""),
+      (dropped ? ` Removed its ${dropped} ${dropped === 1 ? "duty" : "duties"}.` : "") +
+      (unmerged.length
+        ? ` ${unmerged.join(", ")} no longer merged into it, so ${unmerged.length === 1 ? "it needs" : "they need"} ` +
+          `cover of ${unmerged.length === 1 ? "its" : "their"} own ${formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1])}.`
+        : ""),
   };
 }
 
@@ -254,6 +267,24 @@ export function setChannelStarter(state: NightAllocationState, code: string, sta
       ? `${person.name} starts ${code} at ${formatMinutes(channel.openAt)}.`
       : `No starter chosen for ${code}.`,
   };
+}
+
+/**
+ * What the merge switch shows.
+ *
+ * Read from the stored setting rather than from `activeMerge`, which ignores a
+ * merge that no longer holds (its SMC unticked, say). Otherwise the switch
+ * would sit off and disabled while the checks panel reports the merge as a
+ * problem, and nothing on the page could clear it.
+ */
+export function mergeToggle(state: NightAllocationState): {
+  on: boolean;
+  enabled: boolean;
+  targetCode: string | null;
+} {
+  const stored = findChannel(state, MERGE_SOURCE_CHANNEL)?.mergedInto ?? null;
+  const available = mergeTargetFor(state);
+  return { on: !!stored, enabled: !!stored || !!available, targetCode: stored ?? available };
 }
 
 /**

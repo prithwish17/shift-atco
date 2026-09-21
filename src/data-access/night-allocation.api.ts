@@ -168,6 +168,10 @@ export async function emailNightAllocation(request: EmailRosterRequest): Promise
     headers: { ...(await authHeaders()), "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  // The platform's own 413 arrives before the function runs, with no JSON body.
+  if (response.status === 413) {
+    throw new Error(await readError(response, "The attachments are too large to email. Untick the board image."));
+  }
   if (!response.ok) throw new Error(await readError(response, "The roster could not be emailed."));
   return (await response.json()) as { sent: number; provider: string };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { personShortLabel, staffingNotices, uncoveredMinutes, validateAllocation } from "../rules";
+import { inBoardOrder, personShortLabel, staffingNotices, uncoveredMinutes, validateAllocation } from "../rules";
 import { channel, duty, messages, night, person, team } from "./fixtures";
 
 /** A night nobody could fault: one channel, two people, continuous cover. */
@@ -480,6 +480,29 @@ describe("merging CLD into SMC", () => {
     expect(errorsOf(state).some(message => message.includes("isn't open for the whole"))).toBe(true);
   });
 
+  it("refuses CLD merged into itself, and still wants it covered", () => {
+    // The hole a hostile payload would use: a self-merge excused CLD from cover.
+    const state = mergedNight("CLD");
+    expect(errorsOf(state)).toContain("CLD can only merge into SMC, SMC-S or SMC-N, not CLD.");
+    expect(uncoveredMinutes(state)).toBe(150);
+    expect(errorsOf(state).some(message => message.includes("CLD has no one on duty 19:00–21:30"))).toBe(true);
+  });
+
+  it("refuses CLD merged into a position that is not an SMC", () => {
+    const state = mergedNight("TWR");
+    state.channels.push(channel("TWR"));
+    expect(errorsOf(state)).toContain("CLD can only merge into SMC, SMC-S or SMC-N, not TWR.");
+    expect(uncoveredMinutes(state)).toBeGreaterThanOrEqual(150);
+  });
+
+  it("refuses a merge set on any position other than CLD", () => {
+    const state = mergedNight(null);
+    state.channels = state.channels.map(entry =>
+      entry.code === "SMC-S" ? { ...entry, mergedInto: "CLD" } : entry,
+    );
+    expect(errorsOf(state)).toContain("SMC-S can't be merged into another position. Only CLD can.");
+  });
+
   it("always reports an active merge as a suggestion", () => {
     const warnings = messages(validateAllocation(mergedNight()).warnings);
     expect(warnings.some(message => message.includes("CLD is merged into SMC-S 19:00–21:30"))).toBe(true);
@@ -496,5 +519,26 @@ describe("merging CLD into SMC", () => {
       channels: plain.channels.map(entry => (entry.code === "CLD" ? { ...entry, mergedInto: "SMC-S" } : entry)),
     };
     expect(staffingNotices(plain).length).toBeGreaterThan(staffingNotices(merged).length);
+  });
+});
+
+describe("each person and position once", () => {
+  it("refuses a person listed twice", () => {
+    const state = night({ people: [person("p1"), person("p1")], channels: [channel("TWR")] });
+    expect(errorsOf(state)).toContain("P1 is on tonight's list more than once.");
+  });
+
+  it("refuses a position listed twice, and says so only once", () => {
+    const state = night({ people: [person("p1")], channels: [channel("TWR"), channel("TWR"), channel("TWR")] });
+    expect(errorsOf(state).filter(message => message === "TWR is listed more than once.")).toHaveLength(1);
+  });
+});
+
+describe("board order", () => {
+  it("puts the defaults in their listed order and anything else after them", () => {
+    const shuffled = ["TSO", "ZZZ", "CLD", "TWR", "AAA", "SMC-N", "SMC-S"].map(code => channel(code));
+    expect(inBoardOrder(shuffled).map(entry => entry.code)).toEqual([
+      "TWR", "SMC-S", "SMC-N", "CLD", "TSO", "AAA", "ZZZ",
+    ]);
   });
 });

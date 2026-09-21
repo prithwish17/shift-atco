@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NIGHT_SPAN_MIN } from "../constants";
-import { generateAllocation, solveContinuous } from "../solver";
+import { generateAllocation, restartBudgets, solveContinuous } from "../solver";
 import { uncoveredMinutes, validateAllocation } from "../rules";
 import { channel, night, refused, team, withStarters } from "./fixtures";
 import type { NightAllocationState } from "../types";
@@ -314,6 +314,19 @@ describe("the TSO half crossover", () => {
     expect(result.note).toContain("1st Half person cover TSO in the 2nd Half");
   });
 
+  it("gets restart time of its own instead of waiting for the plain night to use it all", () => {
+    // A fake clock that moves 100 ms per read. Spent from one pool, the plain
+    // night (which cannot work) used the whole 3 s before the crossover was
+    // tried at all; now it stops at its half and the crossover gets the rest.
+    let clock = 0;
+    const result = generateAllocation(crossoverNight(), { budgetMs: 3000, seed: 7, now: () => (clock += 100) });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.note).toContain("1st Half person cover TSO in the 2nd Half");
+    expect(clock).toBeLessThan(3000);
+  }, 60_000);
+
   it("does not use it on a night that works without it", () => {
     const people = team(6, { halves: { 1: "1st", 2: "2nd" } });
     const state = night({ people, channels: [channel("TWR"), channel("SMC-S")] });
@@ -388,5 +401,21 @@ describe("merging CLD into SMC", () => {
     expect(
       result.state.duties.some(duty => duty.channelCode === "CLD" && duty.startMin < 480 && duty.endMin > 330),
     ).toBe(true);
+  });
+});
+
+describe("sharing the restart budget", () => {
+  it("keeps half for the plain night and splits the rest between the relaxations", () => {
+    expect(restartBudgets(1500, 1)).toEqual([1500]);
+    expect(restartBudgets(1500, 2)).toEqual([750, 750]);
+    expect(restartBudgets(1500, 4)).toEqual([750, 250, 250, 250]);
+  });
+
+  it("never hands out more than the budget", () => {
+    for (const attempts of [1, 2, 3, 4]) {
+      const shares = restartBudgets(500, attempts);
+      expect(shares.reduce((sum, share) => sum + share, 0)).toBeCloseTo(500);
+      expect(shares.every(share => share > 0)).toBe(true);
+    }
   });
 });

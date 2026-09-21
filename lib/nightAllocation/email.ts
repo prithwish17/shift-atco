@@ -1,12 +1,11 @@
 /**
  * Sending the night roster by email.
  *
- * Uses the mail providers the app is already configured with — Resend first,
- * Brevo as the fallback — mirroring supabase/functions/_shared/email.ts, which
+ * Uses the mail providers the app is already configured with — Brevo first,
+ * Resend as the fallback — mirroring supabase/functions/_shared/email.ts, which
  * runs in Deno and cannot be imported here. No new provider and no new cost.
  *
- * With neither key configured the caller is told so and falls back to a
- * `mailto:` link in the browser.
+ * With neither key configured the route answers 503 and the page reports it.
  */
 const RESEND_API_KEY = () => process.env.RESEND_API_KEY || "";
 const BREVO_API_KEY = () => process.env.BREVO_API_KEY || "";

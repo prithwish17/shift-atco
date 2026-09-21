@@ -66,12 +66,19 @@ export function mergeTargetFor(state: NightAllocationState): string | null {
   return null;
 }
 
-/** Is CLD currently folded into an SMC? Returns the pair, or null. */
+/**
+ * Is CLD currently folded into an SMC? Returns the pair, or null.
+ *
+ * Only a pairing the rules allow counts. A payload claiming CLD is merged into
+ * itself, or into TWR, would otherwise excuse CLD from cover for the whole
+ * window; `validateChannels` reports it, and here it simply isn't a merge.
+ */
 export function activeMerge(
   state: NightAllocationState,
 ): { source: NightChannel; targetCode: string } | null {
   const source = state.channels.find(entry => entry.code === MERGE_SOURCE_CHANNEL);
   if (!source?.inUse || !source.mergedInto) return null;
+  if (!MERGE_TARGET_CHANNELS.includes(source.mergedInto)) return null;
   const target = state.channels.find(entry => entry.code === source.mergedInto);
   if (!target?.inUse) return null;
   return { source, targetCode: target.code };
@@ -85,6 +92,17 @@ export function mergedAwayWindow(
   const merge = activeMerge(state);
   if (!merge || merge.source.code !== channelCode) return null;
   return MERGE_WINDOW;
+}
+
+/**
+ * Channels in board order: the defaults as `DEFAULT_CHANNEL_CODES` lists them,
+ * anything else after them by name. The database returns rows in no particular
+ * order, so a saved night is sorted on the way out.
+ */
+export function inBoardOrder(channels: NightChannel[]): NightChannel[] {
+  const codes: readonly string[] = DEFAULT_CHANNEL_CODES;
+  const rank = (code: string) => (codes.includes(code) ? codes.indexOf(code) : codes.length);
+  return channels.slice().sort((a, b) => rank(a.code) - rank(b.code) || a.code.localeCompare(b.code));
 }
 
 /** Channels ticked for tonight, in board order. */
@@ -410,7 +428,20 @@ function validateChannels(state: NightAllocationState, errors: RuleIssue[]) {
     }
     if (channel.mergedInto) {
       const target = state.channels.find(entry => entry.code === channel.mergedInto);
-      if (!target?.inUse) {
+      if (channel.code !== MERGE_SOURCE_CHANNEL) {
+        errors.push({
+          message: `${channel.code} can't be merged into another position. Only ${MERGE_SOURCE_CHANNEL} can.`,
+          dutyIds: [],
+        });
+      } else if (!MERGE_TARGET_CHANNELS.includes(channel.mergedInto)) {
+        errors.push({
+          message:
+            `${channel.code} can only merge into ${MERGE_TARGET_CHANNELS.slice(0, -1).join(", ")} or ` +
+            `${MERGE_TARGET_CHANNELS[MERGE_TARGET_CHANNELS.length - 1]}, ` +
+            `not ${channel.mergedInto}.`,
+          dutyIds: [],
+        });
+      } else if (!target?.inUse) {
         errors.push({
           message: `${channel.code} is set to merge into ${channel.mergedInto}, which isn't in use tonight.`,
           dutyIds: [],
@@ -433,6 +464,33 @@ function validateChannels(state: NightAllocationState, errors: RuleIssue[]) {
     } else if (starter && !canTakeChannel(starter, channel.code)) {
       errors.push({ message: `${starter.name} isn't marked as able to take TSO, so can't start it.`, dutyIds: [] });
     }
+  }
+}
+
+/**
+ * Each person and each position appears once. The page cannot produce a
+ * duplicate, but a request can, and every other rule would silently read the
+ * first copy — while the database refuses the second outright.
+ */
+function validateUniqueness(state: NightAllocationState, errors: RuleIssue[]) {
+  const people = new Set<string>();
+  const reportedPeople = new Set<string>();
+  for (const person of state.people) {
+    if (people.has(person.key) && !reportedPeople.has(person.key)) {
+      errors.push({ message: `${person.name} is on tonight's list more than once.`, dutyIds: [] });
+      reportedPeople.add(person.key);
+    }
+    people.add(person.key);
+  }
+
+  const channels = new Set<string>();
+  const reportedChannels = new Set<string>();
+  for (const channel of state.channels) {
+    if (channels.has(channel.code) && !reportedChannels.has(channel.code)) {
+      errors.push({ message: `${channel.code} is listed more than once.`, dutyIds: [] });
+      reportedChannels.add(channel.code);
+    }
+    channels.add(channel.code);
   }
 }
 
@@ -610,6 +668,7 @@ function validateHalfDuties(state: NightAllocationState, errors: RuleIssue[]) {
       errors.push({
         message: `${person.name} is ${label} but has no duty between ${formatMinutes(own[0])} and ${formatMinutes(own[1])}.`,
         dutyIds: [],
+        personKeys: [person.key],
       });
     }
   }
@@ -769,6 +828,7 @@ function workloadWarnings(state: NightAllocationState): RuleIssue[] {
  */
 export function validateAllocation(state: NightAllocationState): ValidationResult {
   const errors: RuleIssue[] = [];
+  validateUniqueness(state, errors);
   validateChannels(state, errors);
   validateHalves(state, errors);
   for (const duty of state.duties) validateDuty(state, duty, errors);

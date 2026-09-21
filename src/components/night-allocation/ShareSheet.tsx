@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import {
+  MAX_EMAIL_ATTACHMENT_BYTES,
   buildRosterText,
   defaultEmailSubject,
   formatNightDate,
@@ -30,6 +31,7 @@ import {
 } from "@/domain/night-allocation";
 import { emailNightAllocation, fetchRosterText } from "@/data-access/night-allocation.api";
 import { blobToBase64, buildBoardImage, buildRosterPdf, downloadBlob } from "./exports";
+import { shareGate } from "./shareGate";
 
 interface ShareSheetProps {
   open: boolean;
@@ -37,11 +39,10 @@ interface ShareSheetProps {
   state: NightAllocationState;
   /** Teams on the shift roster, for the sub-header on every format. */
   teams: string[];
-  /** True while the night still breaks a hard rule. */
-  blocked: boolean;
-  blockingCount: number;
-  /** False until the night has been saved at least once. */
-  saved: boolean;
+  /** Hard-rule breaches on the board as it stands. */
+  errorCount: number;
+  /** True when the board has changes that haven't been saved. */
+  dirty: boolean;
 }
 
 type Busy = null | "text" | "whatsapp" | "pdf" | "png" | "email";
@@ -49,7 +50,10 @@ type Busy = null | "text" | "whatsapp" | "pdf" | "png" | "email";
 /** Hoisted: a literal here would be a new identity on every render. */
 const NO_EMAILS: string[] = [];
 
-export function ShareSheet({ open, onOpenChange, state, teams, blocked, blockingCount, saved }: ShareSheetProps) {
+/** True when the person closed the system share sheet without sharing. */
+const isShareCancelled = (error: unknown) => error instanceof DOMException && error.name === "AbortError";
+
+export function ShareSheet({ open, onOpenChange, state, teams, errorCount, dirty }: ShareSheetProps) {
   const { toast } = useToast();
   const [busy, setBusy] = useState<Busy>(null);
   const [showEmail, setShowEmail] = useState(false);
@@ -90,6 +94,10 @@ export function ShareSheet({ open, onOpenChange, state, teams, blocked, blocking
     if (!showEmail || recipients || !dutyEmails.length) return;
     setRecipients(dutyEmails.join(", "));
   }, [showEmail, dutyEmails, recipients]);
+
+  const gate = shareGate(state, { dirty, errorCount });
+  // What is on screen is exactly what was saved.
+  const saved = state.version > 0 && !dirty;
 
   const pageUrl = typeof window !== "undefined"
     ? `${window.location.origin}/night-allocation?date=${state.nightDate}`
@@ -140,7 +148,12 @@ export function ShareSheet({ open, onOpenChange, state, teams, blocked, blocking
       const file = new File([blob], filename, { type: "image/png" });
 
       if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ title: `Night channel allocation — ${formatNightDate(state.nightDate)}`, text, files: [file] });
+        try {
+          await navigator.share({ title: `Night channel allocation — ${formatNightDate(state.nightDate)}`, text, files: [file] });
+        } catch (error) {
+          // Closing the share sheet is a choice, not a failure.
+          if (!isShareCancelled(error)) throw error;
+        }
         return;
       }
 
@@ -173,15 +186,24 @@ export function ShareSheet({ open, onOpenChange, state, teams, blocked, blocking
         .filter(Boolean);
       if (!list.length) throw new Error("Add at least one email address.");
 
-      const attachments: Array<{ filename: string; content: string }> = [];
-      if (attachPdf) {
-        const pdf = buildRosterPdf(state, teams);
-        attachments.push({ filename: pdf.filename, content: await blobToBase64(pdf.blob) });
+      const files: Array<{ blob: Blob; filename: string }> = [];
+      if (attachPdf) files.push(buildRosterPdf(state, teams));
+      if (attachImage) files.push(await buildBoardImage(state, teams));
+
+      // Checked here, before the upload: past the platform's body limit the
+      // request never reaches the server, and all that comes back is a bare 413.
+      const bytes = files.reduce((sum, file) => sum + file.blob.size, 0);
+      if (bytes > MAX_EMAIL_ATTACHMENT_BYTES) {
+        const megabytes = (size: number) => (size / (1024 * 1024)).toFixed(1);
+        throw new Error(
+          `The attachments come to ${megabytes(bytes)} MB, over the ${megabytes(MAX_EMAIL_ATTACHMENT_BYTES)} MB ` +
+            "an email can carry. Untick the board image, or download it and share it separately.",
+        );
       }
-      if (attachImage) {
-        const image = await buildBoardImage(state, teams);
-        attachments.push({ filename: image.filename, content: await blobToBase64(image.blob) });
-      }
+
+      const attachments = await Promise.all(
+        files.map(async file => ({ filename: file.filename, content: await blobToBase64(file.blob) })),
+      );
 
       const result = await emailNightAllocation({
         nightDate: state.nightDate,
@@ -205,27 +227,34 @@ export function ShareSheet({ open, onOpenChange, state, teams, blocked, blocking
           <SheetDescription>{formatNightDate(state.nightDate)} · 13:30 to 01:30 next day</SheetDescription>
         </SheetHeader>
 
-        {blocked ? (
+        {gate.blocked ? (
           <p className="mt-6 rounded-lg border border-status-danger/25 bg-status-danger-soft/60 px-3 py-2.5 text-[0.82rem] leading-snug text-corp-text-main">
-            {blockingCount} {blockingCount === 1 ? "problem" : "problems"} still to fix in Checks. Sharing a roster with
-            an uncovered position would send the shift the wrong plan.
+            {gate.blocked}
           </p>
         ) : (
           <div className="mt-6 space-y-2">
-            {!saved ? (
+            {gate.notice ? (
               <p className="rounded-lg border border-status-warning/30 bg-status-warning-soft px-3 py-2.5 text-[0.82rem] leading-snug text-corp-text-main">
-                This night hasn't been saved yet, so you'd be sharing your own unsaved copy. Save first if the shift
-                should see the same thing.
+                {gate.notice}
               </p>
             ) : null}
 
             <ShareAction icon={Copy} label="Copy text" busy={busy === "text"} onClick={copyText} />
             <ShareAction icon={MessageCircle} label="WhatsApp" busy={busy === "whatsapp"} onClick={shareToWhatsApp} />
-            <ShareAction icon={Mail} label="Email" busy={false} onClick={() => setShowEmail(value => !value)} />
+            <ShareAction
+              icon={Mail}
+              label="Email"
+              busy={false}
+              disabled={!!gate.emailBlocked}
+              onClick={() => setShowEmail(value => !value)}
+            />
+            {gate.emailBlocked ? (
+              <p className="px-1 text-xs text-corp-text-soft">{gate.emailBlocked}</p>
+            ) : null}
             <ShareAction icon={FileText} label="Download PDF" busy={busy === "pdf"} onClick={downloadPdf} />
             <ShareAction icon={ImageIcon} label="Download image" busy={busy === "png"} onClick={downloadImage} />
 
-            {showEmail ? (
+            {showEmail && !gate.emailBlocked ? (
               <>
                 <Separator className="my-4" />
                 <div className="space-y-3">
@@ -239,7 +268,8 @@ export function ShareSheet({ open, onOpenChange, state, teams, blocked, blocking
                       placeholder="name@example.com, someone.else@example.com"
                     />
                     <p className="text-xs text-corp-text-soft">
-                      Prefilled with the people on duty tonight who have an address on file.
+                      Prefilled with the people on duty tonight who have an address on file. Only people with an
+                      Atcora account can be sent the roster.
                     </p>
                   </div>
 
@@ -283,15 +313,17 @@ function ShareAction({
   icon: Icon,
   label,
   busy,
+  disabled = false,
   onClick,
 }: {
   icon: typeof Copy;
   label: string;
   busy: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
-    <Button variant="outline" className="w-full justify-start" onClick={onClick} disabled={busy}>
+    <Button variant="outline" className="w-full justify-start" onClick={onClick} disabled={busy || disabled}>
       {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Icon className="mr-2 h-4 w-4" />}
       {label}
     </Button>

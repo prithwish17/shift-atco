@@ -7,6 +7,8 @@
  * checked **before** it is applied: a change that would open a gap, break the
  * 30 min–2 h bounds, eat into someone's break or break a half, TSO or
  * availability rule is refused and the caller's state is left exactly as it was.
+ * A problem a touched duty already had before the change does not refuse it —
+ * it is reported as unresolved instead.
  *
  * Every function here is pure. The dialog uses them to preview an edit, and the
  * API uses the same rules module to re-check whatever the client finally sends.
@@ -70,35 +72,81 @@ export function buildEditedDuties(
   const { previous, next } = neighboursOf(duties, original);
   if (index >= 0) duties[index] = { ...draft };
 
-  if (previous) {
-    if (draft.startMin !== original.startMin) previous.endMin = draft.startMin;
+  // A neighbour is only part of the change when its handover actually moves.
+  // Otherwise a problem it already had would block every edit beside it.
+  if (previous && draft.startMin !== original.startMin) {
+    previous.endMin = draft.startMin;
     focusIds.push(previous.id);
   }
-  if (next) {
-    if (draft.endMin !== original.endMin) next.startMin = draft.endMin;
+  if (next && draft.endMin !== original.endMin) {
+    next.startMin = draft.endMin;
     focusIds.push(next.id);
   }
   return { duties, focusIds };
 }
 
+/** Everyone who gains, loses or has a duty changed between two duty lists. */
+function touchedPeople(before: NightDuty[], after: NightDuty[]): Set<string> {
+  const previous = new Map(before.map(duty => [duty.id, duty]));
+  const people = new Set<string>();
+  const kept = new Set<string>();
+  for (const duty of after) {
+    kept.add(duty.id);
+    const old = previous.get(duty.id);
+    if (
+      old &&
+      old.personKey === duty.personKey &&
+      old.channelCode === duty.channelCode &&
+      old.startMin === duty.startMin &&
+      old.endMin === duty.endMin
+    ) {
+      continue;
+    }
+    people.add(duty.personKey);
+    if (old) people.add(old.personKey);
+  }
+  for (const duty of before) if (!kept.has(duty.id)) people.add(duty.personKey);
+  return people;
+}
+
+/** What a candidate change would do to the rules, for the duties it touches. */
+export interface ChangeReview {
+  /** What the change would break. Any one of these refuses it. */
+  problems: string[];
+  /**
+   * Problems the touched duties already had, which the change leaves exactly as
+   * they were. Shown, but not a reason to refuse: otherwise two broken duties
+   * side by side could each only be fixed after the other.
+   */
+  unresolved: string[];
+}
+
 /**
- * What is wrong with a candidate duty list, phrased for the person making the
- * change: problems on the duties they touched, plus any new uncovered stretch
- * the change would create.
+ * Review a candidate duty list, phrased for the person making the change:
+ * problems it would introduce on the duties they touched, plus any new
+ * uncovered stretch.
  */
-export function problemsForChange(
+export function reviewChange(
   state: NightAllocationState,
   candidateDuties: NightDuty[],
   focusIds: string[],
-): string[] {
+): ChangeReview {
   const candidate = withDuties(state, candidateDuties);
   const before = validateAllocation(state);
   const after = validateAllocation(candidate);
   const alreadyKnown = new Set(before.errors.map(issue => issue.message));
 
-  const problems = after.errors
-    .filter(issue => issue.dutyIds.some(id => focusIds.includes(id)))
-    .map(issue => issue.message);
+  const people = touchedPeople(state.duties, candidateDuties);
+  const touched = after.errors.filter(
+    issue =>
+      issue.dutyIds.some(id => focusIds.includes(id)) ||
+      // Problems about a person, such as a half left with no duty in it, count
+      // once the night has a plan at all. On an empty board the first duty
+      // added is not what left everyone else's half bare.
+      (state.duties.length > 0 && !!issue.personKeys?.some(key => people.has(key))),
+  );
+  const problems = touched.filter(issue => !alreadyKnown.has(issue.message)).map(issue => issue.message);
+  const unresolved = touched.filter(issue => alreadyKnown.has(issue.message)).map(issue => issue.message);
 
   if (uncoveredMinutes(candidate) > uncoveredMinutes(state)) {
     const newGaps = after.errors
@@ -108,7 +156,16 @@ export function problemsForChange(
     else problems.push("This would leave a channel without cover. Someone must take over at the handover time.");
   }
 
-  return [...new Set<string>(problems)];
+  return { problems: [...new Set<string>(problems)], unresolved: [...new Set<string>(unresolved)] };
+}
+
+/** Just the reasons a change would be refused. */
+export function problemsForChange(
+  state: NightAllocationState,
+  candidateDuties: NightDuty[],
+  focusIds: string[],
+): string[] {
+  return reviewChange(state, candidateDuties, focusIds).problems;
 }
 
 /** Preview a change without committing it — what the edit dialog renders. */
@@ -116,9 +173,9 @@ export function previewDutyChange(
   state: NightAllocationState,
   original: NightDuty | null,
   draft: NightDuty,
-): { duties: NightDuty[]; problems: string[] } {
+): { duties: NightDuty[] } & ChangeReview {
   const { duties, focusIds } = buildEditedDuties(state, original, draft);
-  return { duties, problems: problemsForChange(state, duties, focusIds) };
+  return { duties, ...reviewChange(state, duties, focusIds) };
 }
 
 /** Add a duty, or change an existing one, handovers and all. */

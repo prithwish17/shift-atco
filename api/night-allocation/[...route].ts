@@ -10,10 +10,11 @@
  *   GET  /api/night-allocation/:date/export.txt the saved roster as plain text
  *   POST /api/night-allocation/:date/email      send the saved roster
  *
- * Authentication only. There is no role check anywhere in this module: the WSO
- * and any employee on that night's shift have identical rights, and there is no
- * request/approve step. The signed-in user is used to stamp who saved, nothing
- * more.
+ * Any approved account, whatever its role: the WSO and any employee on that
+ * night's shift have identical rights, and there is no request/approve step.
+ * The one gate is the app's own account approval — a token from a
+ * self-registered account that nobody has approved yet is refused. Past that,
+ * the signed-in user is used to stamp who saved, nothing more.
  *
  * Every write re-runs the shared hard-rule validation server-side. The client's
  * own checks are a convenience; this is the one that counts.
@@ -22,9 +23,12 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { authenticateRequest, handleCorsPreflight, setCorsHeaders } from "../../lib/apiAuth.js";
 import {
   NIGHT_DATE_PATTERN,
+  accountEmails,
   actorName,
+  approvedRole,
   loadState,
   missingServiceEnv,
+  nightRosterRows,
   parseIncomingState,
   recordAudit,
   saveState,
@@ -34,18 +38,18 @@ import {
   validate,
 } from "../../lib/nightAllocation/service.js";
 import { rateLimit } from "../../lib/nightAllocation/rateLimit.js";
+import { parseRecipients, vetAttachments, vetRecipients } from "../../lib/nightAllocation/emailPayload.js";
 import { sendRosterEmail, transportConfigured } from "../../lib/nightAllocation/email.js";
 import { renderRosterHtml } from "../../lib/nightAllocation/render.js";
 import {
+  MAX_EMAIL_ATTACHMENT_BYTES,
   buildRosterText,
   defaultEmailSubject,
   generateAllocation,
+  isNightDate,
 } from "../../src/domain/night-allocation/index.js";
 
-/** Attachments travel in the request body, so the cap is deliberately low. */
-const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 const MAX_RECIPIENTS = 40;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * The path segments after `/api/night-allocation/`.
@@ -92,7 +96,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!nightDate || !NIGHT_DATE_PATTERN.test(nightDate)) {
     return res.status(400).json({ error: "Expected a night date as YYYY-MM-DD." });
   }
-  if (Number.isNaN(Date.parse(`${nightDate}T00:00:00Z`))) {
+  // `Date.parse` rolls 2026-02-31 over to 3 March rather than refusing it, and
+  // the database then fails with a raw error instead of a 400.
+  if (!isNightDate(nightDate)) {
     return res.status(400).json({ error: "That is not a real date." });
   }
 
@@ -111,6 +117,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const supabase = serviceClient();
+
+    // Every route, reads included: an account still waiting for approval has
+    // no more business here than anywhere else in the app.
+    if (!(await approvedRole(supabase, user.id))) {
+      return res.status(403).json({
+        error: "Your account hasn't been approved yet, so it can't use Night Channel Allocation.",
+      });
+    }
 
     if (!action) {
       if (req.method === "GET") return await handleGet(supabase, res, nightDate);
@@ -224,8 +238,9 @@ async function handleReset(
 ) {
   // Reset clears the working state only. The last saved version stands until
   // the user saves again, which is what the two-step confirm promises.
-  const seeded = await seedState(supabase, nightDate);
-  const saved = await loadState(supabase, nightDate);
+  const roster = await nightRosterRows(supabase, nightDate);
+  const seeded = await seedState(supabase, nightDate, roster);
+  const saved = await loadState(supabase, nightDate, roster);
   const name = await actorName(supabase, user.id, user.email);
   await recordAudit(supabase, nightDate, { id: user.id, name }, "reset", {});
 
@@ -272,14 +287,14 @@ async function handleExportText(
     return res.status(429).json({ error: "Too many exports. Try again later." });
   }
 
-  const { state, exists } = await loadState(supabase, nightDate);
+  const { state, exists, teams } = await loadState(supabase, nightDate);
   if (!exists) return res.status(404).json({ error: "Nothing has been saved for this night yet." });
 
   const pageUrl = typeof req.query.pageUrl === "string" ? req.query.pageUrl : undefined;
   const text = buildRosterText(state, state.savedByName, {
     preparedAt: formatPreparedAt(state.savedAt),
     pageUrl,
-    teams: (await loadState(supabase, nightDate)).teams,
+    teams,
   });
 
   const name = await actorName(supabase, user.id, user.email);
@@ -303,8 +318,13 @@ async function handleEmail(
     return res.status(429).json({ error: "Too many emails sent from this account. Try again later." });
   }
 
-  const { state, exists } = await loadState(supabase, nightDate);
+  const { state, exists, teams } = await loadState(supabase, nightDate);
   if (!exists) return res.status(404).json({ error: "Save the night before emailing it." });
+  // An empty board breaks no rule — it is how a night is cleared — but a
+  // roster with nobody on it is not something to send the shift.
+  if (!state.duties.length) {
+    return res.status(422).json({ error: "Nothing is allocated for this night yet, so there is no roster to send." });
+  }
 
   const validation = validate(state);
   if (validation.errors.length) {
@@ -321,31 +341,27 @@ async function handleEmail(
     attachments?: unknown;
   };
 
-  const recipients = [
-    ...new Set(
-      (Array.isArray(body.recipients) ? body.recipients : [])
-        .map(entry => String(entry ?? "").trim().toLowerCase())
-        .filter(entry => EMAIL_PATTERN.test(entry)),
-    ),
-  ];
+  const recipients = parseRecipients(body.recipients);
   if (!recipients.length) return res.status(400).json({ error: "Add at least one valid email address." });
   if (recipients.length > MAX_RECIPIENTS) {
     return res.status(400).json({ error: `That is more than ${MAX_RECIPIENTS} recipients.` });
   }
 
-  const attachments = (Array.isArray(body.attachments) ? body.attachments : [])
-    .slice(0, 2)
-    .map(entry => {
-      const file = (entry ?? {}) as { filename?: unknown; content?: unknown };
-      return {
-        filename: String(file.filename ?? "roster").slice(0, 120),
-        content: String(file.content ?? ""),
-      };
-    })
-    .filter(entry => entry.content.length > 0);
+  // The mail goes out from the station's address, so it goes only to people
+  // with an account — never to whatever address a request names.
+  const { rejected } = vetRecipients(recipients, await accountEmails(supabase));
+  if (rejected.length) {
+    return res.status(400).json({
+      error: `The roster can only be emailed to people with an Atcora account. Not recognised: ${rejected.join(", ")}.`,
+    });
+  }
+
+  const vetted = vetAttachments(body.attachments, nightDate);
+  if (vetted.error) return res.status(400).json({ error: vetted.error });
+  const { attachments } = vetted;
 
   const attachmentBytes = attachments.reduce((sum, file) => sum + Math.ceil((file.content.length * 3) / 4), 0);
-  if (attachmentBytes > MAX_ATTACHMENT_BYTES) {
+  if (attachmentBytes > MAX_EMAIL_ATTACHMENT_BYTES) {
     return res.status(413).json({ error: "The attachments are too large to email. Send a link instead." });
   }
 
@@ -357,7 +373,6 @@ async function handleEmail(
 
   // The body is rendered here, from the saved night — not from anything the
   // client supplied — so everyone receives the same roster.
-  const teams = (await loadState(supabase, nightDate)).teams;
   const text = buildRosterText(state, state.savedByName, {
     preparedAt: formatPreparedAt(state.savedAt),
     teams,

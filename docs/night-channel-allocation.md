@@ -10,7 +10,9 @@ nothing back to the roster.
 **There is no approval workflow.** Any signed-in employee on that night's shift
 and the WSO have identical rights: view, set halves, choose starters, generate,
 edit, save and share. The signed-in user is used only to identify "me" for the
-self-service half buttons and to stamp who last saved.
+self-service half buttons and to stamp who last saved. The one gate is the app's
+own **account approval**: a self-registered account nobody has approved yet is
+turned away by the API, exactly as the rest of the app turns it away at sign-in.
 
 | Piece | Where |
 | --- | --- |
@@ -22,8 +24,14 @@ self-service half buttons and to stamp who last saved.
 | Migration | [`supabase/migrations/20260920120000_night_channel_allocation.sql`](../supabase/migrations/20260920120000_night_channel_allocation.sql) |
 | Down migration | [`sql/night_allocation_down.sql`](../sql/night_allocation_down.sql) |
 
-Route: `/night-allocation?date=YYYY-MM-DD`, defaulting to today. One route for
-every role.
+Route: `/night-allocation?date=YYYY-MM-DD`, defaulting to the night in
+progress — which until 01:30 is still the previous date's (`nightDateAt`). One
+route for every role. A date that isn't a real calendar date (`2026-02-31`) is
+refused by the API with `400` and ignored by the page.
+
+Opening another night with unsaved changes asks first, and closing or reloading
+the tab warns. Leaving through the app's own navigation does not — the app uses
+a plain `BrowserRouter`, which cannot block a route change.
 
 ---
 
@@ -124,7 +132,10 @@ validation therefore cannot disagree.
    duplicating duties onto both rows would produce whenever the SMC handover
    does not land on the boundary. A merge is stored on the folded channel as
    `mergedInto`, is always reported as a suggestion, and makes a duty of CLD's
-   own inside the window a hard error.
+   own inside the window a hard error. Only CLD may merge, and only into one of
+   `MERGE_TARGET_CHANNELS` (`SMC`, `SMC-S`, `SMC-N`); any other pairing is a hard
+   error and does not excuse CLD from cover. Unticking the SMC that CLD is
+   merged into separates them again.
 4. **Duty length.** 30 minutes minimum. 2 hours maximum on every position
    **except TSO**, which has no maximum — one person may hold it for as long as
    the night needs. See `UNCAPPED_DUTY_CHANNELS`; callers use `maxDutyFor()`
@@ -146,6 +157,9 @@ validation therefore cannot disagree.
    or be a starter.
 9. **Valid times.** `start < end`, both inside the night and inside the
    channel's open window.
+10. **Once each.** Every person and every position appears once. The page cannot
+    produce a duplicate, but a request can, and the database would refuse it
+    with a bare constraint error.
 
 ### Preferences — advisory, never blocking
 
@@ -195,7 +209,10 @@ must always have a qualified, rested person available at its own handover.
 
 **Budget.** ~1.5 s of restarts, or ~0.5 s when the staffing check already says
 the night is impossible. It runs **server-side**, so a long search never blocks
-the board; the button shows a busy state.
+the board; the button shows a busy state. The budget is **shared between the
+attempts** (`restartBudgets`): the plain night keeps half, and the relaxations —
+the TSO crossover, the merge, and both together — split the rest, so each gets
+randomised restarts of its own rather than only two fixed passes.
 
 **On failure** it returns `{ ok: false, error, reasons }`, where `reasons` are
 the staffing notices when there are any, or a hint to change a starter, an open
@@ -213,6 +230,11 @@ would otherwise creep in.
   the 30-minute break, or break a half, TSO or availability rule is **rejected
   before it is applied**, with the specific reason shown in the dialog. The
   caller's state is returned untouched.
+- Only what an edit **introduces** refuses it. A problem a touched duty already
+  had, unchanged, is shown in the dialog as "already a problem" but does not
+  block the edit — otherwise two broken duties side by side (two people who
+  called in sick, back to back) could each only be fixed after the other. A
+  neighbouring duty is part of an edit only when its handover time moves.
 - **Delete** hands the freed time to the previous duty (or to the next one if
   the deleted duty was the first), and is refused when that would break a rule.
 - **Split** ends the duty at a chosen time and gives the remainder to someone
@@ -239,7 +261,7 @@ Management** and snapshotted per night so a historical roster stays accurate
 after someone's qualification changes.
 
 **`person_key`, not `user_id`.** Duties reference a `person_key`: the profile id
-where the roster line matched a profile, `code:<employee code>` where it did
+where the roster line matched a profile, `name:<normalised name>` where it did
 not, and `manual:<id>` for someone typed in by hand. The roster regularly names
 people the app has no account for, and a `user_id` foreign key would make them
 unrosterable. `user_id` is still stored alongside, when it is known.
@@ -254,7 +276,9 @@ replace channels/people/duties as a set, bump `version`, insert the audit row.
 
 ## 7. API
 
-Everything is behind ordinary authentication. **No role check anywhere.**
+Every route requires a signed-in, **approved** account — the same
+`get_user_role` check the app's sign-in uses — and answers `403` otherwise.
+Beyond that, **no role check anywhere**: every approved role has the same rights.
 
 | Method | Route | Purpose |
 | --- | --- | --- |
@@ -281,9 +305,11 @@ Everything is behind ordinary authentication. **No role check anywhere.**
 ## 8. Sharing
 
 **Share** offers Copy text, WhatsApp, Email, Download PDF and Download image,
-and only once the night has no hard errors — sharing a roster with an uncovered
-position sends the shift the wrong plan. Sharing changes nothing except an audit
-row, and anyone who can see the night can do it.
+and only once the night has duties and no hard errors — sharing a roster with an
+uncovered position, or with nobody on it, sends the shift the wrong plan.
+Sharing changes nothing except an audit row, and anyone who can see the night
+can do it. The rules for what is offered live in
+[`shareGate.ts`](../src/components/night-allocation/shareGate.ts).
 
 Every format leads the same way: **title, then a sub-header naming the team and
 the shift** (`Team A · Night`, derived from `rosters.team` rather than stored),
@@ -311,8 +337,18 @@ roster is the unit's; who saved it is on the page and in the audit trail.
 - **Email** goes out server-side through the mail providers the app already has
   (Brevo first, Resend as failover, mirroring
   `supabase/functions/_shared/email.ts`). Recipients prefill from the people on
-  duty who have an address on file. Every send is logged to `email_logs` and to
-  the module's audit table.
+  duty who have an address on file, and **must** be the address of an account
+  (`profiles.email`): the mail goes out from the station's address, so the route
+  refuses to send it anywhere else. Attachments must be the page's own PDF or
+  PNG — recognised by their leading bytes, one of each at most — and are renamed
+  by the server; the browser's filename is never used. Every send is logged to
+  `email_logs` and to the module's audit table.
+- Email is offered only for a **saved night with no unsaved changes**: its body
+  is rendered on the server from the saved night, but its attachments are drawn
+  in the browser from the board on screen, and the two must agree. Attachments
+  are capped at `MAX_EMAIL_ATTACHMENT_BYTES` (3 MB) — checked in the browser
+  before upload and again on the server — because Vercel refuses a request body
+  over 4.5 MB before the function runs, and base64 adds a third.
 
 ## 9. Adding or renaming a channel
 
@@ -337,11 +373,17 @@ channels and gain the new one, unticked configuration and all, on next load.
 | --- | --- |
 | `src/domain/night-allocation/__tests__/rules.test.ts` | Every hard rule, positive and negative, plus the staffing notices. |
 | `.../solver.test.ts` | The classic 3-channel/4-person night, TSO with exactly two qualified people, part-night channels, several people per half, the duty-length preference, and refusals. |
-| `.../editing.test.ts` | Linked handovers, delete-merge, split, channel re-fit. Uncovered minutes stay at zero after every accepted operation, and refused operations leave state untouched. |
+| `.../editing.test.ts` | Linked handovers, delete-merge, split, channel re-fit. Uncovered minutes stay at zero after every accepted operation, refused operations leave state untouched, and one of two already-broken duties can be fixed without the other blocking it. |
 | `.../fuzz.test.ts` | 250 random nights (5–14 people, 3–5 channels, random halves, TSO flags and close times). Every returned plan has zero uncovered minutes and zero hard-rule violations; every refusal carries an explanation; runtime stays inside budget. |
 | `.../roster-text.test.ts` | The share formats. |
 | `lib/nightAllocation/service.test.ts` | The API's payload coercion — clamping, truncation, caps — and that server-side validation catches what a hostile client would send. |
 | `lib/nightAllocation/roster-rows.test.ts` | Reading the Google Sheet roster: unit spellings, name parsing, the half column, and rejecting working notes written in the name cell. |
+| `lib/nightAllocation/access.test.ts` | The route itself with the database stubbed: unapproved accounts are refused on every route, and email goes only to account holders with vetted attachments. |
+| `lib/nightAllocation/emailPayload.test.ts` | Recipient and attachment vetting for the email route. |
+| `lib/nightAllocation/load-state.test.ts` | Reading a night against an in-memory Supabase: the roster is read once, profiles are paged past the 1,000-row cap, and positions come back in board order. |
+| `src/domain/night-allocation/__tests__/time.test.ts` | Which night a moment belongs to, across midnight, month and year ends; real calendar dates. |
+| `src/components/night-allocation/__tests__/shareGate.test.ts` | What the share sheet offers for empty, broken, unsaved and saved nights. |
+| `src/components/night-allocation/__tests__/stateActions.test.ts` | Page actions: unticking a merge target clears the merge, and the merge switch can always turn a stale merge off. |
 
 ## 11. Rollout
 

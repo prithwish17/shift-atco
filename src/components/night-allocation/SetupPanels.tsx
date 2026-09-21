@@ -28,11 +28,9 @@ import {
   NIGHT_SPAN_MIN,
   SECOND_HALF,
   SLOT_MIN,
-  activeMerge,
   availablePeople,
   canTakeChannel,
   formatDuration,
-  mergeTargetFor,
   formatPickerLabel,
   formatRange,
   minutesOnDuty,
@@ -44,6 +42,7 @@ import {
 } from "@/domain/night-allocation";
 import { HALF_COLORS, channelSwatch, personSwatch, swatchVars } from "./palette";
 import { AddPersonPicker } from "./AddPersonPicker";
+import { mergeToggle } from "./stateActions";
 import type { ShiftCandidate } from "@/data-access/night-allocation.api";
 
 /** A card header that reads as a section, with an optional count on the right. */
@@ -369,8 +368,7 @@ export function ChannelsPanel({
   const openTimes = slotRange(0, NIGHT_SPAN_MIN - SLOT_MIN);
   const closeTimes = slotRange(SLOT_MIN, NIGHT_SPAN_MIN);
   const inUse = state.channels.filter(channel => channel.inUse).length;
-  const merge = activeMerge(state);
-  const mergeTarget = merge?.targetCode ?? mergeTargetFor(state);
+  const merge = mergeToggle(state);
 
   return (
     <Card className="overflow-hidden border-corp-border-soft bg-surface shadow-sm">
@@ -498,7 +496,7 @@ export function ChannelsPanel({
         <label className="flex items-start justify-between gap-3 rounded-lg border border-corp-border-soft bg-elevated/50 p-3">
           <span className="min-w-0">
             <span className="block text-[0.8rem] font-medium text-corp-text-main">
-              Merge {MERGE_SOURCE_CHANNEL} into {mergeTarget ?? "SMC"}
+              Merge {MERGE_SOURCE_CHANNEL} into {merge.targetCode ?? "SMC"}
             </span>
             <span className="mt-0.5 block text-[0.72rem] leading-snug text-corp-text-soft">
               {formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1])} — one person holds both. For a 1st Half too thin
@@ -506,10 +504,10 @@ export function ChannelsPanel({
             </span>
           </span>
           <Switch
-            checked={!!merge}
-            disabled={!merge && !mergeTarget}
+            checked={merge.on}
+            disabled={!merge.enabled}
             onCheckedChange={checked => onSetMerge(checked === true)}
-            aria-label={`Merge ${MERGE_SOURCE_CHANNEL} into ${mergeTarget ?? "SMC"}`}
+            aria-label={`Merge ${MERGE_SOURCE_CHANNEL} into ${merge.targetCode ?? "SMC"}`}
           />
         </label>
 

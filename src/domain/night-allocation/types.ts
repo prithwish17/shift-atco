@@ -10,7 +10,7 @@ export type HalfKey = "1st" | "2nd" | null;
  * A person on tonight's page.
  *
  * `key` is the module's own identifier, stable for one night. It is the profile
- * id where the roster line matched a profile, `code:<employee code>` where it
+ * id where the roster line matched a profile, `name:<normalised name>` where it
  * did not, and `manual:<id>` for someone typed in by hand — so the board can
  * hold everyone actually on the shift, not only people with an account.
  */
@@ -89,6 +89,11 @@ export interface RuleIssue {
   isGap?: boolean;
   /** Set on staffing-feasibility notices, which explain rather than suggest. */
   isStaffing?: boolean;
+  /**
+   * Set on issues about a person rather than any one duty — a half with no
+   * duty in it — so an edit can tell whether it was the one that caused it.
+   */
+  personKeys?: string[];
 }
 
 export interface ValidationResult {

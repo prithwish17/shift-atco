@@ -106,6 +106,16 @@ export const MERGE_SOURCE_CHANNEL = "CLD";
  */
 export const MERGE_TARGET_CHANNELS: readonly string[] = ["SMC", "SMC-S", "SMC-N"];
 
+/**
+ * Most attachment bytes one roster email may carry.
+ *
+ * Attachments travel base64-encoded in the request body, which adds a third,
+ * and Vercel refuses a body over 4.5 MB before the function ever runs — with a
+ * bare 413 the page could only report as a generic failure. 3 MB encodes to
+ * about 4 MB, leaving room for the rest of the request.
+ */
+export const MAX_EMAIL_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+
 /** `duty_length_pref` values offered in the UI. 0 means "fitted to staffing". */
 export const DUTY_LENGTH_CHOICES = [0, 30, 45, 60, 75, 90, 105, 120] as const;
 

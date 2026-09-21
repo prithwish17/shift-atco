@@ -7,10 +7,20 @@
  * edit, save and share. There is no request step and no approval step, and the
  * signed-in user is used only to identify "me" and to stamp who saved.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,7 +30,7 @@ import { CalendarIcon, ChevronLeft, ChevronRight, Loader2, RotateCcw, Share2 } f
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
-import { useNightAllocation } from "@/hooks/useNightAllocation";
+import { useNightAllocation, type NightAllocationStatus } from "@/hooks/useNightAllocation";
 import { useNightAllocationEnabled } from "@/hooks/useNightAllocationEnabled";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -29,7 +39,9 @@ import {
   findChannel,
   formatNightDate,
   isGenerateFailure,
+  isNightDate,
   makeDutyId,
+  nightDateAt,
   rosterSubtitle,
   uncoveredMinutes,
   type NightAllocationState,
@@ -44,8 +56,11 @@ import * as actions from "@/components/night-allocation/stateActions";
 
 type Role = "admin" | "supervisor" | "wso" | "employee";
 
-const todayIso = () => format(new Date(), "yyyy-MM-dd");
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+/** How long a two-step confirm stays armed before it quietly stands down. */
+const CONFIRM_WINDOW_MS = 5000;
+const GENERATE_ARMED_TEXT = "This replaces the duties on the board. Tap again to confirm.";
+const RESET_ARMED_TEXT =
+  "Reset clears halves, channel settings, starters and all duties for this night. Tap again to confirm.";
 
 /**
  * Which shell to render in. This page is shared by every role, so it follows
@@ -104,7 +119,11 @@ export default function NightChannelAllocation() {
   const { enabled, isLoading: flagLoading } = useNightAllocationEnabled();
 
   const dateParam = searchParams.get("date");
-  const nightDate = dateParam && DATE_PATTERN.test(dateParam) ? dateParam : todayIso();
+  // With no date given, the night in progress — which after midnight is still
+  // yesterday's, until it ends at 01:30.
+  const nightDate = dateParam && isNightDate(dateParam) ? dateParam : nightDateAt(new Date());
+  const nightDateRef = useRef(nightDate);
+  nightDateRef.current = nightDate;
   const role = normalizeRole(searchParams.get("portal") || userRole);
 
   const allocation = useNightAllocation(nightDate);
@@ -121,18 +140,58 @@ export default function NightChannelAllocation() {
   const [generateNote, setGenerateNote] = useState<{ text: string; reasons: string[]; tone: "neutral" | "error" } | null>(
     null,
   );
+  /** A night asked for while this one has unsaved changes, awaiting a decision. */
+  const [pendingNight, setPendingNight] = useState<string | null>(null);
+  /** What the status line said before Reset was armed, to put back if it stands down. */
+  const statusBeforeReset = useRef<NightAllocationStatus | null>(null);
+
+  const disarmGenerate = useCallback(() => {
+    setGenerateArmed(false);
+    setGenerateNote(note => (note?.text === GENERATE_ARMED_TEXT ? null : note));
+  }, []);
 
   // A two-step confirm that stays armed forever is a trap, not a safeguard.
   useEffect(() => {
     if (!resetArmed) return;
-    const timer = window.setTimeout(() => setResetArmed(false), 5000);
+    const timer = window.setTimeout(() => {
+      setResetArmed(false);
+      const before = statusBeforeReset.current;
+      if (before) setStatus(current => (current.text === RESET_ARMED_TEXT ? before : current));
+    }, CONFIRM_WINDOW_MS);
     return () => window.clearTimeout(timer);
-  }, [resetArmed]);
+  }, [resetArmed, setStatus]);
 
-  const setNightDate = (next: string) => {
+  useEffect(() => {
+    if (!generateArmed) return;
+    const timer = window.setTimeout(disarmGenerate, CONFIRM_WINDOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [generateArmed, disarmGenerate]);
+
+  // Closing or reloading the tab would throw unsaved work away without a word.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  const goToNight = (next: string) => {
     const params = new URLSearchParams(searchParams);
     params.set("date", next);
     setSearchParams(params, { replace: true });
+  };
+
+  /** Another night, unless that would silently discard this one's changes. */
+  const setNightDate = (next: string) => {
+    if (next === nightDate) return;
+    if (dirty) {
+      setPendingNight(next);
+      return;
+    }
+    goToNight(next);
   };
 
   /** Every setup control funnels through here so the status line stays honest. */
@@ -144,18 +203,18 @@ export default function NightChannelAllocation() {
         note = result.note;
         return result.state;
       }, undefined);
-      setGenerateArmed(false);
+      disarmGenerate();
       if (note) setStatus({ text: note, tone: "neutral" });
     },
-    [update, setStatus],
+    [update, setStatus, disarmGenerate],
   );
 
   const applyBoard = useCallback(
     (next: NightAllocationState, note?: string) => {
       update(() => next, note);
-      setGenerateArmed(false);
+      disarmGenerate();
     },
-    [update],
+    [update, disarmGenerate],
   );
 
   const myKey = useMemo(() => {
@@ -174,16 +233,16 @@ export default function NightChannelAllocation() {
     if (!state) return;
     if (state.duties.length && !generateArmed) {
       setGenerateArmed(true);
-      setGenerateNote({
-        text: "This replaces the duties on the board. Tap again to confirm.",
-        reasons: [],
-        tone: "neutral",
-      });
+      setGenerateNote({ text: GENERATE_ARMED_TEXT, reasons: [], tone: "neutral" });
       return;
     }
     setGenerateNote(null);
+    // The answer belongs to this night. If the person has moved on by the time
+    // it arrives, it must not replace the board they are looking at now.
+    const requestedFor = nightDate;
     allocation.generate.mutate(undefined, {
       onSuccess: result => {
+        if (nightDateRef.current !== requestedFor) return;
         setGenerateArmed(false);
         if (isGenerateFailure(result)) {
           // The board is deliberately left exactly as it was.
@@ -200,6 +259,7 @@ export default function NightChannelAllocation() {
         });
       },
       onError: error => {
+        if (nightDateRef.current !== requestedFor) return;
         setGenerateArmed(false);
         setGenerateNote({ text: (error as Error).message, reasons: [], tone: "error" });
       },
@@ -223,11 +283,9 @@ export default function NightChannelAllocation() {
 
   const handleReset = () => {
     if (!resetArmed) {
+      statusBeforeReset.current = status;
       setResetArmed(true);
-      setStatus({
-        text: "Reset clears halves, channel settings, starters and all duties for this night. Tap again to confirm.",
-        tone: "blocked",
-      });
+      setStatus({ text: RESET_ARMED_TEXT, tone: "blocked" });
       return;
     }
     setResetArmed(false);
@@ -350,7 +408,8 @@ export default function NightChannelAllocation() {
                   <Stat
                     label="Problems"
                     value={`${validation.errors.length}`}
-                    tone={validation.errors.length ? "bad" : "good"}
+                    // An empty board breaks no rule, but it isn't "good" either.
+                    tone={validation.errors.length ? "bad" : state.duties.length ? "good" : "neutral"}
                   />
                 </div>
               ) : null}
@@ -561,12 +620,35 @@ export default function NightChannelAllocation() {
             onOpenChange={setShareOpen}
             state={state}
             teams={teams}
-            blocked={validation.errors.length > 0}
-            blockingCount={validation.errors.length}
-            saved={state.version > 0 && !dirty}
+            errorCount={validation.errors.length}
+            dirty={dirty}
           />
         </>
       ) : null}
+
+      <AlertDialog open={!!pendingNight} onOpenChange={open => !open && setPendingNight(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your changes to {formatNightDate(nightDate)} haven't been saved. Opening another night throws them
+              away.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-status-danger text-white hover:bg-status-danger/90"
+              onClick={() => {
+                if (pendingNight) goToNight(pendingNight);
+                setPendingNight(null);
+              }}
+            >
+              Discard changes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }

@@ -219,3 +219,121 @@ describe("channel re-fit", () => {
     expect(validateAllocation(next).errors.some(issue => issue.message.includes("at most 2h"))).toBe(true);
   });
 });
+
+describe("fixing one of several broken duties", () => {
+  /**
+   * TWR end to end in 1h 30m duties. p3 and p4 hold back-to-back duties and
+   * both call in sick; p7 and p8 are free to take over.
+   */
+  function sickNight(): NightAllocationState {
+    const state = night({
+      people: team(8),
+      channels: [channel("TWR")],
+      duties: [
+        duty("TWR", "p1", 0, 90), duty("TWR", "p2", 90, 180), duty("TWR", "p3", 180, 270),
+        duty("TWR", "p4", 270, 360), duty("TWR", "p5", 360, 450), duty("TWR", "p6", 450, 540),
+        duty("TWR", "p1", 540, 630), duty("TWR", "p2", 630, 720),
+      ],
+    });
+    return {
+      ...state,
+      people: state.people.map(entry =>
+        entry.key === "p3" || entry.key === "p4" ? { ...entry, available: false } : entry,
+      ),
+    };
+  }
+
+  const dutyOf = (state: NightAllocationState, personKey: string) =>
+    state.duties.find(entry => entry.personKey === personKey)!;
+
+  it("reassigns either one first, then the other, and ends with no errors", () => {
+    for (const [first, firstCover, second, secondCover] of [
+      ["p3", "p7", "p4", "p8"],
+      ["p4", "p8", "p3", "p7"],
+    ]) {
+      const state = sickNight();
+      expect(validateAllocation(state).errors).toHaveLength(2);
+
+      const one = applyDutyChange(state, { ...dutyOf(state, first), personKey: firstCover }, dutyOf(state, first).id);
+      expect(one.ok).toBe(true);
+      if (!one.ok) return;
+
+      const two = applyDutyChange(
+        one.state,
+        { ...dutyOf(one.state, second), personKey: secondCover },
+        dutyOf(one.state, second).id,
+      );
+      expect(two.ok).toBe(true);
+      if (!two.ok) return;
+      expect(validateAllocation(two.state).errors).toEqual([]);
+    }
+  });
+
+  it("still refuses what the change itself breaks", () => {
+    const state = sickNight();
+    // p2 comes off TWR at 16:30, so taking p3's duty then leaves no break.
+    const result = refused(applyDutyChange(state, { ...dutyOf(state, "p3"), personKey: "p2" }, dutyOf(state, "p3").id));
+    expect(result.problems.some(problem => problem.includes("0 min break"))).toBe(true);
+  });
+
+  it("still refuses moving a handover onto a duty held by someone unavailable", () => {
+    const state = sickNight();
+    // Reassigning is fine; pushing the end into p4's duty gives p4 new time.
+    const result = refused(
+      applyDutyChange(state, { ...dutyOf(state, "p3"), personKey: "p7", endMin: 285 }, dutyOf(state, "p3").id),
+    );
+    expect(result.problems).toContain("Person 4 isn't available tonight but has TWR 18:15–19:30.");
+  });
+
+  it("shows a duty's existing problem as unresolved rather than as no conflicts", () => {
+    const state = sickNight();
+    const broken = dutyOf(state, "p3");
+    const preview = previewDutyChange(state, broken, { ...broken });
+    expect(preview.problems).toEqual([]);
+    expect(preview.unresolved).toEqual(["Person 3 isn't available tonight but has TWR 16:30–18:00."]);
+  });
+});
+
+describe("halves, when a duty changes hands", () => {
+  /** TWR end to end; p1 is 1st Half and holds a single duty inside it. */
+  function halfNight(): NightAllocationState {
+    const people = team(4, { halves: { 1: "1st" } });
+    return night({
+      people,
+      channels: [channel("TWR")],
+      duties: [
+        duty("TWR", "p2", 0, 120), duty("TWR", "p3", 120, 240), duty("TWR", "p1", 240, 360),
+        duty("TWR", "p2", 360, 480), duty("TWR", "p3", 480, 600), duty("TWR", "p2", 600, 720),
+      ],
+    });
+  }
+
+  it("refuses giving away a half person's only duty inside their half", () => {
+    const state = halfNight();
+    const only = state.duties.find(entry => entry.personKey === "p1")!;
+    const result = refused(applyDutyChange(state, { ...only, personKey: "p4" }, only.id));
+    expect(result.problems).toContain("Person 1 is 1st Half but has no duty between 17:30 and 21:30.");
+  });
+
+  it("refuses deleting it too", () => {
+    const state = halfNight();
+    const only = state.duties.find(entry => entry.personKey === "p1")!;
+    const result = refused(deleteDuty(state, only.id));
+    expect(result.problems.some(problem => problem.includes("Person 1 is 1st Half but has no duty"))).toBe(true);
+  });
+
+  it("does not blame the first duty on an empty board for everyone else's bare half", () => {
+    const state = night({
+      people: team(3, { halves: { 1: "1st", 2: "2nd" } }),
+      channels: [channel("TWR")],
+    });
+    const preview = previewDutyChange(state, null, {
+      id: "first",
+      channelCode: "TWR",
+      personKey: "p3",
+      startMin: 0,
+      endMin: 90,
+    });
+    expect(preview.problems).toEqual([]);
+  });
+});

@@ -121,6 +121,35 @@ describe("server-side validation", () => {
     expect(result.errors.some(issue => issue.message.includes("has no one on duty"))).toBe(true);
   });
 
+  it("refuses CLD 'merged' into itself to dodge cover 19:00–21:30", () => {
+    const people = ["p1", "p2", "p3", "p4"].map(key => ({ key, name: key, available: true }));
+    const cover = (code: string, keys: string[], spans: Array<[number, number]>) =>
+      spans.map(([startMin, endMin], index) => ({
+        id: `${code}${index}`,
+        channelCode: code,
+        personKey: keys[index % keys.length],
+        startMin,
+        endMin,
+      }));
+    const state = parseIncomingState("2026-09-17", {
+      state: {
+        people,
+        channels: [
+          { code: "TWR", inUse: true, openAt: 0, closeAt: 720 },
+          { code: "CLD", inUse: true, openAt: 0, closeAt: 720, mergedInto: "CLD" },
+        ],
+        duties: [
+          ...cover("TWR", ["p1", "p2"], [[0, 120], [120, 240], [240, 360], [360, 480], [480, 600], [600, 720]]),
+          // Nobody on CLD 19:00–21:30.
+          ...cover("CLD", ["p3", "p4"], [[0, 120], [120, 240], [240, 330], [480, 600], [600, 720]]),
+        ],
+      },
+    });
+    const messages = validate(state).errors.map(issue => issue.message);
+    expect(messages).toContain("CLD can only merge into SMC, SMC-S or SMC-N, not CLD.");
+    expect(messages.some(message => message.includes("CLD has no one on duty 19:00–21:30"))).toBe(true);
+  });
+
   it("refuses an unqualified person on TSO", () => {
     const state = parseIncomingState("2026-09-17", {
       state: {

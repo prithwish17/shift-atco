@@ -41,7 +41,7 @@ import {
   dutyLengthNote,
 } from "./rules.js";
 import type { NightChannel } from "./types.js";
-import { formatMinutes } from "./time.js";
+import { formatMinutes, formatRange } from "./time.js";
 import type { GenerateResult, NightAllocationState, NightDuty } from "./types.js";
 
 /**
@@ -541,6 +541,22 @@ function activeChannelsShorterThanMinimum(state: NightAllocationState): string[]
     .map(channel => channel.code);
 }
 
+/**
+ * How the randomised-restart budget is shared between the plain night and its
+ * relaxations.
+ *
+ * The plain night keeps half: it is the plan the office would rather have. The
+ * relaxations share the rest, so each gets restarts of its own. Spent in one
+ * pool, the plain night used the lot, and a night that could only be covered
+ * by a relaxation got two fixed passes at it and no more.
+ */
+export function restartBudgets(totalMs: number, attempts: number): number[] {
+  if (attempts <= 1) return [totalMs];
+  const plain = totalMs / 2;
+  const each = (totalMs - plain) / (attempts - 1);
+  return [plain, ...Array.from({ length: attempts - 1 }, () => each)];
+}
+
 export interface GenerateOptions {
   /** Wall-clock budget in milliseconds for the randomised restarts. */
   budgetMs?: number;
@@ -592,9 +608,14 @@ export function generateAllocation(
    * One sweep of the search, against one relaxation of the rules.
    *
    * `state` here is the variant being tried — the caller decides whether CLD is
-   * merged — and `allowCrossHalfTso` is the other last-resort licence.
+   * merged — and `allowCrossHalfTso` is the other last-resort licence. Its
+   * randomised restarts run until `deadline` on the injected clock.
    */
-  const sweep = (state: NightAllocationState, allowCrossHalfTso: boolean): GenerateResult | null => {
+  const sweep = (
+    state: NightAllocationState,
+    allowCrossHalfTso: boolean,
+    deadline: number,
+  ): GenerateResult | null => {
     const first = solveContinuous(state, {
       forceStarters: true,
       nodeLimit: 60_000,
@@ -619,7 +640,7 @@ export function generateAllocation(
       };
     }
 
-    for (let attempt = 1; now() - startedAt < budget; attempt++) {
+    for (let attempt = 1; now() < deadline; attempt++) {
       const forceStarters = attempt % 2 === 1;
       const restart = solveContinuous(state, {
         forceStarters,
@@ -654,8 +675,12 @@ export function generateAllocation(
     attempts.push({ state: merged, crossover: true, mergedInto: mergeTarget });
   }
 
-  for (const attempt of attempts) {
-    const planned = sweep(attempt.state, attempt.crossover);
+  // Deadlines are cumulative, so the whole run still ends inside the budget.
+  const shares = restartBudgets(budget, attempts.length);
+  let deadline = startedAt;
+  for (const [index, attempt] of attempts.entries()) {
+    deadline += shares[index];
+    const planned = sweep(attempt.state, attempt.crossover, deadline);
     if (!planned || !planned.ok) continue;
     if (!attempt.mergedInto) return planned;
     return {
@@ -663,7 +688,7 @@ export function generateAllocation(
       mergedInto: attempt.mergedInto,
       note:
         `Continuous plan made, but only by merging ${MERGE_SOURCE_CHANNEL} into ${attempt.mergedInto} ` +
-        `19:00–21:30. See suggestions.`,
+        `${formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1])}. See suggestions.`,
     };
   }
 

@@ -83,7 +83,7 @@ export function DutyDialog({ state, draft, onClose, onApply }: DutyDialogProps) 
   );
 
   const preview = useMemo(
-    () => (working ? previewDutyChange(state, original, working) : { duties: [], problems: [] }),
+    () => (working ? previewDutyChange(state, original, working) : { duties: [], problems: [], unresolved: [] }),
     [state, original, working],
   );
 
@@ -159,6 +159,10 @@ export function DutyDialog({ state, draft, onClose, onApply }: DutyDialogProps) 
   };
 
   const shown = refusal.length ? refusal : problems;
+  // Problems these duties already had. They don't block the change — fixing
+  // one of two broken duties side by side has to be possible — but the dialog
+  // must not call them "no conflicts" either.
+  const unresolved = refusal.length || !working.personKey ? [] : preview.unresolved;
 
   return (
     <Dialog open onOpenChange={open => !open && onClose()}>
@@ -286,16 +290,24 @@ export function DutyDialog({ state, draft, onClose, onApply }: DutyDialogProps) 
         </div>
 
         <ul aria-live="polite" className="space-y-1 text-sm">
-          {shown.length ? (
-            shown.map(problem => (
-              <li
-                key={problem}
-                className="rounded-lg border border-status-danger/25 bg-status-danger-soft/60 px-3 py-2 text-[0.82rem] leading-snug text-corp-text-main"
-              >
-                {problem}
-              </li>
-            ))
-          ) : (
+          {shown.map(problem => (
+            <li
+              key={problem}
+              className="rounded-lg border border-status-danger/25 bg-status-danger-soft/60 px-3 py-2 text-[0.82rem] leading-snug text-corp-text-main"
+            >
+              {problem}
+            </li>
+          ))}
+          {unresolved.map(problem => (
+            <li
+              key={`unresolved-${problem}`}
+              className="rounded-lg border border-status-warning/30 bg-status-warning-soft px-3 py-2 text-[0.82rem] leading-snug text-corp-text-main"
+            >
+              <span className="font-medium">Already a problem, not changed by this: </span>
+              {problem}
+            </li>
+          ))}
+          {shown.length || unresolved.length ? null : (
             <li className="flex items-center gap-2 text-[0.82rem] font-medium text-status-success">
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
               No conflicts. The position stays continuous.

@@ -32,6 +32,10 @@ export function useNightAllocation(nightDate: string) {
   const [status, setStatus] = useState<NightAllocationStatus>({ text: "", tone: "neutral" });
   const [conflict, setConflict] = useState<NightAllocationResponse | null>(null);
   const adoptedRef = useRef<string>("");
+  // The night on screen right now. A save or reset can finish after the person
+  // has moved to another night; its answer must not land on that one.
+  const currentNightRef = useRef(nightDate);
+  currentNightRef.current = nightDate;
 
   const query = useQuery({
     queryKey: nightAllocationKey(nightDate),
@@ -97,15 +101,21 @@ export function useNightAllocation(nightDate: string) {
       if (!working) throw new Error("Nothing to save yet.");
       return saveNightAllocation(working);
     },
+    onMutate: () => ({ nightDate: working?.nightDate ?? nightDate }),
     onSuccess: response => {
+      // Cached under the night that was saved, which is not necessarily the one
+      // on screen by the time the answer arrives.
+      queryClient.setQueryData(nightAllocationKey(response.state.nightDate), response);
+      if (response.state.nightDate !== currentNightRef.current) return;
+
       adoptedRef.current = `${response.state.nightDate}:${response.state.version}`;
-      queryClient.setQueryData(nightAllocationKey(nightDate), response);
       setWorking(response.state);
       setDirty(false);
       setConflict(null);
       setStatus({ text: savedLabel(response.state), tone: "saved" });
     },
-    onError: error => {
+    onError: (error, _variables, context) => {
+      if (context && context.nightDate !== currentNightRef.current) return;
       if (error instanceof NightAllocationConflict) {
         setConflict(error.current);
         setStatus({ text: error.message, tone: "blocked" });
@@ -124,7 +134,9 @@ export function useNightAllocation(nightDate: string) {
 
   const reset = useMutation({
     mutationFn: () => resetNightAllocation(nightDate),
+    onMutate: () => ({ nightDate }),
     onSuccess: response => {
+      if (response.state.nightDate !== currentNightRef.current) return;
       setWorking(response.state);
       setDirty(true);
       setConflict(null);
@@ -133,7 +145,10 @@ export function useNightAllocation(nightDate: string) {
         tone: "neutral",
       });
     },
-    onError: error => setStatus({ text: (error as Error).message, tone: "blocked" }),
+    onError: (error, _variables, context) => {
+      if (context && context.nightDate !== currentNightRef.current) return;
+      setStatus({ text: (error as Error).message, tone: "blocked" });
+    },
   });
 
   /** Take the newer server version, discarding the local working copy. */

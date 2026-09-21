@@ -54,6 +54,32 @@ export function snapToSlot(min: number): number {
   return Math.max(0, Math.min(NIGHT_SPAN_MIN, snapped));
 }
 
+/** A real calendar date written `YYYY-MM-DD` — not merely the right shape. */
+export function isNightDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+/**
+ * The night a local moment belongs to, as its `YYYY-MM-DD` key.
+ *
+ * A night runs from 13:30 on its own date to 01:30 the next, so until 01:30 the
+ * night in progress is the previous date's. Taking the calendar date instead
+ * opened tomorrow's night for everyone still on shift after midnight.
+ */
+export function nightDateAt(moment: Date): string {
+  const minuteOfDay = moment.getHours() * 60 + moment.getMinutes();
+  const nightEnds = NIGHT_START_MIN + NIGHT_SPAN_MIN - 1440;
+  const day = new Date(
+    moment.getFullYear(),
+    moment.getMonth(),
+    moment.getDate() - (minuteOfDay < nightEnds ? 1 : 0),
+  );
+  return `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+}
+
 /**
  * The calendar date a minute offset falls on, given the night's start date.
  * Used by the exports, which show real dates rather than a `+1` marker.

@@ -9,6 +9,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   defaultChannels,
+  inBoardOrder,
   validateAllocation,
   type NightAllocationState,
   type NightChannel,
@@ -120,7 +121,7 @@ const TIME_RANGE = /\d{3,4}\s*[-–]\s*\d{3,4}/;
 const normaliseUnit = (value: string | null | undefined) =>
   (value ?? "").toUpperCase().replace(/\s+/g, " ").trim();
 
-interface RosterRow {
+export interface RosterRow {
   unit: string | null;
   position: string | null;
   employee_name: string | null;
@@ -181,7 +182,35 @@ export function readCrewRow(row: RosterRow): { name: string; unit: string; half:
   return { name, unit, half: halfFromPosition(row.position) };
 }
 
-async function nightRosterRows(supabase: SupabaseClient, nightDate: string): Promise<RosterRow[]> {
+/**
+ * Every row of a select, a page at a time.
+ *
+ * PostgREST caps each response (1,000 rows by default), so a single select of a
+ * whole table silently stops there. Pages until one comes back empty, which
+ * also copes with a server whose cap is lower than the page asked for.
+ */
+async function selectAllPages<T>(
+  page: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>,
+): Promise<T[]> {
+  const PAGE = 1000;
+  const rows: T[] = [];
+  for (let from = 0, pages = 0; pages < 50; pages++) {
+    const { data, error } = await page(from, from + PAGE - 1);
+    if (error) throw error;
+    const batch = (data ?? []) as T[];
+    if (!batch.length) break;
+    rows.push(...batch);
+    from += batch.length;
+  }
+  return rows;
+}
+
+/**
+ * Tonight's rows on the shift roster, all units. Read once per request and
+ * handed to whatever needs them — the crew, the positions and the team name all
+ * come from the same rows.
+ */
+export async function nightRosterRows(supabase: SupabaseClient, nightDate: string): Promise<RosterRow[]> {
   // `rosters.date` is canonically "yyyy-MM-dd" but legacy rows carry a dozen
   // other spellings, which is what this helper exists for.
   const dateValues = getRosterDateQueryValues(nightDate);
@@ -203,8 +232,7 @@ async function nightRosterRows(supabase: SupabaseClient, nightDate: string): Pro
  * roster, not of the allocation, so it stays right even for a night saved
  * before the roster was corrected.
  */
-export async function nightTeams(supabase: SupabaseClient, nightDate: string): Promise<string[]> {
-  const rows = await nightRosterRows(supabase, nightDate);
+export function teamsFromRows(rows: RosterRow[]): string[] {
   const teams = new Set<string>();
   for (const row of rows) {
     const team = (row.team ?? "").trim().toUpperCase();
@@ -213,16 +241,27 @@ export async function nightTeams(supabase: SupabaseClient, nightDate: string): P
   return [...teams].sort();
 }
 
+/**
+ * Every profile, indexed by normalised name.
+ *
+ * The whole table on purpose: telling an unambiguous match from two people who
+ * share a name needs every profile with that name, and names are normalised
+ * here rather than in the database. Paged, so a station past the response cap
+ * does not lose people from the matching at random.
+ */
 async function profilesByName(supabase: SupabaseClient, names: string[]): Promise<Map<string, ProfileRow>> {
   const index = new Map<string, ProfileRow[]>();
   if (!names.length) return new Map();
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, full_name, employee_id, designation, can_take_tso");
-  if (error) throw error;
+  const profiles = await selectAllPages<ProfileRow>((from, to) =>
+    supabase
+      .from("profiles")
+      .select("id, full_name, employee_id, designation, can_take_tso")
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
 
-  for (const profile of ((data ?? []) as ProfileRow[])) {
+  for (const profile of profiles) {
     const key = normalizeEmployeeMatchName(profile.full_name);
     if (!key) continue;
     const bucket = index.get(key) ?? [];
@@ -264,8 +303,9 @@ export type RosterStatus = "missing" | "empty" | "filled";
 export async function seedPeopleFromRoster(
   supabase: SupabaseClient,
   nightDate: string,
+  rosterRows?: RosterRow[],
 ): Promise<{ people: NightPerson[]; status: RosterStatus; units: string[] }> {
-  const rows = await nightRosterRows(supabase, nightDate);
+  const rows = rosterRows ?? (await nightRosterRows(supabase, nightDate));
   if (!rows.length) return { people: [], status: "missing", units: [] };
 
   const crew: Array<{ name: string; unit: string; half: HalfKey }> = [];
@@ -405,8 +445,9 @@ export async function shiftCandidates(
 export async function seedState(
   supabase: SupabaseClient,
   nightDate: string,
+  rosterRows?: RosterRow[],
 ): Promise<{ state: NightAllocationState; rosterStatus: RosterStatus }> {
-  const { people, status, units } = await seedPeopleFromRoster(supabase, nightDate);
+  const { people, status, units } = await seedPeopleFromRoster(supabase, nightDate, rosterRows);
   return {
     rosterStatus: status,
     state: {
@@ -469,10 +510,13 @@ interface AllocationRow {
 /**
  * The saved night, or a seeded one when nothing has been saved yet. A seeded
  * night is deliberately not persisted: opening a date must not create a row.
+ *
+ * The roster is read once, here, unless the caller already has it.
  */
 export async function loadState(
   supabase: SupabaseClient,
   nightDate: string,
+  rosterRows?: RosterRow[],
 ): Promise<{
   state: NightAllocationState;
   exists: boolean;
@@ -488,17 +532,19 @@ export async function loadState(
   if (error) throw error;
 
   if (!allocation) {
-    const seeded = await seedState(supabase, nightDate);
+    const roster = rosterRows ?? (await nightRosterRows(supabase, nightDate));
+    const seeded = await seedState(supabase, nightDate, roster);
     return {
       state: seeded.state,
       exists: false,
       rosterStatus: seeded.rosterStatus,
-      teams: await nightTeams(supabase, nightDate),
+      teams: teamsFromRows(roster),
     };
   }
   const row = allocation as AllocationRow;
 
-  const [people, channels, duties] = await Promise.all([
+  const [roster, people, channels, duties] = await Promise.all([
+    rosterRows ?? nightRosterRows(supabase, nightDate),
     supabase
       .from("night_allocation_people")
       .select("person_key, user_id, display_name, employee_code, role, is_available, half, can_take_tso, is_manual, color_index")
@@ -532,6 +578,8 @@ export async function loadState(
   for (const fallback of defaultChannels()) {
     if (!savedChannels.some(channel => channel.code === fallback.code)) savedChannels.push(fallback);
   }
+  // Rows come back in no particular order; the board and the exports follow this.
+  const orderedChannels = inBoardOrder(savedChannels);
 
   const state: NightAllocationState = {
     nightDate,
@@ -552,7 +600,7 @@ export async function loadState(
         colorIndex: Number.isFinite(entry.color_index) ? Number(entry.color_index) : index,
       }),
     ),
-    channels: savedChannels,
+    channels: orderedChannels,
     duties: ((duties.data ?? []) as unknown as SavedDutyRow[]).map(
       (entry): NightDuty => ({
         id: entry.id,
@@ -569,7 +617,7 @@ export async function loadState(
   state.people.sort((a, b) => a.name.localeCompare(b.name));
   // A saved night carries its own people, so the roster is not the explanation
   // for anything the user sees.
-  return { state, exists: true, rosterStatus: null, teams: await nightTeams(supabase, nightDate) };
+  return { state, exists: true, rosterStatus: null, teams: teamsFromRows(roster) };
 }
 
 // ── Accepting a state from a client ─────────────────────────────────────────
@@ -750,6 +798,40 @@ export async function recordAudit(
   // An audit row that fails to write must not fail the user's action, but it
   // must be visible in the function logs.
   if (error) console.error("[night-allocation] audit write failed", error);
+}
+
+/**
+ * The user's role, or null while their account is not approved.
+ *
+ * The same `get_user_role` the app's own sign-in uses to turn away accounts
+ * that are still waiting for approval. A valid token is not enough on its own:
+ * self-registration creates the account, unapproved, before anyone has vouched
+ * for it.
+ */
+export async function approvedRole(supabase: SupabaseClient, userId: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc("get_user_role", { _user_id: userId });
+  if (error) throw error;
+  return typeof data === "string" && data ? data : null;
+}
+
+/**
+ * Every address on file for an account, lower-cased: the only addresses the
+ * roster may be emailed to.
+ *
+ * Paged until a page comes back empty, because PostgREST caps each response
+ * (1,000 rows by default) and a truncated list would turn real colleagues away
+ * at random.
+ */
+export async function accountEmails(supabase: SupabaseClient): Promise<Set<string>> {
+  const rows = await selectAllPages<{ email: string | null }>((from, to) =>
+    supabase
+      .from("profiles")
+      .select("email")
+      .not("email", "is", null)
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  return new Set(rows.map(row => (row.email ?? "").trim().toLowerCase()).filter(Boolean));
 }
 
 /** The acting user's display name, for "Saved by …" and the audit trail. */
