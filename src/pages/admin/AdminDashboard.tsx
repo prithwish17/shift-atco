@@ -217,7 +217,19 @@ export default function AdminDashboard() {
       // Update the pending entry
       setApiLogs(prev => prev.map(e =>
         e.id === localId
-          ? { ...e, status: "success" as const, message: `POST /api/functions/fetch-schedule — 200 OK (${ms}ms) employees=${result?.employees ?? "-"} rows=${result?.rows ?? "-"}`, durationMs: ms }
+          ? {
+              ...e,
+              status: "success" as const,
+              // The breakdown is the point: a long ttfb is Apps Script building
+              // the roster, a long push is the database round trips.
+              message:
+                `POST /api/functions/fetch-schedule — 200 OK (${ms}ms) ` +
+                `employees=${result?.employees ?? "-"} rows=${result?.rows ?? "-"} changed=${result?.changed ?? "-"}` +
+                (result?.timings
+                  ? ` [sheet ${result.timings.ttfbMs}+${result.timings.readMs}ms, push ${result.timings.pushMs}ms]`
+                  : ""),
+              durationMs: ms,
+            }
           : e
       ));
       refetchScheduleHealth();

@@ -154,10 +154,12 @@ archived schedules" screen against this, or just hit the URL with a token.
   confirms the append, so a mid-run failure never loses data — it resumes next run.
   The only edge case (append succeeds, delete fails) makes a duplicate in the sheet,
   which `getScheduleArchive_` de-duplicates on read.
-- **Re-sync safety:** `fetch-schedule` upserts whatever the source returns. If your
-  source sheet starts returning months older than the cutoff again, they'll be
-  re-added and re-archived on the next 1st. If that ever produces churn, add a
-  `duty_date >= cutoff` filter in `fetch-schedule` before the upsert and it stops.
+- **Re-sync safety:** `fetch-schedule` skips any row whose `duty_date` is before
+  this same cutoff, so months the archiver has already shipped are not re-added
+  and re-archived on the next 1st. It computes the cutoff with the same formula
+  and the same default (`monthsToKeep` 6), so all three places agree — change one
+  and change the others. Pass `{"skipArchived": false}` to restore the old
+  behaviour of pushing whatever the source returns.
 - Change retention by editing `monthsToKeep` in the cron payload (migration) or the
   default in `archive-schedules/index.ts`.
 ```
