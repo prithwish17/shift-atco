@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildRosterSummary, buildRosterText, channelTableRows, defaultEmailSubject, formatNightDate } from "../roster-text";
+import {
+  buildRosterSummary,
+  buildRosterText,
+  channelTableRows,
+  defaultEmailSubject,
+  formatNightDate,
+  personTableRows,
+} from "../roster-text";
 import { channel, duty, night, team } from "./fixtures";
 
 function sharedNight() {
@@ -99,5 +106,34 @@ describe("table rows", () => {
 describe("email subject", () => {
   it("names the night", () => {
     expect(defaultEmailSubject("2026-09-17")).toBe("Night channel allocation — 17 Sep 2026");
+  });
+});
+
+describe("DB slots in the shared roster", () => {
+  function nightWithSlot() {
+    const state = sharedNight();
+    const slot = state.duties.find(entry => entry.channelCode === "TWR" && entry.startMin === 240)!;
+    slot.kind = "db";
+    slot.note = "Sulagna";
+    return state;
+  }
+
+  it("marks the instructor's line with DB and the trainee, in both rosters", () => {
+    const text = buildRosterText(nightWithSlot());
+    expect(text).toContain("1730-1930 Person 4 (DB · Sulagna)");
+    expect(text).toContain("1730-1930 TWR (DB · Sulagna)");
+  });
+
+  it("marks it in the tables the PDF and the email use", () => {
+    const rows = channelTableRows(nightWithSlot());
+    expect(rows).toContainEqual(["", "17:30–19:30", "Person 4 (DB · Sulagna)", "2h"]);
+    const byPerson = personTableRows(nightWithSlot()).find(row => row[0] === "Person 4");
+    expect(byPerson?.[2]).toContain("1730-1930 TWR (DB · Sulagna)");
+  });
+
+  it("reads plain DB when no trainee was given", () => {
+    const state = nightWithSlot();
+    state.duties.find(entry => entry.kind === "db")!.note = null;
+    expect(buildRosterText(state)).toContain("1730-1930 Person 4 (DB)");
   });
 });

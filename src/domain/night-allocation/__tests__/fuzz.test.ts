@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CHANNEL_CODES, NIGHT_SPAN_MIN, SLOT_MIN } from "../constants";
 import { generateAllocation } from "../solver";
-import { uncoveredMinutes, validateAllocation } from "../rules";
-import { channel, night, refused, team } from "./fixtures";
-import type { HalfKey, NightAllocationState } from "../types";
+import { canTakeChannel, isFixedDuty, uncoveredMinutes, validateAllocation } from "../rules";
+import { isAvailableAt } from "../availability";
+import { channel, dbSlot, night, refused, team } from "./fixtures";
+import type { HalfKey, NightAllocationState, NightPerson } from "../types";
 
 /**
  * Property test. The generator's contract is narrow and absolute: whatever it
@@ -63,6 +64,53 @@ function randomNight(seed: number): NightAllocationState {
   });
 }
 
+/**
+ * The same night with part-night times and DB slots on top: about a third of
+ * the crew away for a stretch or around for only part of the night, and every
+ * other night a DB slot somewhere, instructed by whoever the dice pick. Some of
+ * those slots are unsound on purpose — the generator must refuse them with a
+ * reason, not plan around them.
+ */
+function randomNightWithTimes(seed: number): NightAllocationState {
+  const state = randomNight(seed);
+  const random = mulberry32(seed * 7919 + 17);
+  const slot = (value: number) => Math.floor(value / SLOT_MIN) * SLOT_MIN;
+
+  const people: NightPerson[] = state.people.map(person => {
+    const roll = random();
+    if (roll >= 0.35) return person;
+    if (roll < 0.2) {
+      const start = slot(random() * (NIGHT_SPAN_MIN - 60));
+      const end = Math.min(NIGHT_SPAN_MIN, start + slot(30 + random() * 150));
+      return { ...person, availability: { mode: "except", periods: [[start, end]] } };
+    }
+    const start = slot(random() * 360);
+    const end = Math.min(NIGHT_SPAN_MIN, start + slot(180 + random() * 300));
+    return { ...person, availability: { mode: "only", periods: [[start, end]] } };
+  });
+
+  // A starter away at their position's opening is refused before any search,
+  // which would leave most of these nights proving nothing about the search.
+  const channels = state.channels.map(entry => {
+    const starter = people.find(person => person.key === entry.starterKey);
+    return starter && !isAvailableAt(starter, entry.openAt) ? { ...entry, starterKey: null } : entry;
+  });
+
+  const duties = [];
+  if (random() < 0.5) {
+    const open = channels.filter(entry => entry.inUse && entry.closeAt - entry.openAt >= 60);
+    const target = open[Math.floor(random() * open.length)];
+    const instructors = people.filter(person => person.available && canTakeChannel(person, target?.code ?? ""));
+    if (target && instructors.length) {
+      const start = target.openAt + slot(random() * (target.closeAt - target.openAt - 60));
+      const end = Math.min(target.closeAt, start + slot(60 + random() * 60));
+      const instructor = instructors[Math.floor(random() * instructors.length)];
+      duties.push(dbSlot(target.code, instructor.key, start, end, random() < 0.5 ? "Trainee" : null));
+    }
+  }
+  return { ...state, people, channels, duties };
+}
+
 describe("random nights", () => {
   it("never returns a plan with a gap or a broken rule", () => {
     const runs = 250;
@@ -97,6 +145,38 @@ describe("random nights", () => {
     // Budget: 120ms of restarts each, plus validation. Generous, but it does
     // catch a pruning change that makes the search explore the whole tree.
     expect(Date.now() - startedAt).toBeLessThan(runs * 400);
+  }, 120_000);
+
+  it("keeps to everyone's times and plans around DB slots without moving them", () => {
+    const runs = 150;
+    let planned = 0;
+    let refusals = 0;
+    let slotsPlanned = 0;
+
+    for (let seed = 1; seed <= runs; seed++) {
+      const state = randomNightWithTimes(seed);
+      const slots = state.duties.filter(isFixedDuty);
+      const result = generateAllocation(state, { budgetMs: 100, seed });
+
+      if (result.ok) {
+        planned++;
+        if (slots.length) slotsPlanned++;
+        expect(uncoveredMinutes(result.state), `seed ${seed} left a channel uncovered`).toBe(0);
+        expect(
+          validateAllocation(result.state).errors.map(issue => issue.message),
+          `seed ${seed} broke a hard rule`,
+        ).toEqual([]);
+        expect(result.state.duties.filter(isFixedDuty), `seed ${seed} moved a DB slot`).toEqual(slots);
+      } else {
+        refusals++;
+        expect(refused(result).error.length, `seed ${seed} refused without an explanation`).toBeGreaterThan(0);
+      }
+    }
+
+    expect(planned).toBeGreaterThan(0);
+    expect(refusals).toBeGreaterThan(0);
+    // Plans with a slot in them must actually occur, or the slots prove nothing.
+    expect(slotsPlanned).toBeGreaterThan(0);
   }, 120_000);
 
   it("stays inside its time budget on an impossible night", () => {

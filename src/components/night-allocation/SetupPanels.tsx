@@ -1,6 +1,6 @@
 /**
- * The three setup cards beside the board: who is on tonight, the halves, and
- * the positions.
+ * The setup cards beside the board: who is on tonight and when, the halves,
+ * the DB slots, and the positions.
  *
  * Every control here is available to every signed-in person. The current user
  * is used only for the two self-service buttons in Halves — there is no
@@ -18,9 +18,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Sparkles } from "lucide-react";
+import { Clock, GraduationCap, Loader2, Plus, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
+  DB_LABEL,
   DUTY_LENGTH_CHOICES,
   FIRST_HALF,
   MERGE_SOURCE_CHANNEL,
@@ -30,15 +31,22 @@ import {
   SLOT_MIN,
   availablePeople,
   canTakeChannel,
+  dbSlots,
+  fixedOpeningDuty,
   formatDuration,
+  isAvailableAt,
   formatPickerLabel,
   formatRange,
   minutesOnDuty,
+  personName,
   personShortLabel,
   slotRange,
+  tidyPeriods,
   type HalfKey,
   type NightAllocationState,
+  type NightDuty,
   type NightPerson,
+  type RuleIssue,
 } from "@/domain/night-allocation";
 import { HALF_COLORS, channelSwatch, personSwatch, swatchVars } from "./palette";
 import { AddPersonPicker } from "./AddPersonPicker";
@@ -71,6 +79,8 @@ interface PeoplePanelProps {
   /** Why the crew list is empty. `null` when the night came from a save. */
   rosterStatus: "missing" | "empty" | "filled" | null;
   onSetAvailability: (personKey: string, available: boolean) => void;
+  /** Opens the times editor: around only between some times, or away between some. */
+  onEditTimes: (personKey: string) => void;
   onSetHalf: (personKey: string, half: HalfKey) => void;
   onToggleTso: (personKey: string) => void;
   onAddFromShift: (candidate: ShiftCandidate) => void;
@@ -82,6 +92,7 @@ export function PeoplePanel({
   state,
   rosterStatus,
   onSetAvailability,
+  onEditTimes,
   onSetHalf,
   onToggleTso,
   onAddFromShift,
@@ -94,7 +105,7 @@ export function PeoplePanel({
     <Card className="overflow-hidden border-corp-border-soft bg-surface shadow-sm">
       <SectionTitle
         title="Crew tonight"
-        hint="From the night shift roster — whoever is marked on TWR, SMC, CLD, TSO and TWR-A/AIMS."
+        hint="From the night shift roster — whoever is marked on TWR, SMC, CLD, TSO and TWR-A/AIMS. Set times for anyone around for only part of the night."
         badge={state.people.length ? `${available}/${state.people.length}` : undefined}
       />
       <CardContent className="space-y-3 pb-5">
@@ -116,6 +127,7 @@ export function PeoplePanel({
               state={state}
               person={person}
               onSetAvailability={onSetAvailability}
+              onEditTimes={onEditTimes}
               onSetHalf={onSetHalf}
               onToggleTso={onToggleTso}
               onRemovePerson={onRemovePerson}
@@ -134,10 +146,27 @@ export function PeoplePanel({
   );
 }
 
+/**
+ * The times chip on a crew row: "All night", or the first period and how many
+ * more — "Away 17:30–19:30 +1". Short on purpose; the dialog has the rest.
+ */
+function timesLabel(person: NightPerson): { text: string; tone: "all" | "only" | "except" } {
+  const availability = person.availability;
+  const periods = availability ? tidyPeriods(availability.periods) : [];
+  if (!availability || !periods.length) return { text: "All night", tone: "all" };
+  const [start, end] = periods[0];
+  const more = periods.length > 1 ? ` +${periods.length - 1}` : "";
+  return {
+    text: `${availability.mode === "only" ? "Only" : "Away"} ${formatRange(start, end)}${more}`,
+    tone: availability.mode,
+  };
+}
+
 function PersonRow({
   state,
   person,
   onSetAvailability,
+  onEditTimes,
   onSetHalf,
   onToggleTso,
   onRemovePerson,
@@ -145,6 +174,7 @@ function PersonRow({
   state: NightAllocationState;
   person: NightPerson;
 } & Omit<PeoplePanelProps, "state" | "rosterStatus" | "onAddPerson" | "onAddFromShift">) {
+  const times = timesLabel(person);
   const swatch = personSwatch(person.colorIndex);
   const minutes = minutesOnDuty(state, person.key);
   const starts = state.channels
@@ -251,9 +281,109 @@ function PersonRow({
           >
             {person.canTakeTso ? "✓ TSO" : "TSO"}
           </button>
+
+          <button
+            type="button"
+            onClick={() => onEditTimes(person.key)}
+            aria-label={`When ${person.name} is around tonight: ${times.text}. Change.`}
+            className={cn(
+              "inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border px-2.5 text-[0.74rem] font-semibold tabular-nums transition-colors",
+              times.tone === "all"
+                ? "border-corp-border-soft text-corp-text-muted hover:bg-elevated"
+                : times.tone === "except"
+                  ? "border-status-warning/40 bg-status-warning-soft text-corp-text-main hover:bg-status-warning-soft/70"
+                  : "border-primary/30 bg-primary/[0.07] text-primary hover:bg-primary/[0.12]",
+            )}
+          >
+            <Clock className="h-3.5 w-3.5 shrink-0" />
+            {times.text}
+          </button>
         </div>
       ) : null}
     </li>
+  );
+}
+
+// ── DB slots ────────────────────────────────────────────────────────────────
+
+interface DbSlotsPanelProps {
+  state: NightAllocationState;
+  /** Hard-rule errors, so a slot with a problem is marked in the list. */
+  errors: RuleIssue[];
+  onAdd: () => void;
+  onEdit: (slot: NightDuty) => void;
+}
+
+/**
+ * Positions kept for training at a fixed time. Entered before generating: the
+ * generator plans the rest of the night around them and never moves them.
+ */
+export function DbSlotsPanel({ state, errors, onAdd, onEdit }: DbSlotsPanelProps) {
+  const slots = dbSlots(state);
+  const faulty = new Set(errors.flatMap(issue => issue.dutyIds));
+
+  return (
+    <Card className="overflow-hidden border-corp-border-soft bg-surface shadow-sm">
+      <SectionTitle
+        title="DB slots"
+        hint="Keep a position for a DB at a fixed time. The instructor holds it, with DB beside their name, and the generator plans everyone else around it."
+        badge={slots.length ? String(slots.length) : undefined}
+      />
+      <CardContent className="space-y-2.5 pb-5">
+        {slots.length ? (
+          <ul className="-mx-1 divide-y divide-corp-border-soft">
+            {slots.map(slot => {
+              const swatch = channelSwatch(slot.channelCode);
+              const hasProblem = faulty.has(slot.id);
+              return (
+                <li key={slot.id}>
+                  <button
+                    type="button"
+                    onClick={() => onEdit(slot)}
+                    className="flex w-full items-center gap-2.5 rounded-md px-1 py-2 text-left transition-colors hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={`${DB_LABEL} slot on ${slot.channelCode} ${formatRange(slot.startMin, slot.endMin)}, ${personName(state, slot.personKey)} instructing${hasProblem ? ", has a problem" : ""}. Change.`}
+                  >
+                    <span aria-hidden className="h-8 w-1 shrink-0 rounded-full" style={{ background: swatch.edge }} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-baseline gap-2">
+                        <span className="text-[0.86rem] font-semibold tracking-tight text-corp-text-main">
+                          {slot.channelCode}
+                        </span>
+                        <span className="font-mono text-[0.76rem] tabular-nums text-corp-text-muted">
+                          {formatRange(slot.startMin, slot.endMin)}
+                        </span>
+                      </span>
+                      <span className="block truncate text-[0.76rem] text-corp-text-soft">
+                        {personName(state, slot.personKey)}
+                        {slot.note ? ` · ${slot.note}` : ""}
+                      </span>
+                    </span>
+                    {hasProblem ? (
+                      <span className="shrink-0 rounded-full bg-status-danger-soft px-2 py-0.5 text-[0.66rem] font-semibold text-status-danger">
+                        Check
+                      </span>
+                    ) : (
+                      <span className="shrink-0 rounded bg-elevated px-1.5 py-0.5 text-[0.66rem] font-bold tracking-wide text-corp-text-muted">
+                        {DB_LABEL}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="text-[0.8rem] leading-snug text-corp-text-soft">
+            None tonight. If a DB is fixed — TWR 17:30–19:30, say — add it before generating.
+          </p>
+        )}
+        <Button variant="outline" className="w-full justify-start" onClick={onAdd}>
+          <GraduationCap className="mr-2 h-4 w-4" />
+          Add DB slot
+          <Plus className="ml-auto h-3.5 w-3.5 opacity-60" />
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -392,6 +522,7 @@ export function ChannelsPanel({
               currentStarter && !eligible.some(person => person.key === currentStarter.key)
                 ? [...eligible, currentStarter]
                 : eligible;
+            const openingSlot = channel.inUse ? fixedOpeningDuty(state, channel) : undefined;
 
             return (
               <div key={channel.code} className={cn("py-3", !channel.inUse && "opacity-55")}>
@@ -459,33 +590,43 @@ export function ChannelsPanel({
                     </div>
 
                     <span className="text-[0.7rem] uppercase tracking-wide text-corp-text-soft">Starts</span>
-                    <Select
-                      value={channel.starterKey ?? NO_STARTER}
-                      onValueChange={value => onSetStarter(channel.code, value === NO_STARTER ? null : value)}
-                    >
-                      <SelectTrigger className="h-9 text-[0.8rem]" aria-label={`Who starts ${channel.code}`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72">
-                        <SelectItem value={NO_STARTER}>
-                          {eligible.length ? "Select person" : `Nobody can take ${channel.code} yet`}
-                        </SelectItem>
-                        {starterOptions.map(person => (
-                          <SelectItem key={person.key} value={person.key}>
-                            {person.name}
-                            {!person.available
-                              ? " (not available)"
-                              : !canTakeChannel(person, channel.code)
-                                ? " (not set for TSO)"
-                                : person.half === "1st"
-                                  ? " (1st Half)"
-                                  : person.half === "2nd"
-                                    ? " (2nd Half)"
-                                    : ""}
+                    {openingSlot ? (
+                      // A DB slot at the opening opens the position itself.
+                      <span className="flex h-9 min-w-0 items-center gap-1.5 rounded-md border border-dashed border-corp-border-soft px-3 text-[0.8rem] text-corp-text-muted">
+                        <span className="shrink-0 rounded bg-elevated px-1 text-[0.66rem] font-bold">{DB_LABEL}</span>
+                        <span className="truncate">{personName(state, openingSlot.personKey)}</span>
+                      </span>
+                    ) : (
+                      <Select
+                        value={channel.starterKey ?? NO_STARTER}
+                        onValueChange={value => onSetStarter(channel.code, value === NO_STARTER ? null : value)}
+                      >
+                        <SelectTrigger className="h-9 text-[0.8rem]" aria-label={`Who starts ${channel.code}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          <SelectItem value={NO_STARTER}>
+                            {eligible.length ? "Select person" : `Nobody can take ${channel.code} yet`}
                           </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                          {starterOptions.map(person => (
+                            <SelectItem key={person.key} value={person.key}>
+                              {person.name}
+                              {!person.available
+                                ? " (not available)"
+                                : !canTakeChannel(person, channel.code)
+                                  ? " (not set for TSO)"
+                                  : !isAvailableAt(person, channel.openAt)
+                                    ? " (away then)"
+                                    : person.half === "1st"
+                                      ? " (1st Half)"
+                                      : person.half === "2nd"
+                                        ? " (2nd Half)"
+                                        : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -529,7 +670,8 @@ export function ChannelsPanel({
           </Select>
           <p className="text-[0.72rem] leading-snug text-corp-text-soft">
             Duties run 30 min to 2 h — except TSO, which has no maximum. The generator aims for 1 h, 1 h 30 m or
-            2 h, and uses 30 or 45 min only when nothing longer keeps every position covered.
+            2 h, and uses 30 or 45 min only when nothing longer keeps every position covered. DB slots and
+            everyone's times are kept as they are.
           </p>
 
           <Button className="mt-1 w-full" onClick={onGenerate} disabled={generating}>

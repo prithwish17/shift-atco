@@ -75,10 +75,22 @@ export const RESTRICTED_CHANNELS: readonly string[] = [TSO_CHANNEL];
  *
  * TSO is not a control position in the way the others are, so the two-hour cap
  * does not apply to it: one person may hold it for as long as the night needs,
- * up to the whole window. The 30-minute minimum, the 30-minute break between a
- * person's duties and every other rule still apply.
+ * up to the whole window. The 30-minute minimum and every other rule still
+ * apply; the break around it is `BREAK_EXEMPT_CHANNELS`' business.
  */
 export const UNCAPPED_DUTY_CHANNELS: readonly string[] = [TSO_CHANNEL];
+
+/**
+ * Positions that need no break either side.
+ *
+ * Someone relieved from TWR at 15:00 may take TSO from 15:00, and someone
+ * relieved from TSO at 21:30 may take SMC from 21:30. Between any two other
+ * positions the 30-minute break still applies — and a TSO duty between them
+ * counts towards it, being at least 30 minutes itself. Callers use
+ * `breakBetween()` rather than `MIN_BREAK_MIN`, or the rules and the solver
+ * disagree about TSO.
+ */
+export const BREAK_EXEMPT_CHANNELS: readonly string[] = [TSO_CHANNEL];
 
 
 /** Channel preferred by 2nd Half people, per the office's working preference. */
@@ -128,6 +140,25 @@ export const MERGE_TARGET_CHANNELS: readonly string[] = ["SMC", "SMC-S", "SMC-N"
  * about 4 MB, leaving room for the rest of the request.
  */
 export const MAX_EMAIL_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+
+/**
+ * DB slots.
+ *
+ * Training time fixed in advance: a position is reserved for a DB from one
+ * time to another, and the instructor — who is the one actually marked on the
+ * position then — holds it as a duty labelled DB. The generator plans the rest
+ * of the night around the slot and never moves it.
+ */
+export const DB_LABEL = "DB";
+
+/** Longest trainee note kept with a DB slot. */
+export const DB_NOTE_MAX = 40;
+
+/** Where a new DB slot starts out: 17:30–19:30, the office's usual one. */
+export const DEFAULT_DB_SLOT: readonly [number, number] = [240, 360];
+
+/** Most periods one person's availability may list. */
+export const MAX_AVAILABILITY_PERIODS = 8;
 
 /** `duty_length_pref` values offered in the UI. 0 means "fitted to staffing". */
 export const DUTY_LENGTH_CHOICES = [0, 30, 45, 60, 75, 90, 105, 120] as const;

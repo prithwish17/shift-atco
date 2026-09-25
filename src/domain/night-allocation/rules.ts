@@ -10,6 +10,7 @@
  * never do — they explain why a night is awkward, they do not forbid it.
  */
 import {
+  BREAK_EXEMPT_CHANNELS,
   CROSS_HALF_CHANNEL,
   DEFAULT_CHANNEL_CODES,
   FIRST_HALF,
@@ -30,6 +31,7 @@ import {
   UNCAPPED_DUTY_CHANNELS,
 } from "./constants.js";
 import { formatDuration, formatMinutes, formatRange } from "./time.js";
+import { awayDuring, isAvailableAt, isPartNight, minutesAvailable } from "./availability.js";
 import type {
   HalfKey,
   NightAllocationState,
@@ -185,6 +187,21 @@ export function isUncappedChannel(channelCode: string): boolean {
   return UNCAPPED_DUTY_CHANNELS.includes(channelCode);
 }
 
+/** True when going onto or coming off this position needs no break. */
+export function isBreakExempt(channelCode: string): boolean {
+  return BREAK_EXEMPT_CHANNELS.includes(channelCode);
+}
+
+/**
+ * The break one person needs between a duty on `first` and their next on
+ * `second`: 30 minutes, or none at all when either is TSO — relieved from TWR
+ * at 15:00, they may take TSO from 15:00. Callers use this rather than
+ * `MIN_BREAK_MIN`, or the rules and the solver disagree about TSO.
+ */
+export function breakBetween(first: string, second: string): number {
+  return isBreakExempt(first) || isBreakExempt(second) ? 0 : MIN_BREAK_MIN;
+}
+
 /**
  * How well a duty length suits the office: 0 for 1h, 1h 30m or 2h (on a
  * position with no cap, any whole or half hour from 1h up), 1 for anything
@@ -198,6 +215,99 @@ export function dutyLengthRank(length: number, channelCode: string): 0 | 1 | 2 {
 
 export function dutyLength(duty: NightDuty): number {
   return duty.endMin - duty.startMin;
+}
+
+// ── DB slots ────────────────────────────────────────────────────────────────
+
+/**
+ * A DB slot: fixed in advance, held by its instructor, planned around and
+ * never moved. Every hard rule still applies to it — it is the instructor on
+ * the position — but nothing moves it as a side effect of anything else.
+ */
+export function isFixedDuty(duty: Pick<NightDuty, "kind">): boolean {
+  return duty.kind === "db";
+}
+
+/**
+ * Has anything been planned yet? DB slots are entered before a plan is made,
+ * so a board holding only those is still an unplanned night, not one with
+ * every other stretch uncovered.
+ */
+export function isPlanned(state: NightAllocationState): boolean {
+  return state.duties.some(duty => !isFixedDuty(duty));
+}
+
+/** The DB slot that holds a position's opening minute, if one does. */
+export function fixedOpeningDuty(state: NightAllocationState, channel: NightChannel): NightDuty | undefined {
+  return state.duties.find(
+    duty =>
+      isFixedDuty(duty) &&
+      duty.channelCode === channel.code &&
+      duty.startMin <= channel.openAt &&
+      duty.endMin > channel.openAt,
+  );
+}
+
+/**
+ * The stretches of an open position that ordinary duties have to cover: its
+ * open window, less any time it is merged away and less its DB slots. This is
+ * what the generator plans, one stretch at a time.
+ */
+export function stretchesToPlan(state: NightAllocationState, channel: NightChannel): Array<[number, number]> {
+  if (channel.openAt >= channel.closeAt) return [];
+  const blocked: Array<[number, number]> = [];
+  const merged = mergedAwayWindow(state, channel.code);
+  if (merged) blocked.push([merged[0], merged[1]]);
+  for (const duty of state.duties) {
+    if (isFixedDuty(duty) && duty.channelCode === channel.code && duty.startMin < duty.endMin) {
+      blocked.push([duty.startMin, duty.endMin]);
+    }
+  }
+
+  const out: Array<[number, number]> = [];
+  let cursor = channel.openAt;
+  for (const [start, end] of mergeIntervals(blocked)) {
+    if (start > cursor) out.push([cursor, Math.min(start, channel.closeAt)]);
+    cursor = Math.max(cursor, end);
+  }
+  if (cursor < channel.closeAt) out.push([cursor, channel.closeAt]);
+  return out.filter(([start, end]) => start < end);
+}
+
+/**
+ * Stretches too short to be anybody's duty. A DB slot, or the merge, can leave
+ * one — a position opening at 17:15 with a DB from 17:30 leaves fifteen minutes
+ * nothing can legally cover — and the night is then impossible however many
+ * people there are, so it is named rather than left for the generator to fail
+ * on.
+ */
+export function shortStretchNotices(state: NightAllocationState): string[] {
+  const notices: string[] = [];
+  const merge = activeMerge(state);
+  for (const channel of openChannels(state)) {
+    const fixed = state.duties.filter(duty => isFixedDuty(duty) && duty.channelCode === channel.code);
+    const merged = mergedAwayWindow(state, channel.code);
+    for (const [start, end] of stretchesToPlan(state, channel)) {
+      if (end - start >= MIN_DUTY_MIN) continue;
+      // A whole position open under 30 minutes is already a hard error.
+      if (start === channel.openAt && end === channel.closeAt) continue;
+      const leftDb = fixed.some(duty => duty.endMin === start);
+      const rightDb = fixed.some(duty => duty.startMin === end);
+      const left = start === channel.openAt ? "its opening" : leftDb ? "a DB slot" : "the merge";
+      const right = end === channel.closeAt ? "its closing" : rightDb ? "a DB slot" : "the merge";
+      const fix =
+        leftDb || rightDb
+          ? `Move the DB slot, or change when ${channel.code} opens or closes.`
+          : merged && merge
+            ? `Change when ${channel.code} opens or closes, or turn the merge off.`
+            : `Change when ${channel.code} opens or closes.`;
+      notices.push(
+        `${channel.code} ${formatRange(start, end)} is only ${end - start} min, between ${left} and ${right} — ` +
+          `too short for a duty. ${fix}`,
+      );
+    }
+  }
+  return notices;
 }
 
 export function overlaps(duty: NightDuty, startMin: number, endMin: number): boolean {
@@ -282,9 +392,21 @@ const STAFFING_WINDOWS: Array<readonly [number, number]> = [
   [SECOND_HALF[0], SECOND_HALF[1]],
 ];
 
-/** How many people can work inside a window, given the halves they are in. */
-function poolForWindow(state: NightAllocationState, windowStart: number, people?: NightPerson[]): number {
-  const pool = people ?? availablePeople(state);
+/**
+ * How many people can work inside a window, given the halves they are in and
+ * the part of the night they are available for. Someone away for all but a
+ * few minutes of it can't hold a duty there, so they don't count.
+ */
+function poolForWindow(
+  state: NightAllocationState,
+  windowStart: number,
+  people?: NightPerson[],
+  windowEnd?: number,
+): number {
+  const end = windowEnd ?? STAFFING_WINDOWS.find(([start]) => start === windowStart)?.[1] ?? NIGHT_SPAN_MIN;
+  const pool = (people ?? availablePeople(state)).filter(
+    person => minutesAvailable(person, windowStart, end) >= MIN_DUTY_MIN,
+  );
   // 13:30–17:30 is outside both halves, so everyone available can work it.
   if (windowStart < FIRST_HALF[0]) return pool.length;
   if (windowStart < SECOND_HALF[0]) return pool.filter(person => person.half !== "2nd").length;
@@ -303,11 +425,17 @@ function peakOpenChannels(channels: NightChannel[], windowStart: number, windowE
 /**
  * Why a continuous plan may be impossible, in the office's own terms.
  *
- * The bound: over a long stretch one person can be on duty for at most 120 of
- * every 150 minutes (a 2h duty then a 30 min break), so covering `need`
- * channel-minutes inside a window of length `L` needs at least
- * `need × 150 / 120 / L` people — and never fewer than the number of channels
- * open at once.
+ * The bound: over a long stretch one person can be on a capped position for at
+ * most 120 of every 150 minutes (a 2h duty then a 30 min break), so covering
+ * `need` channel-minutes inside a window of length `L` takes `need × 150 / 120`
+ * minutes of people's time — and never fewer people than channels open at once.
+ *
+ * TSO has no cap and needs no break either side, so its minutes are added on
+ * top, less whatever of them can be worked in those breaks: someone cleared for
+ * TSO can spend the 30 minutes after a control duty on TSO instead of resting.
+ * That saving is limited by the breaks there are, and by how much of them the
+ * people cleared for TSO take — at most a fifth of their time. With nobody to
+ * take turns, TSO ties one person up as it always did.
  */
 export function staffingNotices(state: NightAllocationState): string[] {
   const channels = openChannels(state);
@@ -319,8 +447,22 @@ export function staffingNotices(state: NightAllocationState): string[] {
   // which exists because of the two-hour cap — does not apply to it.
   const capped = channels.filter(channel => !isUncappedChannel(channel.code));
   const uncapped = channels.filter(channel => isUncappedChannel(channel.code));
+  // Of those, the ones that need no break either side can be worked in the
+  // breaks between control duties; any other would tie somebody up.
+  const restable = uncapped.filter(channel => isBreakExempt(channel.code));
+  const tying = uncapped.filter(channel => !isBreakExempt(channel.code));
+  const canTakeRestable = availablePeople(state).filter(person =>
+    restable.every(channel => canTakeChannel(person, channel.code)),
+  );
+
+  const minutesIn = (list: NightChannel[], windowStart: number, windowEnd: number) =>
+    list.reduce(
+      (sum, c) => sum + Math.max(0, Math.min(windowEnd, c.closeAt) - Math.max(windowStart, c.openAt)),
+      0,
+    );
 
   for (const [windowStart, windowEnd] of STAFFING_WINDOWS) {
+    const length = windowEnd - windowStart;
     const cappedNeed = capped.reduce((sum, c) => {
       const open = Math.max(0, Math.min(windowEnd, c.closeAt) - Math.max(windowStart, c.openAt));
       const merged = mergedAwayWindow(state, c.code);
@@ -331,12 +473,21 @@ export function staffingNotices(state: NightAllocationState): string[] {
     }, 0);
     const peak = peakOpenChannels(channels, windowStart, windowEnd);
     if (!peak) continue;
-    const uncappedPeak = peakOpenChannels(uncapped, windowStart, windowEnd);
     const pool = poolForWindow(state, windowStart);
+
+    const restableNeed = minutesIn(restable, windowStart, windowEnd);
+    const cleared = poolForWindow(state, windowStart, canTakeRestable, windowEnd);
+    const workedInBreaks = Math.min(
+      restableNeed,
+      (cappedNeed * MIN_BREAK_MIN) / MAX_DUTY_MIN,
+      (cleared * length * MIN_BREAK_MIN) / (MAX_DUTY_MIN + MIN_BREAK_MIN),
+    );
+    const personMinutes =
+      (cappedNeed * (MAX_DUTY_MIN + MIN_BREAK_MIN)) / MAX_DUTY_MIN + restableNeed - workedInBreaks;
     const required = Math.max(
       peak,
-      uncappedPeak +
-        Math.ceil((cappedNeed * (MAX_DUTY_MIN + MIN_BREAK_MIN)) / MAX_DUTY_MIN / (windowEnd - windowStart)),
+      // The small allowance keeps an exact fit from rounding up a person.
+      peakOpenChannels(tying, windowStart, windowEnd) + Math.ceil(personMinutes / length - 1e-9),
     );
     if (pool >= required) continue;
     notices.push(
@@ -348,7 +499,94 @@ export function staffingNotices(state: NightAllocationState): string[] {
   }
 
   notices.push(...restrictedChannelNotices(state, channels));
+  notices.push(...availabilityShortfalls(state, channels));
+  notices.push(...shortStretchNotices(state));
   return notices;
+}
+
+/**
+ * Stretches where the people around can't fill the open positions because of
+ * the times somebody is away — so the notice can say who. Checked minute by
+ * minute on the grid, which is exact rather than a bound: every open position
+ * needs a different person on it at every moment.
+ *
+ * Only shortfalls the entered times cause are reported. One that exists with
+ * everyone around all night is the window check's to explain, and saying it
+ * twice would bury it.
+ */
+function availabilityShortfalls(state: NightAllocationState, channels: NightChannel[]): string[] {
+  const people = availablePeople(state);
+  if (!people.some(isPartNight)) return [];
+
+  const merge = activeMerge(state);
+  const openAt = (channel: NightChannel, minute: number) =>
+    channel.openAt <= minute &&
+    channel.closeAt > minute &&
+    !(merge && channel.code === merge.source.code && minute >= MERGE_WINDOW[0] && minute < MERGE_WINDOW[1]);
+  const halfAllows = (person: NightPerson, minute: number) =>
+    minute < FIRST_HALF[0] || (minute < SECOND_HALF[0] ? person.half !== "2nd" : person.half !== "1st");
+
+  type Shortfall = { start: number; end: number; label: string; needed: number; free: number; away: string[] };
+  const found: Shortfall[] = [];
+  const record = (minute: number, label: string, needed: number, free: number, away: string[]) => {
+    const last = found[found.length - 1];
+    if (
+      last &&
+      last.end === minute &&
+      last.label === label &&
+      last.needed === needed &&
+      last.free === free &&
+      last.away.join("|") === away.join("|")
+    ) {
+      last.end = minute + SLOT_MIN;
+    } else {
+      found.push({ start: minute, end: minute + SLOT_MIN, label, needed, free, away });
+    }
+  };
+
+  for (let minute = 0; minute < NIGHT_SPAN_MIN; minute += SLOT_MIN) {
+    const open = channels.filter(channel => openAt(channel, minute));
+    if (!open.length) continue;
+
+    // A 1st Half person may still hold TSO in the 2nd Half — one of them, on
+    // that one position — so they are counted for it and for nothing else.
+    const tsoOpen = open.some(channel => channel.code === CROSS_HALF_CHANNEL);
+    const crossover = (person: NightPerson) =>
+      tsoOpen && minute >= SECOND_HALF[0] && person.half === "1st" && person.canTakeTso;
+    const eligible = people.filter(person => halfAllows(person, minute));
+    const crossing = people.filter(crossover);
+    const capacity = (withTimes: boolean) =>
+      eligible.filter(person => !withTimes || isAvailableAt(person, minute)).length +
+      (crossing.some(person => !withTimes || isAvailableAt(person, minute)) ? 1 : 0);
+
+    const awayNow = [...eligible, ...crossing]
+      .filter(person => !isAvailableAt(person, minute))
+      .map(person => person.name);
+    if (capacity(false) >= open.length && capacity(true) < open.length) {
+      record(minute, "positions", open.length, capacity(true), awayNow);
+    }
+
+    const tso = open.find(channel => channel.code === TSO_CHANNEL);
+    if (tso) {
+      const qualified = [...eligible, ...crossing].filter(person => person.canTakeTso);
+      const freeQualified = qualified.filter(person => isAvailableAt(person, minute));
+      if (qualified.length && !freeQualified.length) {
+        record(minute, "TSO", 1, 0, qualified.map(person => person.name));
+      }
+    }
+  }
+
+  const names = (away: string[]) =>
+    away.length > 3 ? `${away.slice(0, 3).join(", ")} and ${away.length - 3} more` : away.join(", ");
+  return found.map(shortfall =>
+    shortfall.label === "TSO"
+      ? `TSO ${formatRange(shortfall.start, shortfall.end)}: everyone who can take TSO is away then ` +
+        `(${names(shortfall.away)}). Change someone's times, turn on "TSO" for someone who is around, or close TSO for part of it.`
+      : `${formatRange(shortfall.start, shortfall.end)}: ${shortfall.free} ${shortfall.free === 1 ? "person is" : "people are"} ` +
+        `around for ${shortfall.needed} open ${shortfall.needed === 1 ? "position" : "positions"} — ${names(shortfall.away)} ` +
+        `${shortfall.away.length === 1 ? "is" : "are"} away then. Change someone's times, close a position for ` +
+        `part of it, or add someone.`,
+  );
 }
 
 /** The same feasibility check, run against TSO-qualified people only. */
@@ -373,8 +611,8 @@ function restrictedChannelNotices(state: NightAllocationState, channels: NightCh
     if (!need) continue;
     const pool =
       windowStart >= SECOND_HALF[0] && tso.code === CROSS_HALF_CHANNEL
-        ? qualified.length
-        : poolForWindow(state, windowStart, qualified);
+        ? qualified.filter(person => minutesAvailable(person, windowStart, windowEnd) >= MIN_DUTY_MIN).length
+        : poolForWindow(state, windowStart, qualified, windowEnd);
     if (pool >= 1) continue;
     notices.push(
       `TSO ${formatRange(Math.max(windowStart, tso.openAt), Math.min(windowEnd, tso.closeAt))}: nobody who can ` +
@@ -469,6 +707,10 @@ function validateChannels(state: NightAllocationState, errors: RuleIssue[]) {
       }
     }
 
+    // A DB slot at the opening minute opens the position itself, so there is
+    // no starter to check — the generator ignores the setting there too.
+    if (fixedOpeningDuty(state, channel)) continue;
+
     const starter = channel.starterKey ? findPerson(state, channel.starterKey) : undefined;
     if (channel.starterKey && !starter) {
       errors.push({ message: `${channel.code} is set to start with someone no longer on tonight's shift.`, dutyIds: [] });
@@ -476,6 +718,13 @@ function validateChannels(state: NightAllocationState, errors: RuleIssue[]) {
       errors.push({ message: `${starter.name} is set to start ${channel.code} but isn't available tonight.`, dutyIds: [] });
     } else if (starter && !canTakeChannel(starter, channel.code)) {
       errors.push({ message: `${starter.name} isn't marked as able to take TSO, so can't start it.`, dutyIds: [] });
+    } else if (starter && channel.openAt < channel.closeAt && !isAvailableAt(starter, channel.openAt)) {
+      errors.push({
+        message:
+          `${starter.name} is set to start ${channel.code} at ${formatMinutes(channel.openAt)} but isn't ` +
+          `available then.`,
+        dutyIds: [],
+      });
     }
   }
 }
@@ -509,10 +758,24 @@ function validateUniqueness(state: NightAllocationState, errors: RuleIssue[]) {
 
 function validateHalves(state: NightAllocationState, errors: RuleIssue[]) {
   for (const person of state.people) {
-    if (person.half && !person.available) {
-      const label = person.half === "1st" ? "1st Half" : "2nd Half";
+    if (!person.half) continue;
+    const label = person.half === "1st" ? "1st Half" : "2nd Half";
+    if (!person.available) {
       errors.push({ message: `${person.name} is ${label} but isn't available tonight.`, dutyIds: [] });
+      continue;
     }
+    // Everyone in a half needs a duty inside it, which needs 30 minutes of it.
+    const [from, to] = halfWindow(person.half);
+    const minutes = minutesAvailable(person, from, to);
+    if (minutes >= MIN_DUTY_MIN) continue;
+    errors.push({
+      message: minutes
+        ? `${person.name} is ${label} but is available for only ${minutes} min of it (${formatRange(from, to)}), ` +
+          `too short for a duty.`
+        : `${person.name} is ${label} but isn't available at any time in it (${formatRange(from, to)}).`,
+      dutyIds: [],
+      personKeys: [person.key],
+    });
   }
 }
 
@@ -539,6 +802,16 @@ function validateDuty(state: NightAllocationState, duty: NightDuty, errors: Rule
   const person = findPerson(state, duty.personKey);
   if (!person?.available) {
     errors.push({ message: `${name} isn't available tonight but has ${duty.channelCode} ${range}.`, dutyIds: [duty.id] });
+  } else if (length > 0) {
+    const away = awayDuring(person, duty.startMin, duty.endMin);
+    if (away.length) {
+      errors.push({
+        message:
+          `${name} isn't available ${away.map(([start, end]) => formatRange(start, end)).join(", ")} but has ` +
+          `${duty.channelCode} ${range}.`,
+        dutyIds: [duty.id],
+      });
+    }
   }
   if (person && !canTakeChannel(person, duty.channelCode)) {
     errors.push({
@@ -595,8 +868,10 @@ function validatePersonTimeline(state: NightAllocationState, errors: RuleIssue[]
           });
           continue;
         }
+        // Every pair, not just neighbours: two control duties either side of a
+        // TSO duty still need their 30 minutes, which the TSO duty provides.
         const gap = second.startMin - first.endMin;
-        if (gap < MIN_BREAK_MIN) {
+        if (gap < breakBetween(first.channelCode, second.channelCode)) {
           errors.push({
             message:
               `${name} has a ${gap} min break between ${first.channelCode} (ends ${formatMinutes(first.endMin)}) and ` +
@@ -676,8 +951,9 @@ function validateHalfDuties(state: NightAllocationState, errors: RuleIssue[]) {
       });
     }
 
-    // A half with no duties at all is a night nobody has planned yet, not a breach.
-    if (state.duties.length && !mine.some(duty => overlaps(duty, own[0], own[1]))) {
+    // A half with no duties at all is a night nobody has planned yet, not a
+    // breach — and DB slots alone are not a plan.
+    if (isPlanned(state) && !mine.some(duty => overlaps(duty, own[0], own[1]))) {
       errors.push({
         message: `${person.name} is ${label} but has no duty between ${formatMinutes(own[0])} and ${formatMinutes(own[1])}.`,
         dutyIds: [],
@@ -688,7 +964,8 @@ function validateHalfDuties(state: NightAllocationState, errors: RuleIssue[]) {
 }
 
 function validateContinuity(state: NightAllocationState, errors: RuleIssue[]) {
-  if (!state.duties.length) return;
+  // Nothing planned yet — DB slots entered ahead of the plan don't count as one.
+  if (!isPlanned(state)) return;
   for (const channel of openChannels(state)) {
     const gaps = gapsForChannel(state.duties, channel, mergedAwayWindow(state, channel.code));
     if (!gaps.length) continue;
@@ -709,12 +986,13 @@ function collectWarnings(state: NightAllocationState): RuleIssue[] {
   for (const message of staffingNotices(state)) {
     warnings.push({ message, dutyIds: [], isStaffing: true });
   }
-  if (!state.duties.length) return warnings;
+  if (!isPlanned(state)) return warnings;
 
-  // Each channel's chosen starter should actually hold it at its opening minute.
+  // Each channel's chosen starter should actually hold it at its opening minute
+  // — unless a DB slot opens it, which the starter setting gives way to.
   for (const channel of activeChannels(state)) {
     const starterKey = channel.starterKey;
-    if (!starterKey) continue;
+    if (!starterKey || fixedOpeningDuty(state, channel)) continue;
     const held = state.duties.some(
       duty => duty.channelCode === channel.code && duty.startMin === channel.openAt && duty.personKey === starterKey,
     );
@@ -772,13 +1050,13 @@ function mergeWarnings(state: NightAllocationState): RuleIssue[] {
  * Duties under an hour. Legal, and sometimes the only way to keep a night
  * continuous, but the office prefers 1h, 1h 30m or 2h, so each one is named.
  * A position open for under an hour can only have a short duty, and is left
- * out.
+ * out — as is a DB slot, whose length the office fixed.
  */
 function shortDutyWarnings(state: NightAllocationState): RuleIssue[] {
   const short = state.duties
     .filter(duty => {
       const length = dutyLength(duty);
-      if (length <= 0 || length >= PREFERRED_MIN_DUTY_MIN) return false;
+      if (length <= 0 || length >= PREFERRED_MIN_DUTY_MIN || isFixedDuty(duty)) return false;
       const channel = findChannel(state, duty.channelCode);
       return !channel || channel.closeAt - channel.openAt >= PREFERRED_MIN_DUTY_MIN;
     })
@@ -885,4 +1163,22 @@ export function validateAllocation(state: NightAllocationState): ValidationResul
 /** Convenience for callers that only need the yes/no. */
 export function hasHardErrors(state: NightAllocationState): boolean {
   return validateAllocation(state).errors.length > 0;
+}
+
+/**
+ * What is wrong with the DB slots themselves, judged as if nothing else were
+ * on the board: an instructor who is away then, not cleared for TSO, in the
+ * other half, on two slots at once, or a slot outside its position's hours.
+ *
+ * A clash with an ordinary duty is left out on purpose. Those are the plan's
+ * to give way — the next generate plans around the slot — whereas a slot that
+ * breaks a rule on its own makes every plan impossible.
+ */
+export function fixedDutyErrors(state: NightAllocationState): RuleIssue[] {
+  const fixed = state.duties.filter(isFixedDuty);
+  if (!fixed.length) return [];
+  const ids = new Set(fixed.map(duty => duty.id));
+  return validateAllocation({ ...state, duties: fixed }).errors.filter(issue =>
+    issue.dutyIds.some(id => ids.has(id)),
+  );
 }

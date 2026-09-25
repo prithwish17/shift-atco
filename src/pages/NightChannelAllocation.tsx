@@ -34,23 +34,29 @@ import { useNightAllocation, type NightAllocationStatus } from "@/hooks/useNight
 import { useNightAllocationEnabled } from "@/hooks/useNightAllocationEnabled";
 import { useToast } from "@/hooks/use-toast";
 import {
+  DEFAULT_DB_SLOT,
   activeChannels,
   availablePeople,
   findChannel,
   formatNightDate,
+  isFixedDuty,
   isGenerateFailure,
   isNightDate,
+  isPlanned,
   makeDutyId,
   nightDateAt,
   rosterSubtitle,
   uncoveredMinutes,
+  type DbSlotDraft,
   type NightAllocationState,
   type NightDuty,
 } from "@/domain/night-allocation";
 import { AllocationBoard, type BoardView } from "@/components/night-allocation/AllocationBoard";
-import { ChannelsPanel, HalvesPanel, PeoplePanel } from "@/components/night-allocation/SetupPanels";
+import { ChannelsPanel, DbSlotsPanel, HalvesPanel, PeoplePanel } from "@/components/night-allocation/SetupPanels";
 import { ChecksPanel } from "@/components/night-allocation/ChecksPanel";
 import { DutyDialog, type DutyDraft } from "@/components/night-allocation/DutyDialog";
+import { DbSlotDialog } from "@/components/night-allocation/DbSlotDialog";
+import { AvailabilityDialog } from "@/components/night-allocation/AvailabilityDialog";
 import { ShareSheet } from "@/components/night-allocation/ShareSheet";
 import * as actions from "@/components/night-allocation/stateActions";
 
@@ -58,9 +64,22 @@ type Role = "admin" | "supervisor" | "wso" | "employee";
 
 /** How long a two-step confirm stays armed before it quietly stands down. */
 const CONFIRM_WINDOW_MS = 5000;
-const GENERATE_ARMED_TEXT = "This replaces the duties on the board. Tap again to confirm.";
+const GENERATE_ARMED_TEXT = "This replaces the duties on the board — DB slots stay. Tap again to confirm.";
 const RESET_ARMED_TEXT =
-  "Reset clears halves, channel settings, starters and all duties for this night. Tap again to confirm.";
+  "Reset clears halves, everyone's times, channel settings, starters, DB slots and all duties for this night. " +
+  "Tap again to confirm.";
+
+/** The DB dialog's starting point for a slot already on the board. */
+function draftFromSlot(slot: NightDuty): DbSlotDraft {
+  return {
+    id: slot.id,
+    channelCode: slot.channelCode,
+    personKey: slot.personKey,
+    startMin: slot.startMin,
+    endMin: slot.endMin,
+    note: slot.note ?? "",
+  };
+}
 
 /**
  * Which shell to render in. This page is shared by every role, so it follows
@@ -133,6 +152,9 @@ export default function NightChannelAllocation() {
 
   const [view, setView] = useState<BoardView>("channel");
   const [draft, setDraft] = useState<DutyDraft | null>(null);
+  const [slotDraft, setSlotDraft] = useState<DbSlotDraft | null>(null);
+  /** Whose times are open in the availability dialog. */
+  const [timesFor, setTimesFor] = useState<string | null>(null);
   const [focusedDutyId, setFocusedDutyId] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [resetArmed, setResetArmed] = useState(false);
@@ -231,7 +253,9 @@ export default function NightChannelAllocation() {
 
   const handleGenerate = () => {
     if (!state) return;
-    if (state.duties.length && !generateArmed) {
+    // DB slots survive a generate, so a board holding only those has nothing
+    // to lose and needs no second tap.
+    if (isPlanned(state) && !generateArmed) {
       setGenerateArmed(true);
       setGenerateNote({ text: GENERATE_ARMED_TEXT, reasons: [], tone: "neutral" });
       return;
@@ -313,6 +337,30 @@ export default function NightChannelAllocation() {
   const focusDuty = (dutyId: string) => {
     setFocusedDutyId(dutyId);
     window.setTimeout(() => setFocusedDutyId(current => (current === dutyId ? null : current)), 1800);
+  };
+
+  /** A DB slot opens in its own dialog; everything else in the duty editor. */
+  const openDuty = (duty: NightDuty) => {
+    if (isFixedDuty(duty)) setSlotDraft(draftFromSlot(duty));
+    else setDraft({ duty, isNew: false });
+  };
+
+  const openNewSlot = () => {
+    if (!state) return;
+    // TWR 17:30–19:30 is the usual one, so that is where a new slot starts.
+    const channel =
+      state.channels.find(entry => entry.inUse && entry.code === "TWR") ??
+      state.channels.find(entry => entry.inUse) ??
+      state.channels[0];
+    if (!channel) return;
+    const startMin = Math.max(channel.openAt, Math.min(DEFAULT_DB_SLOT[0], channel.closeAt - 60));
+    setSlotDraft({
+      channelCode: channel.code,
+      personKey: "",
+      startMin,
+      endMin: Math.min(channel.closeAt, startMin + (DEFAULT_DB_SLOT[1] - DEFAULT_DB_SLOT[0])),
+      note: "",
+    });
   };
 
   if (!flagLoading && !enabled) {
@@ -402,14 +450,14 @@ export default function NightChannelAllocation() {
                   <Stat label="Positions" value={`${activeChannels(state).length}`} />
                   <Stat
                     label="Cover"
-                    value={state.duties.length ? (uncovered ? `−${uncovered}m` : "Full") : "—"}
-                    tone={state.duties.length ? (uncovered ? "bad" : "good") : "neutral"}
+                    value={isPlanned(state) ? (uncovered ? `−${uncovered}m` : "Full") : "—"}
+                    tone={isPlanned(state) ? (uncovered ? "bad" : "good") : "neutral"}
                   />
                   <Stat
                     label="Problems"
                     value={`${validation.errors.length}`}
                     // An empty board breaks no rule, but it isn't "good" either.
-                    tone={validation.errors.length ? "bad" : state.duties.length ? "good" : "neutral"}
+                    tone={validation.errors.length ? "bad" : isPlanned(state) ? "good" : "neutral"}
                   />
                 </div>
               ) : null}
@@ -435,7 +483,7 @@ export default function NightChannelAllocation() {
                 <Button size="sm" onClick={handleSave} disabled={!state || allocation.save.isPending}>
                   {allocation.save.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
                   Save
-                  {validation.errors.length && state?.duties.length ? (
+                  {validation.errors.length && state && isPlanned(state) ? (
                     <span className="ml-1.5 rounded-full bg-white/20 px-1.5 text-[0.7rem] font-semibold tabular-nums">
                       {validation.errors.length}
                     </span>
@@ -517,6 +565,7 @@ export default function NightChannelAllocation() {
                 state={state}
                 rosterStatus={rosterStatus}
                 onSetAvailability={(key, available) => apply(current => actions.setAvailability(current, key, available))}
+                onEditTimes={setTimesFor}
                 onSetHalf={(key, half) => apply(current => actions.setHalf(current, key, half))}
                 onToggleTso={key => apply(current => actions.toggleTso(current, key))}
                 onAddFromShift={candidate => apply(current => actions.addShiftPerson(current, candidate))}
@@ -527,6 +576,12 @@ export default function NightChannelAllocation() {
                 state={state}
                 currentPersonKey={myKey}
                 onSetHalf={(key, half) => apply(current => actions.setHalf(current, key, half))}
+              />
+              <DbSlotsPanel
+                state={state}
+                errors={validation.errors}
+                onAdd={openNewSlot}
+                onEdit={slot => setSlotDraft(draftFromSlot(slot))}
               />
               <ChannelsPanel
                 state={state}
@@ -592,19 +647,20 @@ export default function NightChannelAllocation() {
                     view={view}
                     problemDutyIds={problemDutyIds}
                     focusedDutyId={focusedDutyId}
-                    onOpenDuty={(duty: NightDuty) => setDraft({ duty, isNew: false })}
+                    onOpenDuty={openDuty}
                     onAddDuty={openNewDuty}
                   />
                   <p className="px-4 py-2.5 text-[0.72rem] text-corp-text-soft sm:px-5">
                     A duty runs 30 min to 2 h — TSO has no maximum — with at least 30 min break before the same
-                    person's next one.
+                    person's next one, except straight onto or off TSO, which needs none. Striped strips marked DB
+                    are fixed slots; the generator plans around them.
                   </p>
                 </CardContent>
               </Card>
 
               <ChecksPanel
                 validation={validation}
-                hasDuties={state.duties.length > 0}
+                hasDuties={isPlanned(state)}
                 onFocusDuty={focusDuty}
               />
             </div>
@@ -615,6 +671,13 @@ export default function NightChannelAllocation() {
       {state ? (
         <>
           <DutyDialog state={state} draft={draft} onClose={() => setDraft(null)} onApply={applyBoard} />
+          <DbSlotDialog state={state} draft={slotDraft} onClose={() => setSlotDraft(null)} onApply={applyBoard} />
+          <AvailabilityDialog
+            state={state}
+            personKey={timesFor}
+            onClose={() => setTimesFor(null)}
+            onSave={(key, availability) => apply(current => actions.setPersonAvailability(current, key, availability))}
+          />
           <ShareSheet
             open={shareOpen}
             onOpenChange={setShareOpen}

@@ -8,8 +8,10 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
+  cleanDbNote,
   defaultChannels,
   inBoardOrder,
+  normalizeAvailability,
   validateAllocation,
   type NightAllocationState,
   type NightChannel,
@@ -487,6 +489,8 @@ interface SavedPersonRow {
   can_take_tso: boolean | null;
   is_manual: boolean | null;
   color_index: number | string | null;
+  /** `{ mode, periods }` when they are on for part of the night; null for all of it. */
+  availability: unknown;
 }
 
 interface SavedDutyRow {
@@ -495,6 +499,25 @@ interface SavedDutyRow {
   person_key: string;
   start_min: number | string;
   end_min: number | string;
+  /** 'duty', or 'db' for a DB slot. */
+  kind: string | null;
+  note: string | null;
+}
+
+/** A stored duty row as the module's own shape — a DB slot keeps its kind and note. */
+function dutyFromRow(entry: SavedDutyRow): NightDuty {
+  const duty: NightDuty = {
+    id: entry.id,
+    channelCode: entry.channel_code,
+    personKey: entry.person_key,
+    startMin: Number(entry.start_min),
+    endMin: Number(entry.end_min),
+  };
+  if (entry.kind === "db") {
+    duty.kind = "db";
+    duty.note = cleanDbNote(entry.note);
+  }
+  return duty;
 }
 
 interface AllocationRow {
@@ -547,7 +570,9 @@ export async function loadState(
     rosterRows ?? nightRosterRows(supabase, nightDate),
     supabase
       .from("night_allocation_people")
-      .select("person_key, user_id, display_name, employee_code, role, is_available, half, can_take_tso, is_manual, color_index")
+      .select(
+        "person_key, user_id, display_name, employee_code, role, is_available, half, can_take_tso, is_manual, color_index, availability",
+      )
       .eq("allocation_id", row.id),
     supabase
       .from("night_allocation_channels")
@@ -555,7 +580,7 @@ export async function loadState(
       .eq("allocation_id", row.id),
     supabase
       .from("night_allocation_duties")
-      .select("id, channel_code, person_key, start_min, end_min")
+      .select("id, channel_code, person_key, start_min, end_min, kind, note")
       .eq("allocation_id", row.id)
       .order("start_min", { ascending: true }),
   ]);
@@ -594,6 +619,7 @@ export async function loadState(
         code: entry.employee_code || initialsFor(entry.display_name ?? ""),
         role: entry.role || "Employee",
         available: !!entry.is_available,
+        availability: normalizeAvailability(entry.availability),
         canTakeTso: !!entry.can_take_tso,
         half: entry.half === "1st" || entry.half === "2nd" ? entry.half : null,
         manual: !!entry.is_manual,
@@ -601,15 +627,7 @@ export async function loadState(
       }),
     ),
     channels: orderedChannels,
-    duties: ((duties.data ?? []) as unknown as SavedDutyRow[]).map(
-      (entry): NightDuty => ({
-        id: entry.id,
-        channelCode: entry.channel_code,
-        personKey: entry.person_key,
-        startMin: Number(entry.start_min),
-        endMin: Number(entry.end_min),
-      }),
-    ),
+    duties: ((duties.data ?? []) as unknown as SavedDutyRow[]).map(dutyFromRow),
     savedByName: row.updated_by_name,
     savedAt: row.updated_at,
   };
@@ -661,6 +679,7 @@ export function parseIncomingState(nightDate: string, body: unknown): NightAlloc
           code: String(person.code ?? "").slice(0, 16),
           role: String(person.role ?? "Employee").slice(0, 80),
           available: person.available !== false,
+          availability: normalizeAvailability(person.availability),
           canTakeTso: !!person.canTakeTso,
           half: HALF_VALUES.has(String(person.half)) ? (person.half as NightPerson["half"]) : null,
           manual: !!person.manual,
@@ -687,13 +706,21 @@ export function parseIncomingState(nightDate: string, body: unknown): NightAlloc
         .map(asRecord)
         .filter(duty => typeof duty.channelCode === "string" && typeof duty.personKey === "string")
         .slice(0, 500)
-        .map((duty, index) => ({
-          id: typeof duty.id === "string" && duty.id ? duty.id.slice(0, 64) : `d${index}`,
-          channelCode: String(duty.channelCode).slice(0, 32),
-          personKey: String(duty.personKey).slice(0, 128),
-          startMin: clampMinute(duty.startMin),
-          endMin: clampMinute(duty.endMin),
-        }));
+        .map((duty, index) => {
+          const parsed: NightDuty = {
+            id: typeof duty.id === "string" && duty.id ? duty.id.slice(0, 64) : `d${index}`,
+            channelCode: String(duty.channelCode).slice(0, 32),
+            personKey: String(duty.personKey).slice(0, 128),
+            startMin: clampMinute(duty.startMin),
+            endMin: clampMinute(duty.endMin),
+          };
+          // Only a DB slot carries a kind and a note; anything else is an ordinary duty.
+          if (duty.kind === "db") {
+            parsed.kind = "db";
+            parsed.note = cleanDbNote(duty.note);
+          }
+          return parsed;
+        });
 
   const pref = Math.round(Number(raw.dutyLengthPref));
   return {
@@ -748,6 +775,7 @@ export async function saveState(
       employee_code: person.code || null,
       role: person.role,
       is_available: person.available,
+      availability: person.availability ?? null,
       half: person.half,
       can_take_tso: person.canTakeTso,
       is_manual: person.manual,
@@ -758,6 +786,8 @@ export async function saveState(
       person_key: duty.personKey,
       start_min: duty.startMin,
       end_min: duty.endMin,
+      kind: duty.kind === "db" ? "db" : "duty",
+      note: duty.kind === "db" ? duty.note ?? null : null,
     })),
     p_actor: actor.id,
     p_actor_name: actor.name,

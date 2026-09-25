@@ -161,3 +161,61 @@ describe("server-side validation", () => {
     expect(validate(state).errors.some(issue => issue.message.includes("able to take TSO"))).toBe(true);
   });
 });
+
+describe("DB slots and part-night times over the wire", () => {
+  const person = {
+    key: "p1",
+    name: "Person One",
+    available: true,
+    availability: { mode: "except", periods: [[240, 360], [-100, 30], [500, 400]] },
+  };
+
+  it("keeps a DB slot's kind and trainee note, and nothing like it on an ordinary duty", () => {
+    const state = parseIncomingState("2026-09-17", {
+      state: {
+        people: [person],
+        channels: [{ code: "TWR", inUse: true, openAt: 0, closeAt: 720 }],
+        duties: [
+          { id: "db1", channelCode: "TWR", personKey: "p1", startMin: 240, endMin: 360, kind: "db", note: " Sulagna " },
+          { id: "d1", channelCode: "TWR", personKey: "p1", startMin: 0, endMin: 120, kind: "vip", note: "ignored" },
+        ],
+      },
+    });
+    expect(state.duties[0]).toMatchObject({ kind: "db", note: "Sulagna" });
+    expect(state.duties[1].kind).toBeUndefined();
+    expect(state.duties[1].note).toBeUndefined();
+  });
+
+  it("bounds a trainee note however long it arrives", () => {
+    const state = parseIncomingState("2026-09-17", {
+      state: {
+        people: [person],
+        duties: [{ id: "db1", channelCode: "TWR", personKey: "p1", startMin: 240, endMin: 360, kind: "db", note: "x".repeat(5000) }],
+      },
+    });
+    expect(state.duties[0].note).toHaveLength(40);
+  });
+
+  it("tidies part-night times into the night and drops ones that make no sense", () => {
+    const state = parseIncomingState("2026-09-17", { state: { people: [person] } });
+    expect(state.people[0].availability).toEqual({ mode: "except", periods: [[0, 30], [240, 360]] });
+
+    const nonsense = parseIncomingState("2026-09-17", {
+      state: { people: [{ ...person, availability: { mode: "whenever", periods: [[0, 60]] } }] },
+    });
+    expect(nonsense.people[0].availability).toBeNull();
+  });
+
+  it("refuses to save a duty in time someone is away", () => {
+    const state = parseIncomingState("2026-09-17", {
+      state: {
+        people: [person, { key: "p2", name: "Person Two", available: true }],
+        channels: [{ code: "TWR", inUse: true, openAt: 180, closeAt: 300 }],
+        duties: [{ id: "d1", channelCode: "TWR", personKey: "p1", startMin: 180, endMin: 300 }],
+      },
+    });
+    expect(validate(state).errors.map(issue => issue.message)).toContain(
+      "Person One isn't available 17:30–18:30 but has TWR 16:30–18:30.",
+    );
+  });
+});

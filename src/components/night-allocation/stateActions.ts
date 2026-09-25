@@ -14,15 +14,22 @@ import {
   MERGE_WINDOW,
   TSO_CHANNEL,
   coerceChannelWindow,
+  describeAvailability,
   formatRange,
   mergeTargetFor,
   findChannel,
   formatDuration,
   formatMinutes,
+  isAvailableAt,
+  isFixedDuty,
+  isFreeDuring,
+  normalizeAvailability,
   refitChannel,
+  removeDbSlot as removeSlot,
   type HalfKey,
   type NightAllocationState,
   type NightPerson,
+  type PersonAvailability,
 } from "@/domain/night-allocation";
 
 export interface Applied {
@@ -57,7 +64,9 @@ export function setAvailability(state: NightAllocationState, personKey: string, 
   }
 
   const { channels, startedChannels } = clearDependencies(state, personKey);
-  const dutyCount = state.duties.filter(duty => duty.personKey === personKey).length;
+  const mine = state.duties.filter(duty => duty.personKey === personKey);
+  const dutyCount = mine.length;
+  const slotCount = mine.filter(isFixedDuty).length;
   const clearedHalf = person.half ? halfLabel(person.half) : null;
 
   return {
@@ -72,8 +81,63 @@ export function setAvailability(state: NightAllocationState, personKey: string, 
       `${person.name} marked not available.` +
       (clearedHalf ? ` Removed from ${clearedHalf}.` : "") +
       (startedChannels.length ? ` Pick a new starter for ${startedChannels.join(", ")}.` : "") +
-      (dutyCount ? ` Reassign their ${dutyCount} ${dutyCount === 1 ? "duty" : "duties"}.` : ""),
+      (dutyCount ? ` Reassign their ${dutyCount} ${dutyCount === 1 ? "duty" : "duties"}.` : "") +
+      (slotCount
+        ? ` ${slotCount === 1 ? "A DB slot needs" : `${slotCount} DB slots need`} another instructor.`
+        : ""),
   };
+}
+
+/**
+ * The part of the night someone is around for — only between some times, or
+ * away between some — or `null` for the whole night.
+ *
+ * A starter who is away when their position opens can't open it, so that goes
+ * the way it does when someone is marked not available. Their duties stay put:
+ * the ones that now fall in time they're away show in the checks panel, and the
+ * next generate plans around them.
+ */
+export function setPersonAvailability(
+  state: NightAllocationState,
+  personKey: string,
+  availability: PersonAvailability | null,
+): Applied {
+  const person = state.people.find(entry => entry.key === personKey);
+  if (!person) return { state, note: "" };
+
+  const normalized = normalizeAvailability(availability);
+  const updated: NightPerson = { ...person, availability: normalized };
+  const lostStarts = state.channels
+    .filter(channel => channel.starterKey === personKey && !isAvailableAt(updated, channel.openAt))
+    .map(channel => channel.code);
+  const clashing = person.available
+    ? state.duties.filter(duty => duty.personKey === personKey && !isFreeDuring(updated, duty.startMin, duty.endMin))
+    : [];
+
+  const summary = describeAvailability(normalized);
+  return {
+    state: {
+      ...state,
+      channels: state.channels.map(channel =>
+        lostStarts.includes(channel.code) && channel.starterKey === personKey ? { ...channel, starterKey: null } : channel,
+      ),
+      people: state.people.map(entry => (entry.key === personKey ? updated : entry)),
+    },
+    note:
+      (normalized
+        ? `${person.name}: ${summary.charAt(0).toLowerCase()}${summary.slice(1)}.`
+        : `${person.name} is around all night.`) +
+      (lostStarts.length ? ` They're away when ${lostStarts.join(", ")} opens — pick a new starter.` : "") +
+      (clashing.length
+        ? ` ${clashing.length === 1 ? "One of their duties falls" : `${clashing.length} of their duties fall`} ` +
+          `in that time — generate again, or reassign ${clashing.length === 1 ? "it" : "them"}.`
+        : ""),
+  };
+}
+
+/** Take a DB slot off the board — the DB panel's remove button. */
+export function removeDbSlot(state: NightAllocationState, slotId: string): Applied {
+  return removeSlot(state, slotId);
 }
 
 export function setHalf(state: NightAllocationState, personKey: string, half: HalfKey): Applied {
@@ -209,6 +273,7 @@ export function setChannelInUse(state: NightAllocationState, code: string, inUse
   }
 
   const dropped = state.duties.filter(duty => duty.channelCode === code).length;
+  const droppedSlots = state.duties.filter(duty => duty.channelCode === code && isFixedDuty(duty)).length;
   // A position folded into this one has nothing left to fold into. Left set,
   // the merge would be an error the switch could no longer turn off.
   const unmerged = state.channels.filter(channel => channel.mergedInto === code).map(channel => channel.code);
@@ -227,6 +292,9 @@ export function setChannelInUse(state: NightAllocationState, code: string, inUse
     note:
       `${code} not needed tonight.` +
       (dropped ? ` Removed its ${dropped} ${dropped === 1 ? "duty" : "duties"}.` : "") +
+      (droppedSlots
+        ? ` ${droppedSlots === 1 ? "That included its DB slot" : `That included its ${droppedSlots} DB slots`}.`
+        : "") +
       (unmerged.length
         ? ` ${unmerged.join(", ")} no longer merged into it, so ${unmerged.length === 1 ? "it needs" : "they need"} ` +
           `cover of ${unmerged.length === 1 ? "its" : "their"} own ${formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1])}.`
@@ -299,6 +367,23 @@ export function setMergeSmcCld(state: NightAllocationState, merged: boolean): Ap
     return {
       state,
       note: `No SMC is in use and open across ${formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1])}, so there is nothing to merge ${MERGE_SOURCE_CHANNEL} into.`,
+    };
+  }
+  // Merging drops CLD's own duties in the window, and a DB slot is not the
+  // merge's to drop — it was put there on purpose.
+  const slotInWindow = state.duties.find(
+    duty =>
+      isFixedDuty(duty) &&
+      duty.channelCode === MERGE_SOURCE_CHANNEL &&
+      duty.startMin < MERGE_WINDOW[1] &&
+      duty.endMin > MERGE_WINDOW[0],
+  );
+  if (merged && slotInWindow) {
+    return {
+      state,
+      note:
+        `${MERGE_SOURCE_CHANNEL} has a DB slot ${formatRange(slotInWindow.startMin, slotInWindow.endMin)}, so it ` +
+        `can't be merged ${formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1])}. Move or remove the slot first.`,
     };
   }
 

@@ -111,6 +111,64 @@ shift**, which offers everyone on the night roster whatever their unit
 (`GET /api/night-allocation/:date/shift`), or add a name by hand. People added
 either way are marked `is_manual` and can be removed again.
 
+### Part-night availability
+
+Someone can be on the crew for only part of the night. The times chip on each
+crew row ("All night", "Away 17:30–19:30 +1", "Only 13:30–17:30") opens an
+editor with three modes — **All night**, **Only between**, **Not between** —
+and as many periods as needed (up to `MAX_AVAILABILITY_PERIODS`, 8).
+
+Periods can be picked, tapped from shortcuts (13:30–17:30, 1st Half, 2nd
+Half), or **typed the way the roster writes them**: `1730-1930, 2330-0130`,
+`17:30 to 19:30`, `(2330-0130)`, `till 2130`, `after 2330`. A word in front
+says which way round — `not`, `away`, `off`, `busy`, `leave`, `meeting` for
+time away; `only`, `available`, `here` for time around — and `all night`
+clears them. A time before 13:30 counts as 13:30 and one after 01:30 as 01:30
+(`1200-1500` is away until 15:00); a range wholly outside the night is
+refused. Times go onto the 15-minute grid in whichever direction never
+promises more than was typed: time away only grows, time around only shrinks.
+The parser is `parseAvailabilityText` in
+[`availability.ts`](../src/domain/night-allocation/availability.ts).
+
+The person carries what was entered (`{ mode, periods }`). Everything else
+asks `availability.ts` for the stretches they are away and never reads the
+periods itself, so "only" and "except" cannot be handled two different ways.
+`available: false` still means the whole night off, whatever the periods say.
+
+## DB slots
+
+A DB slot reserves a position for training at a fixed time — TWR 17:30–19:30,
+say. It asks for the **instructor**, because the instructor is the one actually
+marked on the position then, and the shared roster shows their name with DB
+beside it: `1730-1930 Rehan Ahmed (DB · Sulagna)`. The trainee's name is
+optional free text (`DB_NOTE_MAX`, 40 characters).
+
+It is stored as a duty held by the instructor with `kind: "db"`, so **every
+hard rule applies to it exactly as to any duty**: the instructor must be
+available and around then, cleared for TSO on TSO, in the right half, not on
+two things at once, rested 30 minutes either side, and within the 30 min–2 h
+bounds on a capped position. What makes it a slot is that nothing moves it as
+a side effect:
+
+- **The generator plans around it.** It is handed back untouched in every plan.
+- **A board holding only DB slots is still unplanned** (`isPlanned`), so it is
+  not reported as a night with every other stretch uncovered, and it can be
+  saved ahead of the plan. It can't be shared or emailed until there is one.
+- **Putting a slot down always applies once the slot itself is sound.** On a
+  planned night, ordinary duties on the same position are cut back to make
+  room with no gap; a clash left for the instructor elsewhere is reported, and
+  the next generate plans around it. What is wrong with the slot on its own
+  terms (`fixedDutyErrors`) stops it going down. Placing, moving and removing
+  are in [`db-slots.ts`](../src/domain/night-allocation/db-slots.ts).
+- **A slot at a position's opening opens it.** The Starts picker gives way to
+  it, and the starter rules skip that position.
+- **A slot leaving a stretch under 30 minutes** — a position opening at 17:15
+  with a slot from 17:30 — makes the night impossible however many people there
+  are, so it is named in the checks and the generator refuses with it.
+- **The merge** is not reached for automatically when either CLD or its SMC has
+  a slot in the merge window, and the manual switch refuses while CLD has one
+  there.
+
 ## 3. The rules
 
 Implemented once, in
@@ -141,7 +199,13 @@ validation therefore cannot disagree.
    the night needs. See `UNCAPPED_DUTY_CHANNELS`; callers use `maxDutyFor()`
    rather than `MAX_DUTY_MIN`, or the rules and the solver disagree about TSO.
 5. **Break.** At least 30 minutes between a person's duties, including across
-   midnight.
+   midnight — **except going onto or coming off TSO, which needs none**
+   (`BREAK_EXEMPT_CHANNELS`, checked through `breakBetween()`). Relieved from
+   TWR at 15:00, someone may take TSO from 15:00; relieved from TSO at 21:30,
+   they may take SMC from 21:30. Between any two other positions the 30 minutes
+   still apply, measured between those two duties — so TWR, then TSO, then SMC
+   back to back is legal, because the TSO duty between them is itself at least
+   30 minutes.
 6. **Halves.** Nobody is in both. A 1st Half person holds nothing overlapping
    21:30–01:30; a 2nd Half person holds nothing overlapping 17:30–21:30; and
    everyone in a half holds at least one duty inside their own half.
@@ -154,7 +218,10 @@ validation therefore cannot disagree.
 7. **TSO qualification.** Only people flagged `can_take_tso` may hold TSO, start
    it, or appear in a TSO person picker.
 8. **Availability.** Only people marked available may hold a duty, be in a half,
-   or be a starter.
+   or be a starter — and, for someone around for only part of the night, only
+   inside the time they are around. A duty may end exactly when they leave and
+   start exactly when they are back. A starter must be around at the opening
+   minute, and someone in a half must be around for at least 30 minutes of it.
 9. **Valid times.** `start < end`, both inside the night and inside the
    channel's open window.
 10. **Once each.** Every person and every position appears once. The page cannot
@@ -167,7 +234,7 @@ validation therefore cannot disagree.
   under an hour is the last resort (`PREFERRED_DUTY_LENGTHS`,
   `PREFERRED_MIN_DUTY_MIN`, ranked by `dutyLengthRank`). Every duty under an
   hour is named in one suggestion, except on a position open for less than an
-  hour, which can do no better.
+  hour, which can do no better, and a DB slot, whose length was fixed.
 - The 2nd Half person on CLD from 21:30, and CLD as an earlier relieving duty
   for 2nd Half people where possible.
 - Each channel's chosen starter actually holding it at its opening minute.
@@ -177,10 +244,24 @@ validation therefore cannot disagree.
   the people who can work it, the channel-minutes open in it, and the ceiling
   that one person can be on duty for at most 120 of every 150 minutes.
   **Uncapped positions are counted separately** — that ceiling exists because of
-  the two-hour cap, so TSO contributes one person tied up for the window rather
-  than a share of the bound. The TSO-specific check asks only whether anyone
+  the two-hour cap. TSO's minutes are added on top, less whatever of them can
+  be worked in the breaks between control duties: TSO needs no break either
+  side, so someone cleared for it can spend those 30 minutes on TSO instead of
+  resting. That saving is capped by the breaks there are and by the share of
+  them the people cleared for TSO take (a fifth of their time), so with only
+  one person cleared, TSO still ties one person up for the window. Four people
+  all cleared for TSO can therefore cover TWR, SMC-S, CLD and TSO all night;
+  four with only two cleared cannot, and the notice says five are needed. The
+  TSO-specific check asks only whether anyone
   qualified is free at all, and in the 2nd Half the 1st Half's qualified people
-  count, because TSO is the position the halves may be crossed for.
+  count, because TSO is the position the halves may be crossed for. Someone
+  around for less than 30 minutes of a window doesn't count towards it.
+- **Shortfalls the entered times cause**, checked on every 15-minute slot:
+  fewer people around than positions open, or nobody cleared for TSO around,
+  where there would be enough with everyone there all night. These name who is
+  away — "17:30–19:30: 2 people are around for 3 open positions — Asha Rao is
+  away then" — which the window bound cannot.
+- **Stretches too short for any duty** that a DB slot or the merge leaves.
 
 ## 4. The solver
 
@@ -192,6 +273,21 @@ was given: a refusal leaves the existing duties untouched.
 **Shape of the search.** A handover search: repeatedly take the channel whose
 cover ends earliest, choose (person, end time) for the next duty, and backtrack
 on failure.
+
+**Stretches.** The search models a channel as one continuous window, so a
+position is handed to it as the stretches ordinary duties must cover
+(`stretchesToPlan`): its open window less the merge window and less its DB
+slots. Each stretch is planned as the position it belongs to — the stretch of
+TSO after a slot is still TSO, qualification, uncapped length and all — and a
+stretch too short for any duty is kept, so the search fails on it rather than
+returning a plan with a hole where it was. The chosen starter opens the first
+stretch only when it starts at the opening.
+
+**DB slots and time away.** A person is offered a duty only if they are around
+for all of it and a full break clear of their own DB slots; the slots count
+towards their workload and their half from the start, and they are handed back
+untouched in the plan. The pools behind the staggering and the pruning count
+only the people around at that minute.
 
 **Staggering.** With `k` open channels and a pool of `n` people, handovers every
 `I` minutes give duties of `k × I` and breaks of `(n − k) × I`. `I` is picked on
@@ -222,17 +318,33 @@ are kept free for TSO when few are qualified.
 people must cover the channels falling due within the next 30 minutes, and TSO
 must always have a qualified, rested person available at its own handover.
 
+**Straight onto and off TSO.** It is the rule, not a relaxation, but letting the
+search use it (`tsoWithoutBreak`) widens the search a lot, and on a big night
+the wider search finds a plan less often inside its node budget. So each duty
+length is tried first with a real break after every duty — exactly the search
+there was before TSO needed none, so every night that planned then still plans
+the same way, and everyone gets a real rest where staffing allows — and then
+the same length with TSO taken straight onto and off. On a night with no TSO
+open the two are the same search, and it runs once. In the wider search nobody
+is handed TSO straight back from themselves, and when everyone would otherwise
+be busy the rhythm is set by the control positions alone, with TSO turns as
+the rest between them.
+
 **Budget.** ~1.5 s of restarts, or ~0.5 s when the staffing check already says
 the night is impossible. It runs **server-side**, so a long search never blocks
 the board; the button shows a busy state. The budget is **shared between the
 attempts** (`restartBudgets`), in proportion to their weights: the all-long
-night and the night with short duties allowed weigh 2 each, and the TSO
+night and the night with short duties allowed weigh 2 each with a real break
+after every duty, 1 each with TSO taken straight onto and off, and the TSO
 crossover, the merge and both together weigh 1, so each gets randomised
 restarts of its own rather than only two fixed passes.
 
 **On failure** it returns `{ ok: false, error, reasons }`, where `reasons` are
 the staffing notices when there are any, or a hint to change a starter, an open
-time, or a half.
+time, or a half. Some settings are refused before any search: a DB slot that
+breaks a rule on its own (the reasons list what), a stretch too short for a
+duty, a starter who is away at the opening, and someone in a half they are
+away for.
 
 ## 5. Editing
 
@@ -261,6 +373,12 @@ would otherwise creep in.
   new boundaries and drops duties entirely outside it.
 - The first duty's start and the last duty's end are pinned to the channel's
   open and close times.
+- **DB slots don't move.** A linked handover that would drag one is refused
+  (and the dialog pins that end); a delete beside one hands the time to the
+  other neighbour; a slot is never split; a channel re-fit never stretches one,
+  only cuts it where the new hours cut into it, or drops it when it falls
+  outside them. Tapping a slot on the board opens the DB dialog, not the duty
+  editor.
 
 ## 6. Data model
 
@@ -268,8 +386,8 @@ would otherwise creep in.
 | --- | --- |
 | `night_allocations` | One row per night: `night_date`, `duty_length_pref`, `status`, `version`, who saved it and when. |
 | `night_allocation_channels` | Per night: `in_use`, `open_at`, `close_at`, `starter_key`. |
-| `night_allocation_people` | Per night: availability, half, a **snapshot** of `can_take_tso`, and `role` — which carries the roster unit (`TWR`, `SMC-N & SMC-S`) for seeded people and the designation for anyone added by hand. |
-| `night_allocation_duties` | `channel_code`, `person_key`, `start_min`, `end_min`. |
+| `night_allocation_people` | Per night: availability, half, a **snapshot** of `can_take_tso`, and `role` — which carries the roster unit (`TWR`, `SMC-N & SMC-S`) for seeded people and the designation for anyone added by hand. `availability` (JSONB) holds part-night times as entered, `{"mode": "only" \| "except", "periods": [[start, end], …]}` in minutes from 13:30; NULL is the whole night. |
+| `night_allocation_duties` | `channel_code`, `person_key`, `start_min`, `end_min`, and `kind` — `'duty'`, or `'db'` for a DB slot, whose `person_key` is the instructor and whose `note` is the trainee. |
 | `night_allocation_audit` | One row per save, generate, reset, share and email, with the acting user. |
 
 `profiles.can_take_tso` is the person-level attribute, edited in **Employee
@@ -330,7 +448,10 @@ can do it. The rules for what is offered live in
 Every format leads the same way: **title, then a sub-header naming the team and
 the shift** (`Team A · Night`, derived from `rosters.team` rather than stored),
 then the date and window, then **who is in each half**, and then **both
-rosters** — by position and by person. The halves come first because they are
+rosters** — by position and by person. A DB slot reads as the instructor's
+line with DB and the trainee beside it — `1730-1930 Rehan Ahmed (DB · Sulagna)`
+by position, `1730-1930 TWR (DB · Sulagna)` by person — and is drawn dashed in
+the image, as on the board. The halves come first because they are
 what a reader checks first; both rosters are included because a supervisor reads
 down the positions and everyone else looks for their own name.
 
@@ -388,9 +509,9 @@ channels and gain the new one, unticked configuration and all, on next load.
 | File | Covers |
 | --- | --- |
 | `src/domain/night-allocation/__tests__/rules.test.ts` | Every hard rule, positive and negative, plus the staffing notices. |
-| `.../solver.test.ts` | The classic 3-channel/4-person night, TSO with exactly two qualified people, part-night channels, several people per half, the duty-length preference, preferred lengths (1h or more wherever possible, short duties only when nothing else works), and refusals. |
+| `.../solver.test.ts` | Four people cleared for TSO covering three control positions and TSO by using TSO as the break; a night with enough people still getting a real break after every duty. The classic 3-channel/4-person night, TSO with exactly two qualified people, part-night channels, several people per half, the duty-length preference, preferred lengths (1h or more wherever possible, short duties only when nothing else works), and refusals. |
 | `.../editing.test.ts` | Linked handovers, delete-merge, split, channel re-fit. Uncovered minutes stay at zero after every accepted operation, refused operations leave state untouched, and one of two already-broken duties can be fixed without the other blocking it. |
-| `.../fuzz.test.ts` | 250 random nights (5–14 people, 3–5 channels, random halves, TSO flags and close times). Every returned plan has zero uncovered minutes and zero hard-rule violations; every refusal carries an explanation; runtime stays inside budget. |
+| `.../fuzz.test.ts` | 250 random nights (5–14 people, 3–5 channels, random halves, TSO flags and close times). Every returned plan has zero uncovered minutes and zero hard-rule violations; every refusal carries an explanation; runtime stays inside budget. Then 150 more with random part-night times and DB slots, where every plan also hands the slots back untouched. |
 | `.../roster-text.test.ts` | The share formats. |
 | `lib/nightAllocation/service.test.ts` | The API's payload coercion — clamping, truncation, caps — and that server-side validation catches what a hostile client would send. |
 | `lib/nightAllocation/roster-rows.test.ts` | Reading the Google Sheet roster: unit spellings, name parsing, the half column, and rejecting working notes written in the name cell. |
@@ -398,13 +519,19 @@ channels and gain the new one, unticked configuration and all, on next load.
 | `lib/nightAllocation/emailPayload.test.ts` | Recipient and attachment vetting for the email route. |
 | `lib/nightAllocation/load-state.test.ts` | Reading a night against an in-memory Supabase: the roster is read once, profiles are paged past the 1,000-row cap, and positions come back in board order. |
 | `src/domain/night-allocation/__tests__/time.test.ts` | Which night a moment belongs to, across midnight, month and year ends; real calendar dates. |
+| `src/domain/night-allocation/__tests__/availability.test.ts` | Part-night times: "only" and "except", the minute someone leaves and returns, tidying what arrives, and the quick-entry parser — ranges, open ends, words, times outside the night, rounding the safe way. |
+| `src/domain/night-allocation/__tests__/db-slots.test.ts` | Placing, moving and removing DB slots: what refuses one, cutting the plan back with no gap, clashes that don't refuse, the trainee note. |
 | `src/components/night-allocation/__tests__/shareGate.test.ts` | What the share sheet offers for empty, broken, unsaved and saved nights. |
 | `src/components/night-allocation/__tests__/stateActions.test.ts` | Page actions: unticking a merge target clears the merge, and the merge switch can always turn a stale merge off. |
 
 ## 11. Rollout
 
-1. Run the migration. It creates the tables, adds `profiles.can_take_tso`
-   (default `false`), and seeds the feature toggle as **on**.
+1. Run the migrations. The first creates the tables, adds
+   `profiles.can_take_tso` (default `false`), and seeds the feature toggle as
+   **on**. `20260925120000_night_allocation_db_slots_and_availability.sql` adds
+   the DB-slot and availability columns and the save function that writes
+   them — **run it before deploying the code that reads them**, or every saved
+   night fails to load.
 2. Set `can_take_tso` for the people who may take TSO, in **Employee
    Management → Edit Employee**. Until at least two people on a night are
    flagged, the module will correctly refuse to plan continuous TSO cover and

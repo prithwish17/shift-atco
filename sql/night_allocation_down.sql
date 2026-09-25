@@ -10,7 +10,9 @@
 -- that statement out to keep the column while removing everything else.
 
 -- The merge column goes with the tables it belongs to, so there is nothing
--- extra to undo for 20260920160000_night_allocation_merge.sql.
+-- extra to undo for 20260920160000_night_allocation_merge.sql — and the same
+-- is true of the DB-slot and availability columns added by
+-- 20260925120000_night_allocation_db_slots_and_availability.sql.
 
 DROP FUNCTION IF EXISTS public.night_allocation_save(
   DATE, INTEGER, SMALLINT, TEXT, JSONB, JSONB, JSONB, UUID, TEXT

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { NIGHT_SPAN_MIN } from "../constants";
 import { generateAllocation, restartBudgets, solveContinuous } from "../solver";
 import { uncoveredMinutes, validateAllocation } from "../rules";
-import { channel, night, refused, team, withStarters } from "./fixtures";
+import { channel, dbSlot, duty, night, refused, team, withStarters } from "./fixtures";
 import type { NightAllocationState } from "../types";
 
 /**
@@ -501,5 +501,217 @@ describe("preferred duty lengths", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(under(result.state.duties, 60).length).toBeGreaterThan(0);
+  });
+});
+
+describe("DB slots", () => {
+  it("plans the night around a slot and hands it back untouched", () => {
+    const slot = dbSlot("TWR", "p1", 240, 360, "Sulagna");
+    const state = night({
+      people: team(5),
+      channels: [channel("TWR"), channel("SMC-S"), channel("CLD")],
+      duties: [slot],
+    });
+
+    const result = generateAllocation(state, { budgetMs: 2000, seed: 3 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectContinuousAndLegal(result.state);
+
+    expect(result.state.duties.filter(duty => duty.kind === "db")).toEqual([slot]);
+    // Nobody else is on TWR during the slot, and the instructor is rested
+    // either side of it like after any duty.
+    const onTwrDuringSlot = result.state.duties.filter(
+      duty => duty.channelCode === "TWR" && duty.id !== slot.id && duty.startMin < 360 && duty.endMin > 240,
+    );
+    expect(onTwrDuringSlot).toEqual([]);
+    for (const duty of result.state.duties.filter(entry => entry.personKey === "p1" && entry.id !== slot.id)) {
+      expect(duty.endMin <= 210 || duty.startMin >= 390, `p1 has ${duty.channelCode} too close to the slot`).toBe(true);
+    }
+  });
+
+  it("lets a slot open a position, whoever was chosen to start it", () => {
+    const slot = dbSlot("TWR", "p1", 0, 120);
+    const state = night({
+      people: team(5),
+      channels: [channel("TWR", { starterKey: "p2" }), channel("SMC-S"), channel("CLD")],
+      duties: [slot],
+    });
+    const result = generateAllocation(state, { budgetMs: 2000, seed: 5 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectContinuousAndLegal(result.state);
+    expect(result.state.duties.find(duty => duty.channelCode === "TWR" && duty.startMin === 0)?.id).toBe(slot.id);
+  });
+
+  it("keeps TSO's qualification on the stretch after a slot on TSO", () => {
+    const state = night({
+      people: team(6, { tso: [1, 2, 3] }),
+      channels: [channel("TWR"), channel("TSO")],
+      duties: [dbSlot("TSO", "p1", 240, 360)],
+    });
+    const result = generateAllocation(state, { budgetMs: 2000, seed: 2 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectContinuousAndLegal(result.state);
+    const tsoHolders = new Set(result.state.duties.filter(duty => duty.channelCode === "TSO").map(duty => duty.personKey));
+    expect([...tsoHolders].every(key => ["p1", "p2", "p3"].includes(key))).toBe(true);
+  });
+
+  it("covers two slots back to back", () => {
+    const first = dbSlot("TWR", "p1", 240, 360);
+    const second = dbSlot("TWR", "p2", 360, 480, "Richa");
+    const state = night({ people: team(6), channels: [channel("TWR"), channel("SMC-S")], duties: [first, second] });
+    const result = generateAllocation(state, { budgetMs: 2000, seed: 4 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectContinuousAndLegal(result.state);
+    expect(result.state.duties.filter(duty => duty.kind === "db")).toEqual([first, second]);
+  });
+
+  it("returns the slots alone when they already cover every open minute", () => {
+    const slot = dbSlot("TWR", "p1", 240, 360);
+    const state = night({ people: team(2), channels: [channel("TWR", { openAt: 240, closeAt: 360 })], duties: [slot] });
+    expect(solveContinuous(state)).toEqual([slot]);
+  });
+
+  it("refuses, naming the stretch, when a slot leaves too little to cover", () => {
+    const state = night({
+      people: team(5),
+      channels: [channel("TWR", { closeAt: 375 })],
+      duties: [dbSlot("TWR", "p1", 240, 360)],
+    });
+    const refusal = refused(generateAllocation(state, { budgetMs: 200, seed: 1 }));
+    expect(refusal.error).toBe("Part of a position is too short for any duty, so no plan can cover it.");
+    expect(refusal.reasons[0]).toContain("TWR 19:30–19:45 is only 15 min");
+  });
+
+  it("refuses a slot that breaks a rule on its own, before searching", () => {
+    const people = team(4);
+    people[0].available = false;
+    const state = night({ people, channels: [channel("TWR")], duties: [dbSlot("TWR", "p1", 240, 360)] });
+    const refusal = refused(generateAllocation(state, { budgetMs: 200, seed: 1 }));
+    expect(refusal.error).toContain("A DB slot breaks a rule");
+    expect(refusal.reasons).toContain("Person 1 isn't available tonight but has TWR 17:30–19:30.");
+  });
+
+  it("replaces an old plan but not the slots", () => {
+    const slot = dbSlot("TWR", "p1", 240, 360);
+    const state = night({
+      people: team(5),
+      channels: [channel("TWR"), channel("SMC-S")],
+      duties: [slot, duty("SMC-S", "p2", 0, 120)],
+    });
+    const result = generateAllocation(state, { budgetMs: 2000, seed: 6 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.state.duties.some(duty => duty.id === slot.id)).toBe(true);
+    expectContinuousAndLegal(result.state);
+  });
+});
+
+describe("part-night availability", () => {
+  it("gives nobody a duty in time they're away, and keeps someone around only early to the early part", () => {
+    const people = team(6);
+    people[0].availability = { mode: "except", periods: [[240, 360]] };
+    people[1].availability = { mode: "only", periods: [[0, 240]] };
+    const state = night({ people, channels: [channel("TWR"), channel("SMC-S"), channel("CLD")] });
+
+    const result = generateAllocation(state, { budgetMs: 2000, seed: 9 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectContinuousAndLegal(result.state);
+
+    for (const duty of result.state.duties) {
+      if (duty.personKey === "p1") expect(duty.endMin <= 240 || duty.startMin >= 360).toBe(true);
+      if (duty.personKey === "p2") expect(duty.endMin).toBeLessThanOrEqual(240);
+    }
+  });
+
+  it("covers a night where someone leaves partway through", () => {
+    // Two positions until 19:00 and four people, one of whom leaves at 17:30:
+    // the other three rotate through the last stretch between them.
+    const people = team(4);
+    people[3].availability = { mode: "only", periods: [[0, 240]] };
+    const state = night({
+      people,
+      channels: [channel("TWR", { closeAt: 330 }), channel("SMC-S", { closeAt: 330 })],
+    });
+    const result = generateAllocation(state, { budgetMs: 2000, seed: 2 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectContinuousAndLegal(result.state);
+  });
+
+  it("refuses a starter who is away when the position opens", () => {
+    const people = team(4);
+    people[0].availability = { mode: "except", periods: [[0, 60]] };
+    const state = night({ people, channels: [channel("TWR", { starterKey: "p1" }), channel("SMC-S")] });
+    const refusal = refused(generateAllocation(state, { budgetMs: 200, seed: 1 }));
+    expect(refusal.error).toBe("Person 1 isn't available at 13:30, so can't start TWR. Pick someone else, or change their times.");
+  });
+
+  it("refuses someone in a half they're away for", () => {
+    const people = team(5, { halves: { 1: "1st" } });
+    people[0].availability = { mode: "except", periods: [[240, 480]] };
+    const state = night({ people, channels: [channel("TWR"), channel("SMC-S")] });
+    const refusal = refused(generateAllocation(state, { budgetMs: 200, seed: 1 }));
+    expect(refusal.error).toBe(
+      "Person 1 is in a half but away for nearly all of it. Take them out of the half, or change their times.",
+    );
+  });
+
+  it("explains a refusal the times cause, with who is away", () => {
+    const people = team(3);
+    people[0].availability = { mode: "except", periods: [[240, 360]] };
+    const state = night({ people, channels: [channel("TWR"), channel("SMC-S"), channel("CLD")] });
+    const refusal = refused(generateAllocation(state, { budgetMs: 300, seed: 1 }));
+    expect(refusal.reasons.some(reason => reason.includes("Person 1 is away then"))).toBe(true);
+  });
+});
+
+describe("no break needed around TSO", () => {
+  /** Consecutive duties of one person with no gap at all, as "TWR>TSO". */
+  const straightThrough = (duties: Array<{ personKey: string; channelCode: string; startMin: number; endMin: number }>) => {
+    const sorted = duties.slice().sort((a, b) => a.personKey.localeCompare(b.personKey) || a.startMin - b.startMin);
+    const out: string[] = [];
+    for (let index = 1; index < sorted.length; index++) {
+      const [before, after] = [sorted[index - 1], sorted[index]];
+      if (before.personKey === after.personKey && before.endMin === after.startMin) {
+        out.push(`${before.channelCode}>${after.channelCode}`);
+      }
+    }
+    return out;
+  };
+
+  it("covers four positions with four people when all of them can take TSO", () => {
+    // Impossible with a break after every duty: nobody would ever be free.
+    // With TSO as the break between control duties, it works all night.
+    const state = night({ people: team(4, { tso: [1, 2, 3, 4] }), channels: ["TWR", "SMC-S", "CLD", "TSO"].map(code => channel(code)) });
+    const result = generateAllocation(state, { budgetMs: 3000, seed: 7 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectContinuousAndLegal(result.state);
+
+    const moves = straightThrough(result.state.duties);
+    expect(moves.length).toBeGreaterThan(0);
+    // Every straight-through move goes onto or off TSO, and TSO is never
+    // handed from someone to themselves.
+    expect(moves.every(move => move.includes("TSO"))).toBe(true);
+    expect(moves).not.toContain("TSO>TSO");
+  }, 30_000);
+
+  it("still gives a real break after every duty when there are enough people for one", () => {
+    const state = night({ people: team(5, { tso: [1, 2, 3] }), channels: ["TWR", "SMC-S", "CLD", "TSO"].map(code => channel(code)) });
+    const result = generateAllocation(state, { budgetMs: 2000, seed: 3 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expectContinuousAndLegal(result.state);
+    expect(straightThrough(result.state.duties)).toEqual([]);
+  });
+
+  it("can be switched off, and then keeps a break around TSO too", () => {
+    const state = night({ people: team(4, { tso: [1, 2, 3, 4] }), channels: ["TWR", "SMC-S", "CLD", "TSO"].map(code => channel(code)) });
+    expect(solveContinuous(state, { tsoWithoutBreak: false, nodeLimit: 20_000 })).toBeNull();
   });
 });

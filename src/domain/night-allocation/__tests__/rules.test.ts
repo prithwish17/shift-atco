@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { dutyLengthRank, inBoardOrder, personShortLabel, staffingNotices, uncoveredMinutes, validateAllocation } from "../rules";
-import { channel, duty, messages, night, person, team } from "./fixtures";
+import {
+  dutyLengthRank,
+  fixedDutyErrors,
+  inBoardOrder,
+  isPlanned,
+  personShortLabel,
+  shortStretchNotices,
+  staffingNotices,
+  uncoveredMinutes,
+  validateAllocation,
+} from "../rules";
+import { channel, dbSlot, duty, messages, night, person, team } from "./fixtures";
 
 /** A night nobody could fault: one channel, two people, continuous cover. */
 function simpleNight(overrides: Parameters<typeof night>[0] = {}) {
@@ -578,5 +588,221 @@ describe("preferred duty lengths", () => {
       duties: [duty("CLD", "p1", 0, 45)],
     });
     expect(validateAllocation(state).warnings.some(issue => issue.message.includes("Under an hour"))).toBe(false);
+  });
+});
+
+describe("part-night availability", () => {
+  const away = (key: string, periods: Array<[number, number]>, overrides: Parameters<typeof person>[1] = {}) =>
+    person(key, { name: key.toUpperCase(), availability: { mode: "except", periods }, ...overrides });
+
+  it("refuses a duty in time someone is away, naming the time", () => {
+    const state = night({
+      people: [away("p1", [[240, 360]]), person("p2", { name: "P2" })],
+      channels: [channel("TWR", { openAt: 180, closeAt: 300 })],
+      duties: [duty("TWR", "p1", 180, 300)],
+    });
+    expect(errorsOf(state)).toContain("P1 isn't available 17:30–18:30 but has TWR 16:30–18:30.");
+  });
+
+  it("allows a duty that ends as they leave and one that starts as they are back", () => {
+    const state = night({
+      people: [away("p1", [[120, 240]]), person("p2", { name: "P2" })],
+      channels: [channel("TWR", { openAt: 0, closeAt: 360 })],
+      duties: [duty("TWR", "p1", 0, 120), duty("TWR", "p2", 120, 240), duty("TWR", "p1", 240, 360)],
+    });
+    expect(errorsOf(state)).toEqual([]);
+  });
+
+  it("refuses a starter who is away when the position opens", () => {
+    const state = night({
+      people: [away("p1", [[0, 60]]), person("p2")],
+      channels: [channel("TWR", { starterKey: "p1" })],
+    });
+    expect(errorsOf(state)).toContain("P1 is set to start TWR at 13:30 but isn't available then.");
+  });
+
+  it("refuses someone in a half who is away for all of it", () => {
+    const state = night({
+      people: [away("p1", [[240, 480]], { half: "1st" }), person("p2")],
+      channels: [channel("TWR")],
+    });
+    expect(errorsOf(state)).toContain("P1 is 1st Half but isn't available at any time in it (17:30–21:30).");
+
+    const nearly = night({
+      people: [away("p1", [[255, 480]], { half: "1st" }), person("p2")],
+      channels: [channel("TWR")],
+    });
+    expect(errorsOf(nearly)).toContain(
+      "P1 is 1st Half but is available for only 15 min of it (17:30–21:30), too short for a duty.",
+    );
+  });
+
+  it("names who is away when the times leave too few people for the positions open", () => {
+    const state = night({
+      people: [away("p1", [[240, 360]], { name: "Asha Rao" }), person("p2"), person("p3")],
+      channels: [channel("TWR"), channel("SMC-S"), channel("CLD")],
+    });
+    expect(staffingNotices(state)).toContain(
+      "17:30–19:30: 2 people are around for 3 open positions — Asha Rao is away then. Change someone's times, " +
+        "close a position for part of it, or add someone.",
+    );
+  });
+
+  it("says nothing extra when the shortfall has nothing to do with anyone's times", () => {
+    const state = night({ people: team(2), channels: [channel("TWR"), channel("SMC-S"), channel("CLD")] });
+    expect(staffingNotices(state).some(notice => notice.includes("away then"))).toBe(false);
+  });
+
+  it("flags TSO when everyone who can take it is away", () => {
+    const state = night({
+      people: [away("p1", [[480, 600]], { canTakeTso: true, name: "Asha Rao" }), person("p2"), person("p3")],
+      channels: [channel("TSO"), channel("TWR")],
+    });
+    expect(staffingNotices(state).some(notice => notice.startsWith("TSO 21:30–23:30: everyone who can take TSO is away then (Asha Rao)"))).toBe(true);
+  });
+
+  it("stops counting someone for a window they are away for nearly all of", () => {
+    // Four positions all night need five people 17:30–21:30 — which five have,
+    // until one of them is away for all but fifteen minutes of it.
+    const state = night({ people: team(5), channels: ["TWR", "SMC-S", "SMC-N", "CLD"].map(code => channel(code)) });
+    expect(staffingNotices(state).some(notice => notice.startsWith("17:30–21:30"))).toBe(false);
+    state.people[4] = { ...state.people[4], availability: { mode: "except", periods: [[255, 480]] } };
+    expect(staffingNotices(state).some(notice => notice.startsWith("17:30–21:30: 4 people can work"))).toBe(true);
+  });
+});
+
+describe("DB slots", () => {
+  it("counts a board holding only DB slots as not planned yet", () => {
+    const state = night({
+      people: team(3, { halves: { 2: "1st" } }),
+      channels: [channel("TWR"), channel("CLD")],
+      duties: [dbSlot("TWR", "p1", 240, 360)],
+    });
+    expect(isPlanned(state)).toBe(false);
+    expect(errorsOf(state)).toEqual([]);
+  });
+
+  it("holds a DB slot to every duty rule, as the instructor's own duty", () => {
+    const state = night({
+      people: team(3),
+      channels: [channel("TWR"), channel("CLD")],
+      duties: [dbSlot("TWR", "p1", 240, 390), dbSlot("CLD", "p1", 300, 360)],
+    });
+    const errors = errorsOf(state);
+    expect(errors.some(message => message.includes("A duty can be at most 2h"))).toBe(true);
+    expect(errors.some(message => message.includes("is on TWR and CLD at the same time"))).toBe(true);
+  });
+
+  it("lets a DB slot at the opening open the position, whoever was chosen to start it", () => {
+    const people = team(3);
+    const state = night({
+      people,
+      channels: [channel("TWR", { openAt: 0, closeAt: 240, starterKey: "p2" })],
+      duties: [dbSlot("TWR", "p1", 0, 120), duty("TWR", "p2", 120, 240)],
+    });
+    const { errors, warnings } = validateAllocation(state);
+    expect(messages(errors)).toEqual([]);
+    expect(warnings.some(issue => issue.message.includes("is set to start TWR"))).toBe(false);
+  });
+
+  it("doesn't list a short DB slot among the short duties — its length was fixed on purpose", () => {
+    const state = night({
+      people: team(2),
+      channels: [channel("TWR", { openAt: 0, closeAt: 105 })],
+      duties: [duty("TWR", "p2", 0, 60), dbSlot("TWR", "p1", 60, 105)],
+    });
+    expect(validateAllocation(state).warnings.some(issue => issue.message.includes("Under an hour"))).toBe(false);
+  });
+
+  it("judges DB slots on their own, leaving clashes with ordinary duties to the plan", () => {
+    const state = night({
+      people: team(3),
+      channels: [channel("TWR"), channel("CLD")],
+      duties: [dbSlot("TWR", "p1", 240, 360), duty("CLD", "p1", 240, 360)],
+    });
+    expect(fixedDutyErrors(state)).toEqual([]);
+    expect(errorsOf(state).some(message => message.includes("is on TWR and CLD at the same time"))).toBe(true);
+  });
+
+  it("names a stretch a DB slot leaves too short for any duty", () => {
+    const state = night({
+      people: team(4),
+      channels: [channel("TWR", { openAt: 0, closeAt: 375 })],
+      duties: [dbSlot("TWR", "p1", 240, 360)],
+    });
+    expect(shortStretchNotices(state)).toEqual([
+      "TWR 19:30–19:45 is only 15 min, between a DB slot and its closing — too short for a duty. Move the DB " +
+        "slot, or change when TWR opens or closes.",
+    ]);
+  });
+});
+
+describe("no break needed around TSO", () => {
+  const breakErrors = (state: ReturnType<typeof night>) => errorsOf(state).filter(message => message.includes("min break"));
+
+  it("lets someone relieved from TWR take TSO from the same minute", () => {
+    const state = night({
+      people: team(3, { tso: [1, 2, 3] }),
+      channels: [channel("TWR", { openAt: 0, closeAt: 180 }), channel("TSO", { openAt: 90, closeAt: 180 })],
+      duties: [duty("TWR", "p1", 0, 90), duty("TWR", "p2", 90, 180), duty("TSO", "p1", 90, 180)],
+    });
+    expect(errorsOf(state)).toEqual([]);
+  });
+
+  it("lets someone relieved from TSO take SMC from the same minute", () => {
+    const state = night({
+      people: team(3, { tso: [1, 2, 3] }),
+      channels: [channel("TSO", { openAt: 0, closeAt: 180 }), channel("SMC-S", { openAt: 90, closeAt: 180 })],
+      duties: [duty("TSO", "p1", 0, 90), duty("TSO", "p2", 90, 180), duty("SMC-S", "p1", 90, 180)],
+    });
+    expect(errorsOf(state)).toEqual([]);
+  });
+
+  it("still wants 30 minutes between any two other positions", () => {
+    const state = night({
+      people: team(3),
+      channels: [channel("TWR", { openAt: 0, closeAt: 180 }), channel("SMC-S", { openAt: 90, closeAt: 180 })],
+      duties: [duty("TWR", "p1", 0, 90), duty("TWR", "p2", 90, 180), duty("SMC-S", "p1", 90, 180)],
+    });
+    expect(breakErrors(state)).toEqual([
+      "Person 1 has a 0 min break between TWR (ends 15:00) and SMC-S (starts 15:00). At least 30 min needed.",
+    ]);
+  });
+
+  it("counts a TSO duty between two control duties towards their 30 minutes", () => {
+    // TWR until 15:00, TSO 15:00–15:30, SMC from 15:30: never a moment off,
+    // but the two control duties are 30 minutes apart.
+    const through = night({
+      people: team(1, { tso: [1] }),
+      channels: [channel("TWR", { openAt: 0, closeAt: 90 }), channel("TSO", { openAt: 90, closeAt: 120 }), channel("SMC-S", { openAt: 120, closeAt: 240 })],
+      duties: [duty("TWR", "p1", 0, 90), duty("TSO", "p1", 90, 120), duty("SMC-S", "p1", 120, 240)],
+    });
+    expect(errorsOf(through)).toEqual([]);
+  });
+
+  it("applies the same to a DB slot next to TSO", () => {
+    const state = night({
+      people: team(2, { tso: [1, 2] }),
+      channels: [channel("TWR", { openAt: 240, closeAt: 360 }), channel("TSO", { openAt: 360, closeAt: 480 })],
+      duties: [dbSlot("TWR", "p1", 240, 360), duty("TSO", "p1", 360, 480)],
+    });
+    expect(breakErrors(state)).toEqual([]);
+  });
+
+  it("doesn't count TSO as tying anyone up when those cleared for it can take turns", () => {
+    // Four people, every one of them cleared for TSO: each works control for
+    // 1h 30m and spends the next 30 minutes on TSO instead of resting.
+    const turns = night({
+      people: team(4, { tso: [1, 2, 3, 4] }),
+      channels: ["TWR", "SMC-S", "CLD", "TSO"].map(code => channel(code)),
+    });
+    expect(staffingNotices(turns)).toEqual([]);
+
+    // With only two cleared, the other two need real breaks, and it can't work.
+    const fewCleared = night({
+      people: team(4, { tso: [1, 2] }),
+      channels: ["TWR", "SMC-S", "CLD", "TSO"].map(code => channel(code)),
+    });
+    expect(staffingNotices(fewCleared).some(notice => notice.includes("4 open channels need at least 5"))).toBe(true);
   });
 });

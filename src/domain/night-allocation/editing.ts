@@ -10,13 +10,27 @@
  * A problem a touched duty already had before the change does not refuse it —
  * it is reported as unresolved instead.
  *
+ * DB slots are fixed. A handover that would drag one along is refused rather
+ * than applied, a delete beside one hands the time to the other neighbour, and
+ * a slot is never split. Slots themselves are placed and moved in db-slots.ts.
+ *
  * Every function here is pure. The dialog uses them to preview an edit, and the
  * API uses the same rules module to re-check whatever the client finally sends.
  */
 import { MIN_DUTY_MIN, NIGHT_SPAN_MIN } from "./constants.js";
 import { makeDutyId } from "./ids.js";
-import { findChannel, personName, uncoveredMinutes, validateAllocation } from "./rules.js";
-import { formatMinutes } from "./time.js";
+import {
+  findChannel,
+  gapsForChannel,
+  isFixedDuty,
+  isPlanned,
+  mergedAwayWindow,
+  openChannels,
+  personName,
+  uncoveredMinutes,
+  validateAllocation,
+} from "./rules.js";
+import { formatMinutes, formatRange } from "./time.js";
 import type { NightAllocationState, NightChannel, NightDuty } from "./types.js";
 
 /** A change that was applied, or the reasons it was refused. */
@@ -141,9 +155,10 @@ export function reviewChange(
     issue =>
       issue.dutyIds.some(id => focusIds.includes(id)) ||
       // Problems about a person, such as a half left with no duty in it, count
-      // once the night has a plan at all. On an empty board the first duty
-      // added is not what left everyone else's half bare.
-      (state.duties.length > 0 && !!issue.personKeys?.some(key => people.has(key))),
+      // once the night has a plan at all. On an empty board — or one holding
+      // only DB slots — the first duty added is not what left everyone else's
+      // half bare.
+      (isPlanned(state) && !!issue.personKeys?.some(key => people.has(key))),
   );
   const problems = touched.filter(issue => !alreadyKnown.has(issue.message)).map(issue => issue.message);
   const unresolved = touched.filter(issue => alreadyKnown.has(issue.message)).map(issue => issue.message);
@@ -153,10 +168,31 @@ export function reviewChange(
       .filter(issue => issue.isGap && !alreadyKnown.has(issue.message))
       .map(issue => issue.message);
     if (newGaps.length) problems.push(...newGaps);
-    else problems.push("This would leave a channel without cover. Someone must take over at the handover time.");
+    else problems.push(...newlyUncovered(state, candidate));
   }
 
   return { problems: [...new Set<string>(problems)], unresolved: [...new Set<string>(unresolved)] };
+}
+
+/**
+ * The stretches a change would leave uncovered, named, for when the checks
+ * can't name them themselves — a board left holding only DB slots counts as
+ * unplanned, and an unplanned board reports no gaps.
+ */
+function newlyUncovered(before: NightAllocationState, after: NightAllocationState): string[] {
+  const out: string[] = [];
+  for (const channel of openChannels(after)) {
+    const was = gapsForChannel(before.duties, channel, mergedAwayWindow(before, channel.code));
+    const fresh = gapsForChannel(after.duties, channel, mergedAwayWindow(after, channel.code)).filter(
+      ([start, end]) => !was.some(([from, to]) => from <= start && to >= end),
+    );
+    if (!fresh.length) continue;
+    out.push(
+      `${channel.code} would have no one on duty ${fresh.map(([start, end]) => formatRange(start, end)).join(", ")}. ` +
+        `Someone must take over at the handover time.`,
+    );
+  }
+  return out.length ? out : ["This would leave a channel without cover. Someone must take over at the handover time."];
 }
 
 /** Just the reasons a change would be refused. */
@@ -168,6 +204,27 @@ export function problemsForChange(
   return reviewChange(state, candidateDuties, focusIds).problems;
 }
 
+/**
+ * DB slots a candidate would move as a side effect — a linked handover
+ * dragging the slot next to the edited duty. The duty being edited is not a
+ * side effect of itself, so it is left out.
+ */
+function draggedSlots(before: NightDuty[], after: NightDuty[], editedId: string): string[] {
+  const moved = new Map(after.map(duty => [duty.id, duty]));
+  const problems: string[] = [];
+  for (const slot of before) {
+    if (!isFixedDuty(slot) || slot.id === editedId) continue;
+    const now = moved.get(slot.id);
+    if (!now || (now.startMin === slot.startMin && now.endMin === slot.endMin)) continue;
+    const boundary = now.startMin !== slot.startMin ? slot.startMin : slot.endMin;
+    problems.push(
+      `${slot.channelCode} has a DB slot ${formatRange(slot.startMin, slot.endMin)}, and DB slots don't move. ` +
+        `Keep the handover at ${formatMinutes(boundary)}, or change the DB slot itself.`,
+    );
+  }
+  return problems;
+}
+
 /** Preview a change without committing it — what the edit dialog renders. */
 export function previewDutyChange(
   state: NightAllocationState,
@@ -175,7 +232,9 @@ export function previewDutyChange(
   draft: NightDuty,
 ): { duties: NightDuty[] } & ChangeReview {
   const { duties, focusIds } = buildEditedDuties(state, original, draft);
-  return { duties, ...reviewChange(state, duties, focusIds) };
+  const review = reviewChange(state, duties, focusIds);
+  const dragged = draggedSlots(state.duties, duties, original?.id ?? draft.id);
+  return { duties, ...review, problems: [...dragged, ...review.problems] };
 }
 
 /** Add a duty, or change an existing one, handovers and all. */
@@ -192,15 +251,18 @@ export function applyDutyChange(
 
 /**
  * Delete a duty, handing the freed time to the previous duty on that channel —
- * or to the next one when the deleted duty was the first. Refused when that
- * would break a rule, so a channel cannot be emptied by accident.
+ * or to the next one when the deleted duty was the first, or when the previous
+ * one is a DB slot, which never grows. Refused when that would break a rule,
+ * so a channel cannot be emptied by accident.
  */
 export function deleteDuty(state: NightAllocationState, dutyId: string): EditResult {
   const original = state.duties.find(duty => duty.id === dutyId);
   if (!original) return { ok: false, problems: ["That duty is no longer on the board."] };
 
   const duties = state.duties.filter(duty => duty.id !== dutyId).map(duty => ({ ...duty }));
-  const { previous, next } = neighboursOf(duties, original);
+  const neighbours = neighboursOf(duties, original);
+  const previous = neighbours.previous && !isFixedDuty(neighbours.previous) ? neighbours.previous : undefined;
+  const next = neighbours.next && !isFixedDuty(neighbours.next) ? neighbours.next : undefined;
   const focusIds: string[] = [];
 
   if (previous) {
@@ -233,6 +295,12 @@ export function splitDuty(
 ): EditResult {
   const original = state.duties.find(duty => duty.id === dutyId);
   if (!original) return { ok: false, problems: ["That duty is no longer on the board."] };
+  if (isFixedDuty(original)) {
+    return {
+      ok: false,
+      problems: ["A DB slot can't be split — its instructor holds all of it. Change the slot itself instead."],
+    };
+  }
   if (!personKey) return { ok: false, problems: ["Select who takes over."] };
   if (atMin <= original.startMin || atMin >= original.endMin) {
     return { ok: false, problems: ["The handover time must fall inside the duty."] };
@@ -269,6 +337,10 @@ export function splitDuty(
  * hours deliberately — but it reports what it had to do, and the checks panel
  * picks up anything the refit could not make legal (a duty left over two hours,
  * for instance).
+ *
+ * A DB slot is never stretched to meet the new hours; it is only cut where the
+ * hours cut into it, or dropped when it falls outside them altogether. Any
+ * stretch that leaves uncovered is for the next generate to fill.
  */
 export function refitChannel(
   state: NightAllocationState,
@@ -286,8 +358,9 @@ export function refitChannel(
   const window = `${channel.code} open ${formatMinutes(openAt)}–${formatMinutes(closeAt)}.`;
   if (!mine.length) return { state: { ...state, channels }, note: window };
 
+  const inside = (duty: NightDuty) => duty.endMin > openAt && duty.startMin < closeAt;
   const kept = mine
-    .filter(duty => duty.endMin > openAt && duty.startMin < closeAt)
+    .filter(inside)
     .sort((a, b) => a.startMin - b.startMin)
     .map(duty => ({
       ...duty,
@@ -295,15 +368,21 @@ export function refitChannel(
       endMin: Math.min(duty.endMin, closeAt),
     }));
   const removed = mine.length - kept.length;
+  const slotsRemoved = mine.filter(duty => isFixedDuty(duty) && !inside(duty)).length;
+  const slotsCut = mine.filter(
+    duty => isFixedDuty(duty) && inside(duty) && (duty.startMin < openAt || duty.endMin > closeAt),
+  ).length;
 
   if (kept.length) {
-    kept[0].startMin = openAt;
-    kept[kept.length - 1].endMin = closeAt;
+    if (!isFixedDuty(kept[0])) kept[0].startMin = openAt;
+    if (!isFixedDuty(kept[kept.length - 1])) kept[kept.length - 1].endMin = closeAt;
   }
 
   const note =
     `${window} First and last duties adjusted to match` +
-    (removed ? `, ${removed} outside that time removed.` : ".");
+    (removed ? `, ${removed} outside that time removed.` : ".") +
+    (slotsRemoved ? ` ${slotsRemoved === 1 ? "A DB slot was" : `${slotsRemoved} DB slots were`} among them.` : "") +
+    (slotsCut ? ` ${slotsCut === 1 ? "A DB slot was" : `${slotsCut} DB slots were`} cut to the new hours.` : "");
   return { state: { ...state, channels, duties: [...others, ...kept] }, note };
 }
 

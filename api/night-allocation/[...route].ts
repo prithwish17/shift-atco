@@ -47,6 +47,7 @@ import {
   defaultEmailSubject,
   generateAllocation,
   isNightDate,
+  isPlanned,
 } from "../../src/domain/night-allocation/index.js";
 
 const MAX_RECIPIENTS = 40;
@@ -321,8 +322,9 @@ async function handleEmail(
   const { state, exists, teams } = await loadState(supabase, nightDate);
   if (!exists) return res.status(404).json({ error: "Save the night before emailing it." });
   // An empty board breaks no rule — it is how a night is cleared — but a
-  // roster with nobody on it is not something to send the shift.
-  if (!state.duties.length) {
+  // roster with nobody on it is not something to send the shift. Nor is one
+  // holding only the DB slots entered ahead of the plan.
+  if (!isPlanned(state)) {
     return res.status(422).json({ error: "Nothing is allocated for this night yet, so there is no roster to send." });
   }
 

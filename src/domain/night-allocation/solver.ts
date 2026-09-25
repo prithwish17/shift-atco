@@ -35,52 +35,59 @@ import {
   canTakeChannel,
   dutyLengthRank,
   findPerson,
+  fixedDutyErrors,
+  fixedOpeningDuty,
+  halfWindow,
+  isBreakExempt,
+  isFixedDuty,
   isRestrictedChannel,
   maxDutyFor,
   mergeTargetFor,
   openChannels,
+  shortStretchNotices,
   staffingNotices,
+  stretchesToPlan,
   dutyLengthNote,
 } from "./rules.js";
+import { isAvailableAt, minutesAvailable, unavailableSpans } from "./availability.js";
 import type { NightChannel } from "./types.js";
 import { formatMinutes, formatRange } from "./time.js";
 import type { GenerateResult, NightAllocationState, NightDuty } from "./types.js";
 
 /**
- * A merged position is planned as two separate stretches — before the merge
- * and after it — because the search models a channel as one continuous window.
- * The second stretch carries this suffix so the two never collide, and it is
- * stripped again on the way out.
+ * A position the search has to cover in more than one stretch — either side
+ * of a DB slot, or of the merge — is given one channel per stretch, because
+ * the search models a channel as one continuous window. Every stretch after
+ * the first carries this separator and its number so they never collide, and
+ * it is stripped again on the way out.
  */
-const MERGE_SEGMENT_SUFFIX = "\u0000after-merge";
+const SEGMENT_SEPARATOR = "\u0000";
 
-const baseCode = (code: string) => code.split("\u0000")[0];
+const baseCode = (code: string) => code.split(SEGMENT_SEPARATOR)[0];
 
 /**
- * The channels as the search should see them. With CLD merged into SMC, CLD
- * disappears for the merge window and reappears afterwards as its own stretch.
+ * The channels as the search should see them: each open position's stretches
+ * that ordinary duties must cover. With CLD merged into SMC, CLD disappears
+ * for the merge window; with a DB slot on TWR, TWR disappears for the slot.
+ *
+ * A stretch too short for any duty is kept, not dropped. The search then fails
+ * on it rather than returning a plan with a hole where it was.
  */
 function solverChannels(state: NightAllocationState): NightChannel[] {
-  const merge = activeMerge(state);
-  const open = openChannels(state);
-  if (!merge) return open;
-
   const out: NightChannel[] = [];
-  for (const channel of open) {
-    if (channel.code !== merge.source.code) {
-      out.push(channel);
-      continue;
-    }
-    const before: NightChannel = { ...channel, closeAt: Math.min(channel.closeAt, MERGE_WINDOW[0]) };
-    const after: NightChannel = {
-      ...channel,
-      code: channel.code + MERGE_SEGMENT_SUFFIX,
-      openAt: Math.max(channel.openAt, MERGE_WINDOW[1]),
-      // Whoever was chosen to open CLD opens the first stretch, not the second.
-      starterKey: null,
-    };
-    if (before.closeAt - before.openAt >= MIN_DUTY_MIN) out.push(before);
-    if (after.closeAt - after.openAt >= MIN_DUTY_MIN) out.push(after);
+  for (const channel of openChannels(state)) {
+    stretchesToPlan(state, channel).forEach(([openAt, closeAt], index) => {
+      out.push({
+        ...channel,
+        code: index === 0 ? channel.code : `${channel.code}${SEGMENT_SEPARATOR}${index}`,
+        openAt,
+        closeAt,
+        // Whoever was chosen to open the position opens its first stretch —
+        // and only if that stretch starts at the opening. A DB slot there
+        // opens it instead.
+        starterKey: index === 0 && openAt === channel.openAt ? channel.starterKey : null,
+      });
+    });
   }
   return out;
 }
@@ -114,6 +121,13 @@ export interface SolveOptions {
    * attempt, so short duties appear only when an all-long night is impossible.
    */
   shortDuties?: boolean;
+  /**
+   * Let people go straight onto TSO, or off it, with no break — the rule. On
+   * by default. The generator turns it off for its first attempts: a night
+   * that works with a break after every duty is found much faster by the
+   * narrower search, and gives everyone a real rest besides.
+   */
+  tsoWithoutBreak?: boolean;
 }
 
 /** Nothing about a night changes while the solver runs, so this is all local. */
@@ -126,6 +140,7 @@ export function solveContinuous(
     seed = 0,
     allowCrossHalfTso = false,
     shortDuties = true,
+    tsoWithoutBreak = true,
   }: SolveOptions = {},
 ): NightDuty[] | null {
   const preferred = state.dutyLengthPref || 0;
@@ -145,8 +160,15 @@ export function solveContinuous(
   const people = availablePeople(state);
   const n = people.length;
   const channels = solverChannels(state);
+  // A stretch is planned as the position it belongs to: TSO's second stretch is
+  // still TSO, qualification, uncapped length and all.
+  const codes = channels.map(channel => baseCode(channel.code));
   const k = channels.length;
-  if (!n || !k) return null;
+  // DB slots are part of the plan as they stand. The search places everything
+  // else around them and hands them back untouched.
+  const fixed = state.duties.filter(isFixedDuty);
+  if (!n) return null;
+  if (!k) return fixed.length ? fixed.map(duty => ({ ...duty })) : null;
 
   /** 0 = no half, 1 = 1st Half, 2 = 2nd Half. */
   const half = people.map(person => (person.half === "1st" ? 1 : person.half === "2nd" ? 2 : 0));
@@ -155,11 +177,84 @@ export function solveContinuous(
     channel.starterKey ? people.findIndex(person => person.key === channel.starterKey) : -1,
   );
 
+  /**
+   * Whether TSO's exemption from the break is in play for this search. Off,
+   * every duty needs its 30 minutes after it, TSO included — the night as it
+   * was planned before, which the generator tries first because the search
+   * finds it fastest.
+   */
+  const exemptHere = (code: string) => tsoWithoutBreak && isBreakExempt(code);
+  const breakFor = (first: string, second: string) =>
+    exemptHere(first) || exemptHere(second) ? 0 : MIN_BREAK_MIN;
+
   const lastEnd = new Array<number>(n).fill(Number.NEGATIVE_INFINITY);
+  /**
+   * When each person last came off a position that needs a break after it.
+   * TSO needs none either side, so a TSO duty moves `lastEnd` but not this:
+   * off TWR at 15:00 they may take TSO at 15:00, and off TSO at 21:30 they may
+   * take SMC at 21:30 — as long as their last control duty ended by 21:00.
+   */
+  const lastControlEnd = new Array<number>(n).fill(Number.NEGATIVE_INFINITY);
   const lastChannel = new Array<number>(n).fill(-1);
   const worked = new Array<number>(n).fill(0);
   const dutiesInOwnHalf = new Array<number>(n).fill(0);
   const coveredTo = channels.map(channel => channel.openAt);
+
+  /** Does a duty over `[start, end)` count towards this person's half? */
+  const countsForHalf = (index: number, start: number, end: number) =>
+    (half[index] === 1 && start < SECOND_HALF[0] && end > FIRST_HALF[0]) ||
+    (half[index] === 2 && end > SECOND_HALF[0]);
+
+  /** Each person's DB slots, which the search keeps the break they need away from. */
+  const fixedSpans = people.map(() => [] as Array<[number, number, string]>);
+  for (const duty of fixed) {
+    const index = people.findIndex(person => person.key === duty.personKey);
+    if (index < 0) continue;
+    fixedSpans[index].push([duty.startMin, duty.endMin, duty.channelCode]);
+    worked[index] += duty.endMin - duty.startMin;
+    if (countsForHalf(index, duty.startMin, duty.endMin)) dutiesInOwnHalf[index]++;
+  }
+  /** Each person's time away. */
+  const awaySpans = people.map(person => unavailableSpans(person));
+  const constrained = people.map((_, index) => fixedSpans[index].length > 0 || awaySpans[index].length > 0);
+
+  /**
+   * Could this person hold a duty on `code` over `[start, end)`: around for all
+   * of it, and rested either side of their own DB slots — as long as the break
+   * between the two positions asks for?
+   */
+  const rangeFree = (index: number, start: number, end: number, code: string) => {
+    if (!constrained[index]) return true;
+    for (const [from, to] of awaySpans[index]) if (start < to && end > from) return false;
+    for (const [from, to, slotCode] of fixedSpans[index]) {
+      const gap = breakFor(slotCode, code);
+      if (start < to + gap && end > from - gap) return false;
+    }
+    return true;
+  };
+  /** Could they take over `code` at `at`, for at least the shortest duty there is? */
+  const freeToStart = (index: number, at: number, code: string) => rangeFree(index, at, at + MIN_DUTY_MIN, code);
+  /**
+   * Rested enough to relieve channel `channelIndex` at `at`: off every
+   * position by then, and off control for 30 minutes unless the relief is
+   * onto TSO, which needs no break.
+   */
+  const restedFor = (index: number, at: number, channelIndex: number) =>
+    lastEnd[index] <= at &&
+    (exemptHere(codes[channelIndex]) || lastControlEnd[index] <= at - MIN_BREAK_MIN);
+  /**
+   * The same person carrying on the same position with no gap. With no break
+   * needed around TSO that would otherwise pass for a handover, but it is one
+   * longer duty, which the search plans as such.
+   */
+  const carriesOn = (index: number, at: number, channelIndex: number) =>
+    lastEnd[index] === at && lastChannel[index] >= 0 && codes[lastChannel[index]] === codes[channelIndex];
+  /** When they last came off a position before `at`, DB slots included. */
+  const restedSince = (index: number, at: number) => {
+    let last = lastEnd[index];
+    for (const [, to] of fixedSpans[index]) if (to <= at && to > last) last = to;
+    return last;
+  };
 
   /** Latest minute any channel is still open inside a half. */
   const latestOpenInHalf = (which: 1 | 2) => {
@@ -176,7 +271,7 @@ export function solveContinuous(
 
   /** The crossover licence applies to this channel, and only when enabled. */
   const crossoverChannel = (channelIndex: number) =>
-    allowCrossHalfTso && channels[channelIndex].code === CROSS_HALF_CHANNEL;
+    allowCrossHalfTso && codes[channelIndex] === CROSS_HALF_CHANNEL;
 
   /**
    * A half person may not hold anything overlapping the other half — except a
@@ -193,29 +288,31 @@ export function solveContinuous(
     if (half[index] === 1) {
       // With the crossover enabled a 1st Half person can still be called on
       // later in the night, so they never stop being available.
-      if (allowCrossHalfTso && channels.some(c => c.code === CROSS_HALF_CHANNEL && c.closeAt > at)) return true;
+      if (allowCrossHalfTso && channels.some((c, i) => codes[i] === CROSS_HALF_CHANNEL && c.closeAt > at)) return true;
       return at <= SECOND_HALF[0] - MIN_BREAK_MIN;
     }
     if (half[index] === 2) return at <= FIRST_HALF[0] - MIN_BREAK_MIN || at >= SECOND_HALF[0];
     return true;
   };
 
-  const channelsOpenAt = (at: number) =>
-    channels.reduce((count, channel) => count + (channel.openAt <= at && channel.closeAt > at ? 1 : 0), 0);
-
-  const poolAt = (at: number) =>
-    half.reduce(
-      (count, which) =>
-        count + (at < FIRST_HALF[0] ? 1 : at < SECOND_HALF[0] ? (which !== 2 ? 1 : 0) : which !== 1 ? 1 : 0),
+  const channelsOpenAt = (at: number, controlOnly = false) =>
+    channels.reduce(
+      (count, channel, i) =>
+        count +
+        (channel.openAt <= at && channel.closeAt > at && !(controlOnly && exemptHere(codes[i])) ? 1 : 0),
       0,
     );
 
-  const qualifiedPoolAt = (at: number) =>
-    half.reduce((count, which, index) => {
-      if (!qualified[index]) return count;
-      const free = at < FIRST_HALF[0] ? true : at < SECOND_HALF[0] ? which !== 2 : which !== 1;
-      return count + (free ? 1 : 0);
-    }, 0);
+  /** In their half at `at`, and around then rather than away or on a DB slot. */
+  const inPoolAt = (index: number, at: number, code: string) =>
+    (at < FIRST_HALF[0] ? true : at < SECOND_HALF[0] ? half[index] !== 2 : half[index] !== 1) &&
+    freeToStart(index, at, code);
+
+  const poolAt = (at: number, code: string) =>
+    half.reduce((count, _, index) => count + (inPoolAt(index, at, code) ? 1 : 0), 0);
+
+  const qualifiedPoolAt = (at: number, code: string) =>
+    half.reduce((count, _, index) => count + (qualified[index] && inPoolAt(index, at, code) ? 1 : 0), 0);
 
   /**
    * The handover rhythm at a point in the night: the duty length to aim for and
@@ -224,8 +321,13 @@ export function solveContinuous(
   const rhythmAt = (at: number, code: string) => {
     const cap = maxDutyFor(code);
     const restricted = isRestrictedChannel(code);
-    const openCount = restricted ? 1 : Math.max(1, channelsOpenAt(at));
-    const pool = restricted ? qualifiedPoolAt(at) : poolAt(at);
+    let openCount = restricted ? 1 : Math.max(1, channelsOpenAt(at));
+    const pool = restricted ? qualifiedPoolAt(at, code) : poolAt(at, code);
+    // With everyone busy, the only rest between control duties is a turn on
+    // TSO, which needs no break either side — so the rhythm is set by the
+    // control positions alone, and TSO takes the part of the rest.
+    const control = channelsOpenAt(at, true);
+    if (!restricted && pool <= openCount && control > 0 && pool > control) openCount = control;
     if (pool <= openCount) return { duty: cap, interval: MIN_BREAK_MIN };
 
     const minInterval = Math.max(
@@ -250,29 +352,49 @@ export function solveContinuous(
    * TSO must have a qualified one.
    */
   const handoversCoverable = () => {
-    const pending: number[] = [];
-    for (let i = 0; i < k; i++) if (coveredTo[i] < channels[i].closeAt) pending.push(coveredTo[i]);
-    pending.sort((a, b) => a - b);
+    const pending: Array<{ at: number; channel: number }> = [];
+    for (let i = 0; i < k; i++) if (coveredTo[i] < channels[i].closeAt) pending.push({ at: coveredTo[i], channel: i });
+    pending.sort((x, y) => x.at - y.at);
 
+    const couldRelieve = (index: number, at: number, channelIndex: number) =>
+      restedFor(index, at, channelIndex) && freeToStart(index, at, codes[channelIndex]);
+
+    // Each person takes at most one handover of a group, so three counts must
+    // each hold: enough people rested from control for the control handovers,
+    // enough able to take the TSO handovers — which needs no rest, but does
+    // need the qualification — and enough for the group as a whole. Someone
+    // counts towards a set if they could take any one handover in it, since
+    // each falls at its own minute. Counting too many only prunes less;
+    // counting too few would throw away plans that exist.
     for (let a = 0; a < pending.length; a++) {
-      if (a && pending[a] === pending[a - 1]) continue;
-      const at = pending[a];
+      if (a && pending[a].at === pending[a - 1].at) continue;
+      const at = pending[a].at;
       let b = a;
-      while (b + 1 < pending.length && pending[b + 1] < at + MIN_BREAK_MIN) b++;
-      const demand = b - a + 1;
-      const latest = pending[b];
-      let supply = 0;
+      while (b + 1 < pending.length && pending[b + 1].at < at + MIN_BREAK_MIN) b++;
+      const group = pending.slice(a, b + 1);
+      const control = group.filter(entry => !exemptHere(codes[entry.channel]));
+      const exempt = group.filter(entry => exemptHere(codes[entry.channel]));
+      let forControl = 0;
+      let forExempt = 0;
+      let forAny = 0;
       for (let index = 0; index < n; index++) {
-        if (lastEnd[index] <= latest - MIN_BREAK_MIN && couldStartAt(index, at)) supply++;
+        if (!couldStartAt(index, at)) continue;
+        const takesControl = control.some(entry => couldRelieve(index, entry.at, entry.channel));
+        const takesExempt = exempt.some(
+          entry => canTakeChannel(people[index], codes[entry.channel]) && couldRelieve(index, entry.at, entry.channel),
+        );
+        if (takesControl) forControl++;
+        if (takesExempt) forExempt++;
+        if (takesControl || takesExempt) forAny++;
       }
-      if (supply < demand) return false;
+      if (forControl < control.length || forExempt < exempt.length || forAny < group.length) return false;
     }
 
     for (let i = 0; i < k; i++) {
-      if (!isRestrictedChannel(channels[i].code) || coveredTo[i] >= channels[i].closeAt) continue;
+      if (!isRestrictedChannel(codes[i]) || coveredTo[i] >= channels[i].closeAt) continue;
       const at = coveredTo[i];
       const ok = people.some(
-        (_, index) => qualified[index] && lastEnd[index] <= at - MIN_BREAK_MIN && couldStartAt(index, at),
+        (_, index) => qualified[index] && couldStartAt(index, at) && couldRelieve(index, at, i),
       );
       if (!ok) return false;
     }
@@ -303,15 +425,17 @@ export function solveContinuous(
     if (!handoversCoverable()) return false;
 
     const channel = channels[channelIndex];
+    const code = codes[channelIndex];
     const at = coveredTo[channelIndex];
-    const { duty: targetDuty, interval } = rhythmAt(at, channel.code);
+    const { duty: targetDuty, interval } = rhythmAt(at, code);
 
     let candidates: number[] = [];
     for (let index = 0; index < n; index++) {
-      if (lastEnd[index] > at - MIN_BREAK_MIN) continue;
+      if (!restedFor(index, at, channelIndex) || carriesOn(index, at, channelIndex)) continue;
       if (half[index] === 1 && at >= SECOND_HALF[0] && !crossoverChannel(channelIndex)) continue;
       if (half[index] === 2 && at >= FIRST_HALF[0] && at < SECOND_HALF[0]) continue;
-      if (!canTakeChannel(people[index], channel.code)) continue;
+      if (!canTakeChannel(people[index], code)) continue;
+      if (!freeToStart(index, at, code)) continue;
       candidates.push(index);
     }
 
@@ -321,13 +445,16 @@ export function solveContinuous(
     }
     if (!candidates.length) return false;
 
-    /** Somebody due to open another channel shortly must stay free for it. */
+    /**
+     * Somebody due to open another channel shortly must stay free for it —
+     * rested too, unless one of the two positions is TSO.
+     */
     const reservedUntil = (index: number) => {
       let limit = Number.POSITIVE_INFINITY;
       for (let j = 0; j < k; j++) {
         if (j === channelIndex) continue;
         if (starterIndex[j] === index && coveredTo[j] === channels[j].openAt && channels[j].openAt >= at) {
-          limit = Math.min(limit, channels[j].openAt - MIN_BREAK_MIN);
+          limit = Math.min(limit, channels[j].openAt - breakFor(code, codes[j]));
         }
       }
       return limit;
@@ -338,15 +465,15 @@ export function solveContinuous(
       if (half[index] !== 2) return 1;
       // Compare on the base code: after a merge, CLD's later stretch carries a
       // suffix, and it is exactly the stretch this preference is about.
-      if (baseCode(channel.code) === SECOND_HALF_PREFERRED_CHANNEL && at === SECOND_HALF[0]) return 0;
-      if (at < FIRST_HALF[0] && baseCode(channel.code) === SECOND_HALF_PREFERRED_CHANNEL) return 0;
+      if (code === SECOND_HALF_PREFERRED_CHANNEL && at === SECOND_HALF[0]) return 0;
+      if (at < FIRST_HALF[0] && code === SECOND_HALF_PREFERRED_CHANNEL) return 0;
       return 1;
     };
 
-    const restrictedStillOpen = channels.some(c => isRestrictedChannel(c.code) && c.closeAt > at);
-    const qualifiedScarce = restrictedStillOpen && qualifiedPoolAt(at) <= 3;
+    const restrictedStillOpen = channels.some((c, i) => isRestrictedChannel(codes[i]) && c.closeAt > at);
+    const qualifiedScarce = restrictedStillOpen && qualifiedPoolAt(at, code) <= 3;
     const keepForRestricted = (index: number) =>
-      !isRestrictedChannel(channel.code) && qualifiedScarce && qualified[index] ? 1 : 0;
+      !isRestrictedChannel(code) && qualifiedScarce && qualified[index] ? 1 : 0;
 
     const insideOwnHalf = (index: number) =>
       (half[index] === 1 && at >= FIRST_HALF[0] && at < SECOND_HALF[0]) || (half[index] === 2 && at >= SECOND_HALF[0]);
@@ -375,7 +502,7 @@ export function solveContinuous(
         keepForRestricted(a) - keepForRestricted(b) ||
         Number(reservedUntil(a) < Number.POSITIVE_INFINITY) - Number(reservedUntil(b) < Number.POSITIVE_INFINITY) ||
         secondHalfPreference(a) - secondHalfPreference(b) ||
-        lastEnd[a] - lastEnd[b] ||
+        restedSince(a, at) - restedSince(b, at) ||
         worked[a] - worked[b] ||
         Number(lastChannel[a] === channelIndex) - Number(lastChannel[b] === channelIndex) ||
         a - b,
@@ -404,7 +531,7 @@ export function solveContinuous(
     const floor = shortDuties || tail < PREFERRED_MIN_DUTY_MIN ? MIN_DUTY_MIN : PREFERRED_MIN_DUTY_MIN;
     // An uncapped position can run to the end of its window, so the candidate
     // list is bounded by the window rather than by the two-hour rule.
-    const longest = Math.min(maxDutyFor(channel.code), channel.closeAt - at);
+    const longest = Math.min(maxDutyFor(code), channel.closeAt - at);
     const ends: number[] = [];
     for (let length = longest; length >= floor; length -= SLOT_MIN) {
       const end = at + length;
@@ -415,10 +542,14 @@ export function solveContinuous(
     }
     if (!ends.length) return false;
 
+    // Staggering exists so whoever is relieved can rest before their next
+    // control duty. A handover onto or off TSO needs no rest, so TSO neither
+    // needs staggering itself nor counts against a control handover — the
+    // person relieved at that minute can go straight to it, or from it.
     const collides = (end: number) => {
-      if (end === channel.closeAt) return 0;
+      if (end === channel.closeAt || exemptHere(code)) return 0;
       for (let j = 0; j < k; j++) {
-        if (j === channelIndex) continue;
+        if (j === channelIndex || exemptHere(codes[j])) continue;
         if (coveredTo[j] < channels[j].closeAt && Math.abs(coveredTo[j] - end) < interval) return 1;
       }
       return 0;
@@ -426,7 +557,7 @@ export function solveContinuous(
     // Lengths the office prefers: anything under an hour last of all, then
     // staggered handovers, then 1h / 1h 30m / 2h ahead of 1h 15m / 1h 45m.
     // A usual length someone chose outranks that last preference.
-    const rank = (end: number) => dutyLengthRank(end - at, baseCode(channel.code));
+    const rank = (end: number) => dutyLengthRank(end - at, code);
     const isShort = (end: number) => (holdBackShort && rank(end) === 2 ? 1 : 0);
     const fromTarget = (end: number) => Math.abs(end - at - targetDuty);
     ends.sort(
@@ -443,23 +574,23 @@ export function solveContinuous(
       const limit = reservedUntil(personIndex);
       for (const end of ends) {
         if (end > limit || !rangeAllowed(personIndex, channelIndex, at, end)) continue;
+        if (!rangeFree(personIndex, at, end, code)) continue;
 
         const saved = [
           lastEnd[personIndex],
+          lastControlEnd[personIndex],
           lastChannel[personIndex],
           worked[personIndex],
           coveredTo[channelIndex],
           dutiesInOwnHalf[personIndex],
         ];
-        const countsForHalf =
-          (half[personIndex] === 1 && at < SECOND_HALF[0] && end > FIRST_HALF[0]) ||
-          (half[personIndex] === 2 && end > SECOND_HALF[0]);
 
         lastEnd[personIndex] = end;
+        if (!exemptHere(code)) lastControlEnd[personIndex] = end;
         lastChannel[personIndex] = channelIndex;
         worked[personIndex] += end - at;
         coveredTo[channelIndex] = end;
-        if (countsForHalf) dutiesInOwnHalf[personIndex]++;
+        if (countsForHalf(personIndex, at, end)) dutiesInOwnHalf[personIndex]++;
         placed.push({ personIndex, channelIndex, start: at, end });
 
         if (search()) return true;
@@ -467,6 +598,7 @@ export function solveContinuous(
         placed.pop();
         [
           lastEnd[personIndex],
+          lastControlEnd[personIndex],
           lastChannel[personIndex],
           worked[personIndex],
           coveredTo[channelIndex],
@@ -479,13 +611,16 @@ export function solveContinuous(
   }
 
   if (!search()) return null;
-  return placed.map(entry => ({
-    id: makeDutyId(),
-    personKey: people[entry.personIndex].key,
-    channelCode: baseCode(channels[entry.channelIndex].code),
-    startMin: entry.start,
-    endMin: entry.end,
-  }));
+  return [
+    ...fixed.map(duty => ({ ...duty })),
+    ...placed.map(entry => ({
+      id: makeDutyId(),
+      personKey: people[entry.personIndex].key,
+      channelCode: codes[entry.channelIndex],
+      startMin: entry.start,
+      endMin: entry.end,
+    })),
+  ];
 }
 
 /** The SMC this night's CLD could fold into, if it needs to. */
@@ -494,7 +629,18 @@ function mergeCandidate(state: NightAllocationState): string | null {
   if (!source?.inUse) return null;
   // Nothing to gain if CLD is already shut for the whole window.
   if (source.openAt >= MERGE_WINDOW[1] || source.closeAt <= MERGE_WINDOW[0]) return null;
-  return mergeTargetFor(state);
+  const target = mergeTargetFor(state);
+  // A DB slot on either position during the window rules the merge out: one
+  // on CLD can't be folded away, and one on the SMC would hand the trainee a
+  // second position as a last resort nobody chose.
+  const dbInWindow = state.duties.some(
+    duty =>
+      isFixedDuty(duty) &&
+      (duty.channelCode === MERGE_SOURCE_CHANNEL || duty.channelCode === target) &&
+      duty.startMin < MERGE_WINDOW[1] &&
+      duty.endMin > MERGE_WINDOW[0],
+  );
+  return dbInWindow ? null : target;
 }
 
 function withMerge(state: NightAllocationState, targetCode: string): NightAllocationState {
@@ -506,52 +652,98 @@ function withMerge(state: NightAllocationState, targetCode: string): NightAlloca
   };
 }
 
-/** Settings that make a plan impossible before any search is worth starting. */
-function preflight(state: NightAllocationState): string | null {
+/**
+ * Settings that make a plan impossible before any search is worth starting,
+ * as the refusal the page shows: what to fix, and the specifics when there is
+ * more than one line of them.
+ */
+function preflight(state: NightAllocationState): { error: string; reasons: string[] } | null {
+  const refuse = (error: string, reasons: string[] = []) => ({ error, reasons });
   const channels = openChannels(state);
-  if (!activeCount(state)) return "Turn on at least one channel.";
+  if (!activeCount(state)) return refuse("Turn on at least one channel.");
   const tooShort = activeChannelsShorterThanMinimum(state);
-  if (tooShort.length) return `${tooShort.join(", ")} must be open for at least 30 min.`;
-  if (!channels.length) return "Every channel in use closes before it opens. Check the open and close times.";
+  if (tooShort.length) return refuse(`${tooShort.join(", ")} must be open for at least 30 min.`);
+  if (!channels.length) return refuse("Every channel in use closes before it opens. Check the open and close times.");
 
   const available = availablePeople(state);
-  if (!available.length) return "Nobody is marked available tonight.";
+  if (!available.length) return refuse("Nobody is marked available tonight.");
+
+  // DB slots go into every plan exactly as they stand, so one that breaks a
+  // rule on its own makes every plan impossible. Said before searching.
+  const dbProblems = fixedDutyErrors(state);
+  if (dbProblems.length) {
+    return refuse(
+      "A DB slot breaks a rule, so no plan can include it. Change the slot or who instructs it.",
+      [...new Set(dbProblems.map(issue => issue.message))],
+    );
+  }
 
   // Starters are optional. A channel left blank is filled by the solver, which
-  // picks from whoever is eligible and rested at its opening minute.
-  for (const channel of channels) {
+  // picks from whoever is eligible and rested at its opening minute. A DB slot
+  // at the opening opens the position itself, and the setting gives way to it.
+  const startable = channels.filter(channel => !fixedOpeningDuty(state, channel));
+  for (const channel of startable) {
     if (!channel.starterKey) continue;
     const starter = findPerson(state, channel.starterKey);
     if (!starter || !starter.available) {
-      return `Everyone you selected must be marked available. Check who starts ${channel.code}.`;
+      return refuse(`Everyone you selected must be marked available. Check who starts ${channel.code}.`);
     }
     if (!canTakeChannel(starter, channel.code)) {
-      return `${starter.name} isn't marked as able to take TSO, so can't start it. Pick someone with "TSO" turned on.`;
+      return refuse(
+        `${starter.name} isn't marked as able to take TSO, so can't start it. Pick someone with "TSO" turned on.`,
+      );
     }
     if (starter.half === "1st" && channel.openAt >= SECOND_HALF[0]) {
-      return `${starter.name} is 1st Half, so can't start ${channel.code} at ${formatMinutes(channel.openAt)}.`;
+      return refuse(`${starter.name} is 1st Half, so can't start ${channel.code} at ${formatMinutes(channel.openAt)}.`);
     }
     if (starter.half === "2nd" && channel.openAt >= FIRST_HALF[0] && channel.openAt < SECOND_HALF[0]) {
-      return `${starter.name} is 2nd Half, so can't start ${channel.code} at ${formatMinutes(channel.openAt)}.`;
+      return refuse(`${starter.name} is 2nd Half, so can't start ${channel.code} at ${formatMinutes(channel.openAt)}.`);
+    }
+    if (!isAvailableAt(starter, channel.openAt)) {
+      return refuse(
+        `${starter.name} isn't available at ${formatMinutes(channel.openAt)}, so can't start ${channel.code}. ` +
+          `Pick someone else, or change their times.`,
+      );
     }
   }
 
   // One person cannot open two channels whose openings are less than a full
   // duty apart — they would still be on the first one.
-  for (let i = 0; i < channels.length; i++) {
-    for (let j = i + 1; j < channels.length; j++) {
-      const a = channels[i];
-      const b = channels[j];
+  for (let i = 0; i < startable.length; i++) {
+    for (let j = i + 1; j < startable.length; j++) {
+      const a = startable[i];
+      const b = startable[j];
       if (!a.starterKey || a.starterKey !== b.starterKey) continue;
       if (Math.abs(a.openAt - b.openAt) >= MAX_DUTY_MIN) continue;
-      return `${findPerson(state, a.starterKey as string)?.name ?? "That person"} can't start both ${a.code} and ${b.code}. Pick a different person for one of them.`;
+      return refuse(
+        `${findPerson(state, a.starterKey as string)?.name ?? "That person"} can't start both ${a.code} and ${b.code}. Pick a different person for one of them.`,
+      );
     }
   }
 
   const halfPeopleUnavailable = state.people.filter(person => person.half && !person.available);
   if (halfPeopleUnavailable.length) {
-    return `Everyone you selected must be marked available. Check ${halfPeopleUnavailable.map(p => p.name).join(", ")}.`;
+    return refuse(
+      `Everyone you selected must be marked available. Check ${halfPeopleUnavailable.map(p => p.name).join(", ")}.`,
+    );
   }
+
+  // Everyone in a half needs a duty inside it, so they have to be around for
+  // at least one duty's worth of it.
+  const awayForHalf = state.people.filter(person => {
+    if (!person.half || !person.available) return false;
+    const [from, to] = halfWindow(person.half);
+    return minutesAvailable(person, from, to) < MIN_DUTY_MIN;
+  });
+  if (awayForHalf.length) {
+    return refuse(
+      `${awayForHalf.map(person => person.name).join(", ")} ${awayForHalf.length === 1 ? "is" : "are"} in a half ` +
+        `but away for nearly all of it. Take them out of the half, or change their times.`,
+    );
+  }
+
+  const short = shortStretchNotices(state);
+  if (short.length) return refuse("Part of a position is too short for any duty, so no plan can cover it.", short);
   return null;
 }
 
@@ -606,7 +798,7 @@ export function generateAllocation(
   { budgetMs, now = () => Date.now(), seed: fixedSeed }: GenerateOptions = {},
 ): GenerateResult {
   const blocked = preflight(state);
-  if (blocked) return { ok: false, error: blocked, reasons: [] };
+  if (blocked) return { ok: false, error: blocked.error, reasons: blocked.reasons };
 
   const staffing = staffingNotices(state);
   const rhythmNote = dutyLengthNote(state);
@@ -618,7 +810,9 @@ export function generateAllocation(
   // Channels nobody has chosen a starter for are filled by the search. Varying
   // the seed each run means a second press offers a different night rather than
   // repeating the first one.
-  const anyStarterChosen = openChannels(state).some(channel => channel.starterKey);
+  const anyStarterChosen = openChannels(state).some(
+    channel => channel.starterKey && !fixedOpeningDuty(state, channel),
+  );
   const baseSeed = fixedSeed ?? (1 + Math.floor(Math.random() * 100_000));
 
   const starterNote =
@@ -640,6 +834,7 @@ export function generateAllocation(
     state: NightAllocationState,
     allowCrossHalfTso: boolean,
     shortDuties: boolean,
+    tsoWithoutBreak: boolean,
     deadline: number,
   ): GenerateResult | null => {
     const first = solveContinuous(state, {
@@ -648,6 +843,7 @@ export function generateAllocation(
       seed: anyStarterChosen ? 0 : baseSeed,
       allowCrossHalfTso,
       shortDuties,
+      tsoWithoutBreak,
     });
     if (first) {
       return { ok: true, state: { ...state, duties: first }, note: allowCrossHalfTso ? crossoverNote : rhythmNote };
@@ -659,6 +855,7 @@ export function generateAllocation(
       seed: anyStarterChosen ? 0 : baseSeed,
       allowCrossHalfTso,
       shortDuties,
+      tsoWithoutBreak,
     });
     if (relaxed) {
       return {
@@ -677,6 +874,7 @@ export function generateAllocation(
         seed: baseSeed + attempt,
         allowCrossHalfTso,
         shortDuties,
+        tsoWithoutBreak,
       });
       if (!restart) continue;
       return {
@@ -693,26 +891,42 @@ export function generateAllocation(
   // the office accepts them when there is no other way, while the TSO crossover
   // and the merge are last resorts. A merge the user has already ticked is not
   // a relaxation — it is the night as configured — so it is not retried.
+  //
+  // Going straight onto or off TSO is not a relaxation either: it is the rule.
+  // But each length is tried with a real break after every duty first. The
+  // narrower search finds those nights fastest — every night that planned
+  // before TSO needed no break still plans exactly as it did — and only then
+  // is the same length tried with TSO taken straight onto and off.
   const alreadyMerged = !!activeMerge(state);
   const mergeTarget = alreadyMerged ? null : mergeCandidate(state);
   const merged = mergeTarget ? withMerge(state, mergeTarget) : null;
   // A usual length under an hour was chosen, so there is no all-long night to try first.
   const shortChosen = !!state.dutyLengthPref && state.dutyLengthPref < PREFERRED_MIN_DUTY_MIN;
 
+  // Without an open TSO the two searches are the same one, so it runs once.
+  const tsoOpen = openChannels(state).some(channel => isBreakExempt(channel.code));
+
   type Attempt = {
     state: NightAllocationState;
     crossover: boolean;
     shortDuties: boolean;
+    tsoWithoutBreak: boolean;
     mergedInto: string | null;
     weight: number;
   };
   const attempts: Attempt[] = [];
-  if (!shortChosen) attempts.push({ state, crossover: false, shortDuties: false, mergedInto: null, weight: 2 });
-  attempts.push({ state, crossover: false, shortDuties: true, mergedInto: null, weight: 2 });
-  attempts.push({ state, crossover: true, shortDuties: true, mergedInto: null, weight: 1 });
+  const plain = { state, crossover: false, mergedInto: null };
+  if (!shortChosen) {
+    attempts.push({ ...plain, shortDuties: false, tsoWithoutBreak: false, weight: 2 });
+    if (tsoOpen) attempts.push({ ...plain, shortDuties: false, tsoWithoutBreak: true, weight: 1 });
+  }
+  attempts.push({ ...plain, shortDuties: true, tsoWithoutBreak: false, weight: 2 });
+  if (tsoOpen) attempts.push({ ...plain, shortDuties: true, tsoWithoutBreak: true, weight: 1 });
+  attempts.push({ state, crossover: true, shortDuties: true, tsoWithoutBreak: tsoOpen, mergedInto: null, weight: 1 });
   if (merged && mergeTarget) {
-    attempts.push({ state: merged, crossover: false, shortDuties: true, mergedInto: mergeTarget, weight: 1 });
-    attempts.push({ state: merged, crossover: true, shortDuties: true, mergedInto: mergeTarget, weight: 1 });
+    const mergedAttempt = { state: merged, shortDuties: true, tsoWithoutBreak: tsoOpen, mergedInto: mergeTarget };
+    attempts.push({ ...mergedAttempt, crossover: false, weight: 1 });
+    attempts.push({ ...mergedAttempt, crossover: true, weight: 1 });
   }
 
   // Deadlines are cumulative, so the whole run still ends inside the budget.
@@ -723,7 +937,7 @@ export function generateAllocation(
   let deadline = startedAt;
   for (const [index, attempt] of attempts.entries()) {
     deadline += shares[index];
-    const planned = sweep(attempt.state, attempt.crossover, attempt.shortDuties, deadline);
+    const planned = sweep(attempt.state, attempt.crossover, attempt.shortDuties, attempt.tsoWithoutBreak, deadline);
     if (!planned || !planned.ok) continue;
     if (!attempt.mergedInto) {
       // Say so when the all-long attempt failed and the plan needed short duties.

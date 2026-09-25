@@ -115,3 +115,69 @@ describe("reading a saved night", () => {
     expect(loaded.teams).toEqual(["A"]);
   });
 });
+
+describe("reading DB slots and part-night times back", () => {
+  it("keeps a slot's kind and note and a person's times, and reads older rows as ordinary", async () => {
+    const { client } = fakeSupabase({
+      night_allocations: [
+        {
+          id: "a1",
+          night_date: "2026-09-20",
+          duty_length_pref: 0,
+          status: "draft",
+          version: 2,
+          updated_by_name: "Asha Rao",
+          updated_at: "2026-09-20T10:00:00Z",
+        },
+      ],
+      rosters: roster,
+      night_allocation_people: [
+        {
+          person_key: "p1",
+          user_id: null,
+          display_name: "Asha Rao",
+          employee_code: null,
+          role: "TWR",
+          is_available: true,
+          half: null,
+          can_take_tso: false,
+          is_manual: false,
+          color_index: 0,
+          availability: { mode: "except", periods: [[240, 360]] },
+        },
+        {
+          person_key: "p2",
+          user_id: null,
+          display_name: "Vikram Sen",
+          employee_code: null,
+          role: "SMC",
+          is_available: true,
+          half: null,
+          can_take_tso: false,
+          is_manual: false,
+          color_index: 1,
+          availability: null,
+        },
+      ],
+      night_allocation_channels: [
+        { channel_code: "TWR", in_use: true, open_at: 0, close_at: 720, starter_key: null, merged_into: null },
+      ],
+      night_allocation_duties: [
+        { id: "d1", channel_code: "TWR", person_key: "p2", start_min: 240, end_min: 360, kind: "db", note: "Sulagna" },
+        { id: "d2", channel_code: "TWR", person_key: "p1", start_min: 0, end_min: 120, kind: "duty", note: null },
+        // Saved before DB slots existed: no kind at all.
+        { id: "d3", channel_code: "TWR", person_key: "p2", start_min: 120, end_min: 240 },
+      ],
+    });
+
+    const { state } = await loadState(client, "2026-09-20");
+    expect(state.duties.find(duty => duty.id === "d1")).toMatchObject({ kind: "db", note: "Sulagna" });
+    expect(state.duties.find(duty => duty.id === "d2")?.kind).toBeUndefined();
+    expect(state.duties.find(duty => duty.id === "d3")?.kind).toBeUndefined();
+    expect(state.people.find(person => person.key === "p1")?.availability).toEqual({
+      mode: "except",
+      periods: [[240, 360]],
+    });
+    expect(state.people.find(person => person.key === "p2")?.availability).toBeNull();
+  });
+});

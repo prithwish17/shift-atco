@@ -43,6 +43,17 @@ export function duty(channelCode: string, personKey: string, startMin: number, e
   return { id: `t${dutyCounter}`, channelCode, personKey, startMin, endMin };
 }
 
+/** A DB slot: `personKey` instructing on `channelCode`, fixed in advance. */
+export function dbSlot(
+  channelCode: string,
+  personKey: string,
+  startMin: number,
+  endMin: number,
+  note: string | null = null,
+): NightDuty {
+  return { ...duty(channelCode, personKey, startMin, endMin), kind: "db", note };
+}
+
 export function night(overrides: Partial<NightAllocationState> = {}): NightAllocationState {
   return {
     nightDate: "2026-09-17",

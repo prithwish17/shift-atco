@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyDutyChange, deleteDuty, previewDutyChange, refitChannel, splitDuty } from "../editing";
 import { uncoveredMinutes, validateAllocation } from "../rules";
-import { channel, duty, night, refused, team } from "./fixtures";
+import { channel, dbSlot, duty, night, refused, team } from "./fixtures";
 import type { NightAllocationState } from "../types";
 
 /** TWR covered end to end by four duties, handed over three times. */
@@ -335,5 +335,126 @@ describe("halves, when a duty changes hands", () => {
       endMin: 90,
     });
     expect(preview.problems).toEqual([]);
+  });
+});
+
+describe("DB slots on the board", () => {
+  /** TWR 15:30–21:30: p2, then p1's DB slot 17:30–19:30, then p3 and p4. */
+  function slotNight(): NightAllocationState {
+    return night({
+      people: team(4),
+      channels: [channel("TWR", { openAt: 120, closeAt: 480 })],
+      duties: [
+        duty("TWR", "p2", 120, 240),
+        dbSlot("TWR", "p1", 240, 360),
+        duty("TWR", "p3", 360, 420),
+        duty("TWR", "p4", 420, 480),
+      ],
+    });
+  }
+  const slotOf = (state: NightAllocationState) => state.duties.find(entry => entry.kind === "db")!;
+
+  it("refuses a handover that would drag the slot along", () => {
+    const state = slotNight();
+    const before = state.duties[0];
+    const refusal = refused(applyDutyChange(state, { ...before, endMin: 270 }, before.id));
+    expect(refusal.problems[0]).toBe(
+      "TWR has a DB slot 17:30–19:30, and DB slots don't move. Keep the handover at 17:30, or change the DB slot itself.",
+    );
+
+    const after = state.duties[2];
+    const alsoRefused = refused(applyDutyChange(state, { ...after, startMin: 330 }, after.id));
+    expect(alsoRefused.problems[0]).toContain("Keep the handover at 19:30");
+  });
+
+  it("still takes an edit that leaves the slot where it is", () => {
+    const state = slotNight();
+    const after = state.duties[2];
+    const result = applyDutyChange(state, { ...after, endMin: 435 }, after.id);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(slotOf(result.state)).toEqual(slotOf(state));
+    expect(uncoveredMinutes(result.state)).toBe(0);
+  });
+
+  it("hands a deleted duty's time to the neighbour that isn't a slot", () => {
+    const state = slotNight();
+    const result = deleteDuty(state, state.duties[2].id);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(slotOf(result.state)).toEqual(slotOf(state));
+    expect(result.state.duties.find(entry => entry.personKey === "p4")?.startMin).toBe(360);
+    expect(uncoveredMinutes(result.state)).toBe(0);
+  });
+
+  it("refuses a delete between two slots, which nothing could cover", () => {
+    const state = night({
+      people: team(3),
+      channels: [channel("TWR", { openAt: 240, closeAt: 480 })],
+      duties: [dbSlot("TWR", "p1", 240, 360), duty("TWR", "p3", 360, 420), dbSlot("TWR", "p2", 420, 480)],
+    });
+    const refusal = refused(deleteDuty(state, state.duties[1].id));
+    expect(refusal.problems[0]).toBe(
+      "Can't delete: TWR would have no one on duty 19:30–20:30. Someone must take over at the handover time.",
+    );
+  });
+
+  it("never splits a slot", () => {
+    const state = slotNight();
+    const refusal = refused(splitDuty(state, slotOf(state).id, 300, "p4"));
+    expect(refusal.problems[0]).toContain("A DB slot can't be split");
+  });
+
+  it("doesn't stretch a slot to new hours, and cuts one the hours cut into", () => {
+    const state = night({
+      people: team(3),
+      channels: [channel("TWR", { openAt: 240, closeAt: 480 })],
+      duties: [dbSlot("TWR", "p1", 240, 360), duty("TWR", "p2", 360, 480)],
+    });
+
+    const earlier = refitChannel(state, "TWR", 180, 480);
+    expect(slotOf(earlier.state)).toMatchObject({ startMin: 240, endMin: 360 });
+    expect(uncoveredMinutes(earlier.state)).toBe(60);
+
+    const cut = refitChannel(state, "TWR", 300, 480);
+    expect(slotOf(cut.state)).toMatchObject({ startMin: 300, endMin: 360 });
+    expect(cut.note).toContain("A DB slot was cut to the new hours.");
+
+    const gone = refitChannel(state, "TWR", 360, 480);
+    expect(gone.state.duties.some(entry => entry.kind === "db")).toBe(false);
+    expect(gone.note).toContain("A DB slot was among them.");
+  });
+
+  it("doesn't blame the first duty added beside a slot for everyone else's bare half", () => {
+    const state = night({
+      people: team(3, { halves: { 1: "1st", 2: "2nd" } }),
+      channels: [channel("TWR")],
+      duties: [dbSlot("TWR", "p1", 240, 360)],
+    });
+    const preview = previewDutyChange(state, null, {
+      id: "first",
+      channelCode: "TWR",
+      personKey: "p3",
+      startMin: 0,
+      endMin: 90,
+    });
+    expect(preview.problems).toEqual([]);
+  });
+});
+
+describe("no break needed around TSO", () => {
+  it("takes someone straight from TWR onto TSO, and from TSO onto another position", () => {
+    const state = night({
+      people: team(3, { tso: [1, 2, 3] }),
+      channels: [channel("TWR", { openAt: 0, closeAt: 180 }), channel("TSO", { openAt: 90, closeAt: 180 })],
+      duties: [duty("TWR", "p1", 0, 90), duty("TWR", "p2", 90, 180), duty("TSO", "p3", 90, 180)],
+    });
+    const tso = state.duties[2];
+    const onto = applyDutyChange(state, { ...tso, personKey: "p1" }, tso.id);
+    expect(onto.ok).toBe(true);
+
+    const twr = state.duties[1];
+    const offTwr = refused(applyDutyChange(state, { ...twr, personKey: "p1" }, twr.id));
+    expect(offTwr.problems.some(problem => problem.includes("0 min break"))).toBe(true);
   });
 });

@@ -10,11 +10,13 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
+  DB_LABEL,
   FIRST_HALF,
   MIDNIGHT_MIN,
   NIGHT_SPAN_MIN,
   SECOND_HALF,
   MERGE_WINDOW,
+  isFixedDuty,
   activeChannels,
   activeMerge,
   buildRosterSummary,
@@ -280,6 +282,15 @@ export async function buildBoardImage(
       context.fillRect(x, boxTop, w, boxHeight);
       context.fillStyle = swatch.edge;
       context.fillRect(x, boxTop, 3, boxHeight);
+      // A DB slot is outlined dashed, as on the board: fixed, not planned.
+      const slot = isFixedDuty(duty);
+      if (slot) {
+        context.save();
+        context.strokeStyle = swatch.edge;
+        context.setLineDash([4, 3]);
+        context.strokeRect(x + 0.5, boxTop + 0.5, w - 1, boxHeight - 1);
+        context.restore();
+      }
 
       // Clip to the strip so nothing bleeds past its end — or off the canvas.
       context.save();
@@ -300,7 +311,7 @@ export async function buildBoardImage(
         duty.endMin > MERGE_WINDOW[0]
           ? `+${merge.source.code}`
           : "";
-      const label = absorbs ? `${initials} ${absorbs}` : initials;
+      const label = absorbs ? `${initials} ${absorbs}` : slot ? `${initials} ${DB_LABEL}` : initials;
       const initialsWidth = context.measureText(label).width;
       context.fillText(label, x + 7, boxTop + 16);
 

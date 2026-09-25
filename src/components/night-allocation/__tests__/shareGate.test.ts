@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channel, duty, night, team } from "@/domain/night-allocation/__tests__/fixtures";
+import { channel, dbSlot, duty, night, team } from "@/domain/night-allocation/__tests__/fixtures";
 import { shareGate } from "../shareGate";
 
 const planned = (version: number) =>
@@ -43,5 +43,15 @@ describe("what the share sheet offers", () => {
       notice: null,
       emailBlocked: null,
     });
+  });
+});
+
+describe("a night holding only DB slots", () => {
+  it("is not a roster to share yet", () => {
+    const gate = shareGate(
+      night({ version: 2, people: team(1), channels: [channel("TWR")], duties: [dbSlot("TWR", "p1", 240, 360)] }),
+      { dirty: false, errorCount: 0 },
+    );
+    expect(gate.blocked).toMatch(/Nothing is allocated yet/);
   });
 });

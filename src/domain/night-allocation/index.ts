@@ -14,5 +14,7 @@ export * from "./time.js";
 export * from "./rules.js";
 export * from "./solver.js";
 export * from "./editing.js";
+export * from "./availability.js";
+export * from "./db-slots.js";
 export * from "./roster-text.js";
 export { makeDutyId } from "./ids.js";

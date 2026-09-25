@@ -7,6 +7,19 @@
 export type HalfKey = "1st" | "2nd" | null;
 
 /**
+ * Part of the night someone can, or can't, work.
+ *
+ * `only` lists the stretches they are available for and nothing else; `except`
+ * lists the stretches they are away and leaves the rest open. Either way the
+ * periods are `[start, end)` in minutes from 13:30, as everything else is.
+ * Several periods are allowed — "away 17:30–19:30 and 23:30–01:30" is two.
+ */
+export interface PersonAvailability {
+  mode: "only" | "except";
+  periods: Array<[number, number]>;
+}
+
+/**
  * A person on tonight's page.
  *
  * `key` is the module's own identifier, stable for one night. It is the profile
@@ -23,6 +36,12 @@ export interface NightPerson {
   code: string;
   role: string;
   available: boolean;
+  /**
+   * When they are on the crew for only part of the night. Absent or null means
+   * the whole night. Only read while `available` is true — someone marked not
+   * available is away all night whatever this says.
+   */
+  availability?: PersonAvailability | null;
   /** Snapshot of the TSO qualification for this night. */
   canTakeTso: boolean;
   half: HalfKey;
@@ -50,6 +69,12 @@ export interface NightChannel {
   mergedInto?: string | null;
 }
 
+/**
+ * What a duty is. An ordinary duty is placed by the generator or by hand; a DB
+ * slot is training time fixed in advance — see `NightDuty.kind`.
+ */
+export type DutyKind = "duty" | "db";
+
 /** One stretch of one position held by one person. */
 export interface NightDuty {
   id: string;
@@ -57,6 +82,16 @@ export interface NightDuty {
   personKey: string;
   startMin: number;
   endMin: number;
+  /**
+   * `"db"` for a DB slot: the position is reserved for training at a fixed
+   * time, and `personKey` is the instructor, who is the one actually on the
+   * position then. The generator plans everyone else around it and never moves
+   * it; every other rule applies to it exactly as to any duty. Absent, or
+   * `"duty"`, on an ordinary duty.
+   */
+  kind?: DutyKind;
+  /** Who is being trained, shown beside a DB slot. Free text; null otherwise. */
+  note?: string | null;
 }
 
 export type AllocationStatus = "draft" | "final";

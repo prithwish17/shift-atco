@@ -34,8 +34,11 @@ import {
   SLOT_MIN,
   applyDutyChange,
   availablePeople,
+  awayDuring,
   canTakeChannel,
   deleteDuty,
+  formatRange,
+  isFixedDuty,
   findChannel,
   findPerson,
   formatDuration,
@@ -113,9 +116,13 @@ export function DutyDialog({ state, draft, onClose, onApply }: DutyDialogProps) 
       : `Ends at ${formatMinutes(working.endMin)}.`;
 
   // The first duty's start and the last duty's end belong to the channel's own
-  // open and close times, so they are not editable here.
-  const startPinned = !!(original && !neighbours.previous && channel && original.startMin === channel.openAt);
-  const endPinned = !!(original && !neighbours.next && channel && original.endMin === channel.closeAt);
+  // open and close times, so they are not editable here — and a handover with
+  // a DB slot belongs to the slot, which doesn't move.
+  const slotBefore = !!(neighbours.previous && isFixedDuty(neighbours.previous));
+  const slotAfter = !!(neighbours.next && isFixedDuty(neighbours.next));
+  const startPinned =
+    !!(original && !neighbours.previous && channel && original.startMin === channel.openAt) || slotBefore;
+  const endPinned = !!(original && !neighbours.next && channel && original.endMin === channel.closeAt) || slotAfter;
 
   const canSplit = !!original && length >= 2 * MIN_DUTY_MIN;
   const splitTimes = canSplit
@@ -188,16 +195,21 @@ export function DutyDialog({ state, draft, onClose, onApply }: DutyDialogProps) 
                 <SelectValue placeholder="Select person" />
               </SelectTrigger>
               <SelectContent className="max-h-72">
-                {peopleForChannel.map(person => (
-                  <SelectItem key={person.key} value={person.key}>
-                    {person.name}
-                    {!person.available
-                      ? " (not available)"
-                      : !canTakeChannel(person, working.channelCode)
-                        ? " (not set for TSO)"
-                        : ""}
-                  </SelectItem>
-                ))}
+                {peopleForChannel.map(person => {
+                  const away = awayDuring(person, working.startMin, working.endMin);
+                  return (
+                    <SelectItem key={person.key} value={person.key}>
+                      {person.name}
+                      {!person.available
+                        ? " (not available)"
+                        : !canTakeChannel(person, working.channelCode)
+                          ? " (not set for TSO)"
+                          : away.length
+                            ? ` (away ${formatRange(away[0][0], away[0][1])})`
+                            : ""}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
@@ -287,6 +299,15 @@ export function DutyDialog({ state, draft, onClose, onApply }: DutyDialogProps) 
             </span>
           </p>
           <p className="mt-1 text-[0.78rem] leading-snug text-corp-text-muted">{`${takesOverFrom} ${handsOverTo}`}</p>
+          {slotBefore || slotAfter ? (
+            <p className="mt-1 text-[0.74rem] leading-snug text-corp-text-soft">
+              {slotBefore && slotAfter
+                ? "Both handovers are with DB slots, which don't move."
+                : slotBefore
+                  ? "The start is the handover from a DB slot, which doesn't move."
+                  : "The end is the handover to a DB slot, which doesn't move."}
+            </p>
+          ) : null}
         </div>
 
         <ul aria-live="polite" className="space-y-1 text-sm">

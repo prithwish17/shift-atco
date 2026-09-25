@@ -16,24 +16,29 @@
  */
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import {
+  DB_LABEL,
   FIRST_HALF,
   MERGE_WINDOW,
   MIDNIGHT_MIN,
-  MIN_BREAK_MIN,
   NIGHT_SPAN_MIN,
   NIGHT_START_MIN,
   SECOND_HALF,
+  dbTag,
   findChannel,
   findPerson,
   formatMinutes,
   formatRange,
   formatDuration,
   activeMerge,
+  breakBetween,
   gapsForChannel,
+  isFixedDuty,
+  isPlanned,
   mergedAwayWindow,
   minutesOnDuty,
   personShortLabel,
   snapToSlot,
+  unavailableSpans,
   type NightAllocationState,
   type NightChannel,
   type NightDuty,
@@ -64,6 +69,8 @@ interface BoardRow {
   gaps: Array<[number, number]>;
   /** The stretch this position is folded into another one for. */
   mergedAway?: { window: readonly [number, number]; intoCode: string } | null;
+  /** When this person is away tonight. Person rows only. */
+  away?: Array<[number, number]>;
 }
 
 const AXIS_HEIGHT = 46;
@@ -128,10 +135,9 @@ export function AllocationBoard({
           title: code,
           subtitle: !channel?.inUse ? "not in use" : partial ? formatRange(channel.openAt, channel.closeAt) : "",
           duties: state.duties.filter(duty => duty.channelCode === code),
-          gaps:
-            channel?.inUse && state.duties.length
-              ? gapsForChannel(state.duties, channel, window)
-              : [],
+          // DB slots alone are not a plan, so they don't make the rest of the
+          // position read as uncovered.
+          gaps: channel?.inUse && isPlanned(state) ? gapsForChannel(state.duties, channel, window) : [],
           mergedAway: window && channel?.mergedInto ? { window, intoCode: channel.mergedInto } : null,
         };
       });
@@ -148,6 +154,9 @@ export function AllocationBoard({
         duties: state.duties.filter(duty => duty.personKey === person.key),
         gaps: [],
         mergedAway: null,
+        // Someone marked not available has no lane-worth of away to draw: their
+        // row only shows while they still hold a duty, which is the problem.
+        away: person.available ? unavailableSpans(person) : [],
       }));
   }, [state, view]);
 
@@ -217,6 +226,15 @@ export function AllocationBoard({
                     intoCode={row.mergedAway.intoCode}
                   />
                 ) : null}
+
+                {(row.away ?? []).map(([start, end]) => (
+                  <AwayBand
+                    key={`away-${start}-${end}`}
+                    left={start * pxPerMin}
+                    width={(end - start) * pxPerMin}
+                    label={formatRange(start, end)}
+                  />
+                ))}
 
                 {row.gaps.map(([start, end]) => (
                   <GapBand
@@ -479,6 +497,27 @@ function MergedBand({ left, width, intoCode }: { left: number; width: number; in
   );
 }
 
+/**
+ * Time a person is away, on their row of the by-person view. Drawn like a
+ * closed stretch, because to the generator that is what it is.
+ */
+function AwayBand({ left, width, label }: { left: number; width: number; label: string }) {
+  return (
+    <span
+      title={`Away ${label}`}
+      className="absolute inset-y-0 z-[2] flex items-center justify-center overflow-hidden whitespace-nowrap text-[0.65rem] font-semibold uppercase tracking-wide text-corp-text-soft"
+      style={{
+        left,
+        width: Math.max(4, width),
+        backgroundImage:
+          "repeating-linear-gradient(45deg, var(--corp-border-soft) 0 4px, transparent 4px 8px)",
+      }}
+    >
+      {width > 52 ? "Away" : ""}
+    </span>
+  );
+}
+
 /** An uncovered stretch of an open channel — the thing the board exists to show. */
 function GapBand({ left, width, label }: { left: number; width: number; label: string }) {
   return (
@@ -519,6 +558,10 @@ const DutyStrip = forwardRef<HTMLButtonElement, DutyStripProps>(function DutyStr
   const width = Math.max(16, (Math.min(NIGHT_SPAN_MIN, duty.endMin) - Math.max(0, duty.startMin)) * pxPerMin);
   const heading = view === "channel" ? personShortLabel(person) : duty.channelCode;
   const firstName = person ? person.name.split(" ")[0] : "Removed";
+  // A DB slot is the instructor's, fixed in advance: marked so it reads as a
+  // reservation rather than as one more duty the generator chose.
+  const slot = isFixedDuty(duty);
+  const tag = dbTag(duty);
   // A duty on the absorbing position covers both for the merge window.
   const merge = activeMerge(state);
   const absorbs =
@@ -528,16 +571,19 @@ const DutyStrip = forwardRef<HTMLButtonElement, DutyStripProps>(function DutyStr
     duty.endMin > MERGE_WINDOW[0]
       ? merge.source.code
       : null;
+  const range = formatRange(duty.startMin, duty.endMin);
 
   return (
     <button
       ref={ref}
       type="button"
       onClick={onOpen}
+      title={slot ? `${tag} — ${person?.name ?? "removed person"} instructing, ${range}` : undefined}
       style={{ ...swatchVars(swatch), left, width }}
       className={cn(
         "group absolute inset-y-1.5 z-10 flex flex-col items-start justify-center gap-px overflow-hidden rounded-md px-2 text-left",
         "border border-black/[0.06] dark:border-white/[0.08]",
+        slot && "border-dashed border-black/30 dark:border-white/35",
         "bg-[var(--strip-fill)] text-[color:var(--strip-text)]",
         "dark:bg-[var(--strip-fill-dark)] dark:text-[color:var(--strip-text-dark)]",
         "shadow-[0_1px_2px_rgba(15,23,42,0.08)]",
@@ -547,20 +593,36 @@ const DutyStrip = forwardRef<HTMLButtonElement, DutyStripProps>(function DutyStr
         hasProblem && "ring-2 ring-status-danger ring-offset-1 ring-offset-surface",
         isFocused && "ring-2 ring-ring ring-offset-2 ring-offset-surface",
       )}
-      aria-label={`${duty.channelCode}${absorbs ? ` with ${absorbs}` : ""}, ${person?.name ?? "removed person"}, ${formatRange(
-        duty.startMin,
-        duty.endMin,
-      )}${hasProblem ? ", has a problem" : ""}. Change this duty.`}
+      aria-label={
+        slot
+          ? `${duty.channelCode} ${DB_LABEL} slot, ${person?.name ?? "removed person"} instructing` +
+            `${duty.note ? `, trainee ${duty.note}` : ""}, ${range}${hasProblem ? ", has a problem" : ""}. ` +
+            `Change this DB slot.`
+          : `${duty.channelCode}${absorbs ? ` with ${absorbs}` : ""}, ${person?.name ?? "removed person"}, ${range}` +
+            `${hasProblem ? ", has a problem" : ""}. Change this duty.`
+      }
     >
       <span
         aria-hidden
         className="absolute inset-y-0 left-0 w-[3px] rounded-l-md"
         style={{ background: "var(--strip-edge)" }}
       />
+      {slot ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.13]"
+          style={{ backgroundImage: "repeating-linear-gradient(135deg, currentColor 0 3px, transparent 3px 9px)" }}
+        />
+      ) : null}
       <span className="flex w-full items-baseline gap-1.5 pl-1">
         {/* The initials never truncate — they are what identifies the strip.
             The name beside them absorbs the squeeze instead. */}
         <span className="shrink-0 text-[0.78rem] font-bold leading-none tracking-tight">{heading}</span>
+        {slot && width >= 44 ? (
+          <span className="shrink-0 rounded-sm bg-black/[0.1] px-1 text-[0.6rem] font-bold leading-[1.4] dark:bg-white/[0.14]">
+            {DB_LABEL}
+          </span>
+        ) : null}
         {absorbs && width >= 76 ? (
           <span className="shrink-0 rounded-sm bg-black/[0.08] px-1 text-[0.6rem] font-bold leading-[1.4] dark:bg-white/[0.12]">
             +{absorbs}
@@ -572,7 +634,7 @@ const DutyStrip = forwardRef<HTMLButtonElement, DutyStripProps>(function DutyStr
       </span>
       {width >= 62 ? (
         <span className="truncate pl-1 font-mono text-[0.63rem] tabular-nums leading-none opacity-75">
-          {formatRange(duty.startMin, duty.endMin)}
+          {range}
         </span>
       ) : null}
       {hasProblem ? (
@@ -593,7 +655,8 @@ function ShortBreakMarkers({ duties, pxPerMin }: { duties: NightDuty[]; pxPerMin
   const markers: Array<{ key: string; left: number; width: number; gap: number }> = [];
   for (let index = 1; index < sorted.length; index++) {
     const gap = sorted[index].startMin - sorted[index - 1].endMin;
-    if (gap < 0 || gap >= MIN_BREAK_MIN) continue;
+    // Straight onto or off TSO needs no break, so that is not a short one.
+    if (gap < 0 || gap >= breakBetween(sorted[index - 1].channelCode, sorted[index].channelCode)) continue;
     markers.push({
       key: sorted[index].id,
       left: sorted[index - 1].endMin * pxPerMin - (gap === 0 ? 3 : 0),

@@ -8,8 +8,12 @@
  */
 import { FIRST_HALF, MERGE_WINDOW, NIGHT_SPAN_MIN, SECOND_HALF } from "./constants.js";
 import { activeChannels, activeMerge, dutyLength, minutesOnDuty, personName } from "./rules.js";
+import { dbTag } from "./db-slots.js";
 import { formatDuration, formatMinutesCompact, formatRange } from "./time.js";
 import type { NightAllocationState, NightDuty } from "./types.js";
+
+/** " (DB · Sulagna)" after a name, or nothing for an ordinary duty. */
+const tagSuffix = (tag?: string | null) => (tag ? ` (${tag})` : "");
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -35,13 +39,14 @@ export interface ChannelRosterLine {
   window?: string;
   /** Set when this position folds into another one for the merge window. */
   mergedNote?: string;
-  duties: Array<{ range: string; name: string }>;
+  /** `tag` is "DB", or "DB · trainee", on a DB slot — the instructor holds it. */
+  duties: Array<{ range: string; name: string; tag?: string }>;
 }
 
 export interface PersonRosterLine {
   name: string;
   half: string;
-  duties: Array<{ range: string; code: string }>;
+  duties: Array<{ range: string; code: string; tag?: string }>;
   totalLabel: string;
 }
 
@@ -93,6 +98,7 @@ export function buildRosterSummary(
       .map(duty => ({
         range: `${formatMinutesCompact(duty.startMin)}-${formatMinutesCompact(duty.endMin)}`,
         name: personName(state, duty.personKey),
+        ...(dbTag(duty) ? { tag: dbTag(duty) as string } : {}),
       })),
   }));
 
@@ -107,6 +113,7 @@ export function buildRosterSummary(
         .map(duty => ({
           range: `${formatMinutesCompact(duty.startMin)}-${formatMinutesCompact(duty.endMin)}`,
           code: duty.channelCode,
+          ...(dbTag(duty) ? { tag: dbTag(duty) as string } : {}),
         })),
       totalLabel: formatDuration(minutesOnDuty(state, person.key)),
     }));
@@ -167,14 +174,14 @@ function renderFullText(summary: RosterSummary, options: RosterTextOptions): str
     const heading = channel.window ? `*${channel.code}*  (${channel.window})` : `*${channel.code}*`;
     lines.push(channel.mergedNote ? `${heading}  [${channel.mergedNote}]` : heading);
     if (!channel.duties.length) lines.push("nobody assigned");
-    for (const duty of channel.duties) lines.push(`${duty.range} ${duty.name}`);
+    for (const duty of channel.duties) lines.push(`${duty.range} ${duty.name}${tagSuffix(duty.tag)}`);
   }
 
   if (summary.people.length) {
     lines.push("");
     lines.push("*By person*");
     for (const person of summary.people) {
-      const duties = person.duties.map(duty => `${duty.range} ${duty.code}`).join(", ");
+      const duties = person.duties.map(duty => `${duty.range} ${duty.code}${tagSuffix(duty.tag)}`).join(", ");
       lines.push(`${person.name}  ${duties}  (${person.totalLabel})`);
     }
   }
@@ -244,7 +251,7 @@ export function channelTableRows(state: NightAllocationState): string[][] {
       rows.push([
         index === 0 ? channel.code : "",
         formatRange(duty.startMin, duty.endMin),
-        personName(state, duty.personKey),
+        `${personName(state, duty.personKey)}${tagSuffix(dbTag(duty))}`,
         formatDuration(dutyLength(duty)),
       ]);
     });
@@ -257,7 +264,7 @@ export function personTableRows(state: NightAllocationState): string[][] {
   return buildRosterSummary(state).people.map(person => [
     person.name,
     person.half || "—",
-    person.duties.map(duty => `${duty.range} ${duty.code}`).join(", "),
+    person.duties.map(duty => `${duty.range} ${duty.code}${tagSuffix(duty.tag)}`).join(", "),
     person.totalLabel,
   ]);
 }

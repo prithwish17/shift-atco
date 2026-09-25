@@ -7,7 +7,7 @@
  * screen, so it is offered only when those are the same thing: saved, with no
  * changes since.
  */
-import type { NightAllocationState } from "@/domain/night-allocation";
+import { isPlanned, type NightAllocationState } from "@/domain/night-allocation";
 
 export interface ShareGate {
   /** Why nothing can be shared yet, or null. */
@@ -22,7 +22,8 @@ export function shareGate(
   state: NightAllocationState,
   { dirty, errorCount }: { dirty: boolean; errorCount: number },
 ): ShareGate {
-  if (!state.duties.length) {
+  // DB slots entered ahead of the plan are not a roster yet.
+  if (!isPlanned(state)) {
     return {
       blocked: "Nothing is allocated yet. Generate a plan or add duties before sharing.",
       notice: null,
