@@ -26,7 +26,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CalendarIcon, ChevronLeft, ChevronRight, Loader2, RotateCcw, Share2 } from "lucide-react";
+import { CalendarIcon, ChevronLeft, ChevronRight, Loader2, RotateCcw, Share2, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
@@ -68,6 +68,9 @@ const GENERATE_ARMED_TEXT = "This replaces the duties on the board — DB slots 
 const RESET_ARMED_TEXT =
   "Reset clears halves, everyone's times, channel settings, starters, DB slots and all duties for this night. " +
   "Tap again to confirm.";
+const CLEAR_ARMED_TEXT =
+  "Clear takes every duty off the board. The crew, halves, everyone's times, channel settings, starters and " +
+  "DB slots stay. Tap again to confirm.";
 
 /** The DB dialog's starting point for a slot already on the board. */
 function draftFromSlot(slot: NightDuty): DbSlotDraft {
@@ -162,6 +165,13 @@ export default function NightChannelAllocation() {
   const [generateNote, setGenerateNote] = useState<{ text: string; reasons: string[]; tone: "neutral" | "error" } | null>(
     null,
   );
+  /**
+   * The board Clear was armed on. The second tap clears only while that is
+   * still the board on screen: an edit, a generate, a reset or another night in
+   * between stands it down, so it never clears a board nobody confirmed.
+   */
+  const [clearArmedFor, setClearArmedFor] = useState<NightAllocationState | null>(null);
+  const clearArmed = clearArmedFor !== null && clearArmedFor === state;
   /** A night asked for while this one has unsaved changes, awaiting a decision. */
   const [pendingNight, setPendingNight] = useState<string | null>(null);
   /** What the status line said before Reset was armed, to put back if it stands down. */
@@ -188,6 +198,12 @@ export default function NightChannelAllocation() {
     const timer = window.setTimeout(disarmGenerate, CONFIRM_WINDOW_MS);
     return () => window.clearTimeout(timer);
   }, [generateArmed, disarmGenerate]);
+
+  useEffect(() => {
+    if (!clearArmedFor) return;
+    const timer = window.setTimeout(() => setClearArmedFor(null), CONFIRM_WINDOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [clearArmedFor]);
 
   // Closing or reloading the tab would throw unsaved work away without a word.
   useEffect(() => {
@@ -315,6 +331,21 @@ export default function NightChannelAllocation() {
     setResetArmed(false);
     setGenerateNote(null);
     allocation.reset.mutate();
+  };
+
+  /** Every duty off the board, and nothing else — the rest of the night stays as it is. */
+  const handleClearBoard = () => {
+    if (!state || !isPlanned(state)) return;
+    if (!clearArmed) {
+      setClearArmedFor(state);
+      return;
+    }
+    setClearArmedFor(null);
+    // A note about the last plan describes duties that are gone now. A refusal
+    // is about the settings, which haven't changed, so it stays.
+    setGenerateNote(current => (current?.tone === "error" ? current : null));
+    const { state: next, note } = actions.clearBoard(state);
+    applyBoard(next, note);
   };
 
   const openNewDuty = (channelCode: string, startMin: number, personKey?: string) => {
@@ -640,6 +671,37 @@ export default function NightChannelAllocation() {
                   >
                     Add duty
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={cn(
+                      clearArmed &&
+                        "border-status-danger bg-status-danger text-white hover:bg-status-danger hover:text-white",
+                    )}
+                    onClick={handleClearBoard}
+                    // Nothing to clear on a board of DB slots alone, and a generate or
+                    // reset in flight is about to replace the board anyway.
+                    disabled={!isPlanned(state) || allocation.generate.isPending || allocation.reset.isPending}
+                  >
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                    {/* Both labels share one cell, so arming it never changes its
+                        width and moves it out from under the second tap. */}
+                    <span className="grid">
+                      <span className={cn("col-start-1 row-start-1", clearArmed && "invisible")}>Clear board</span>
+                      <span className={cn("col-start-1 row-start-1", !clearArmed && "invisible")}>Tap again</span>
+                    </span>
+                  </Button>
+                  {/* Clear's confirm goes under the buttons, where it can't push
+                      them about, rather than in the status line, a screen away on
+                      a phone. Always in the DOM so screen readers announce it. */}
+                  <p
+                    aria-live="polite"
+                    className={cn(
+                      clearArmed ? "basis-full text-[0.78rem] font-medium leading-snug text-status-danger" : "sr-only",
+                    )}
+                  >
+                    {clearArmed ? CLEAR_ARMED_TEXT : ""}
+                  </p>
                 </CardHeader>
                 <CardContent className="p-0">
                   <AllocationBoard

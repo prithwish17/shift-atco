@@ -1,6 +1,6 @@
 /**
  * The page's own state transitions — availability, halves, TSO flags, channel
- * settings, adding and removing people.
+ * settings, adding and removing people, clearing the board.
  *
  * Kept out of the components and out of the rules module: these are not rules,
  * they are what the page does when a control is used, including the sentence it
@@ -138,6 +138,28 @@ export function setPersonAvailability(
 /** Take a DB slot off the board — the DB panel's remove button. */
 export function removeDbSlot(state: NightAllocationState, slotId: string): Applied {
   return removeSlot(state, slotId);
+}
+
+/**
+ * Take every duty off the board — the board's Clear button — and nothing else.
+ * The crew, halves, times, positions, starters and the merge are the night's
+ * settings, and clearing those is Reset's job. DB slots stay for the reason
+ * they survive a generate: they were put down on purpose, and nothing takes
+ * one away as a side effect.
+ */
+export function clearBoard(state: NightAllocationState): Applied {
+  const slots = state.duties.filter(isFixedDuty);
+  const cleared = state.duties.length - slots.length;
+  if (!cleared) return { state, note: "" };
+
+  return {
+    state: { ...state, duties: slots },
+    note:
+      `Cleared ${cleared} ${cleared === 1 ? "duty" : "duties"} from the board` +
+      (slots.length ? `, leaving ${slots.length === 1 ? "the DB slot" : `the ${slots.length} DB slots`}` : "") +
+      "." +
+      (state.savedAt ? " The saved version is unchanged until you save." : ""),
+  };
 }
 
 export function setHalf(state: NightAllocationState, personKey: string, half: HalfKey): Applied {
