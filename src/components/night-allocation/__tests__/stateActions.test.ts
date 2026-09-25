@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { validateAllocation } from "@/domain/night-allocation";
+import { isPlanned, validateAllocation } from "@/domain/night-allocation";
 import { channel, dbSlot, duty, night, team } from "@/domain/night-allocation/__tests__/fixtures";
 import {
+  clearBoard,
   mergeToggle,
   removeDbSlot,
   setChannelInUse,
@@ -116,5 +117,50 @@ describe("DB slots and the page's own switches", () => {
     const { state, note } = removeDbSlot(base, base.duties[0].id);
     expect(state.duties).toEqual([]);
     expect(note).toBe("DB slot on TWR 17:30–19:30 removed.");
+  });
+});
+
+describe("clearing the board", () => {
+  it("takes every duty off and leaves the rest of the night as it was, DB slots included", () => {
+    const base = night({
+      people: team(4, { halves: { 1: "1st", 2: "2nd" }, tso: [4] }),
+      channels: [
+        channel("TWR", { starterKey: "p1" }),
+        channel("SMC-S", { closeAt: 600 }),
+        channel("CLD", { mergedInto: "SMC-S" }),
+      ],
+      duties: [
+        duty("TWR", "p1", 0, 120),
+        dbSlot("TWR", "p2", 240, 360, "Sulagna"),
+        duty("SMC-S", "p3", 0, 90),
+        dbSlot("SMC-S", "p4", 360, 420),
+      ],
+      dutyLengthPref: 90,
+    });
+    const { state, note } = clearBoard(base);
+
+    expect(state.duties).toEqual([base.duties[1], base.duties[3]]);
+    expect(isPlanned(state)).toBe(false);
+    // Nothing but the duties changes: crew, halves, positions, starters, the merge.
+    expect({ ...state, duties: base.duties }).toEqual(base);
+    expect(note).toBe("Cleared 2 duties from the board, leaving the 2 DB slots.");
+  });
+
+  it("says the saved version is untouched until the next save", () => {
+    const base = night({
+      people: team(2),
+      channels: [channel("TWR")],
+      duties: [duty("TWR", "p1", 0, 120), dbSlot("TWR", "p2", 240, 360)],
+      version: 3,
+      savedAt: "2026-09-17T08:00:00.000Z",
+    });
+    expect(clearBoard(base).note).toBe(
+      "Cleared 1 duty from the board, leaving the DB slot. The saved version is unchanged until you save.",
+    );
+  });
+
+  it("leaves a board of DB slots alone, since there is no plan to clear", () => {
+    const base = night({ people: team(2), channels: [channel("TWR")], duties: [dbSlot("TWR", "p1", 240, 360)] });
+    expect(clearBoard(base)).toEqual({ state: base, note: "" });
   });
 });

@@ -367,6 +367,13 @@ would otherwise creep in.
   the deleted duty was the first), and is refused when that would break a rule.
 - **Split** ends the duty at a chosen time and gives the remainder to someone
   else, with no gap.
+- **Clear board**, above the board, takes every duty off it at once — two taps,
+  like Reset, and the second only counts while the board is unchanged since
+  the first. It clears the plan and nothing else: the crew, halves, times,
+  channel settings, starters, the merge and DB slots all stay, where Reset
+  seeds the whole night afresh from the roster. The saved night is untouched
+  until the next save (`clearBoard` in
+  [`stateActions.ts`](../src/components/night-allocation/stateActions.ts)).
 - **The channel of an existing duty cannot be changed** — that would empty the
   position it came from. Edit the duty on the other position instead.
 - Changing a channel's open or close time re-fits its first and last duty to the
@@ -522,7 +529,7 @@ channels and gain the new one, unticked configuration and all, on next load.
 | `src/domain/night-allocation/__tests__/availability.test.ts` | Part-night times: "only" and "except", the minute someone leaves and returns, tidying what arrives, and the quick-entry parser — ranges, open ends, words, times outside the night, rounding the safe way. |
 | `src/domain/night-allocation/__tests__/db-slots.test.ts` | Placing, moving and removing DB slots: what refuses one, cutting the plan back with no gap, clashes that don't refuse, the trainee note. |
 | `src/components/night-allocation/__tests__/shareGate.test.ts` | What the share sheet offers for empty, broken, unsaved and saved nights. |
-| `src/components/night-allocation/__tests__/stateActions.test.ts` | Page actions: unticking a merge target clears the merge, and the merge switch can always turn a stale merge off. |
+| `src/components/night-allocation/__tests__/stateActions.test.ts` | Page actions: unticking a merge target clears the merge, and the merge switch can always turn a stale merge off. Clearing the board takes the duties and leaves DB slots and every setting as they were. |
 
 ## 11. Rollout
 
