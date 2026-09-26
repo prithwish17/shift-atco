@@ -169,6 +169,35 @@ a side effect:
   a slot in the merge window, and the manual switch refuses while CLD has one
   there.
 
+## Blanks
+
+A blank is a stretch of a position left with **nobody on it, on purpose**. It
+is what **Leave blank** makes: the person comes off a duty — or off part of
+one — and the stretch stays on the board, empty, instead of being handed to a
+neighbour. It is stored as a duty with `kind: "blank"` and an empty
+`person_key` (`BLANK_PERSON_KEY`), so it sits in the handover chain like any
+duty and is drawn, saved, loaded and shared with the rest of the plan.
+
+- **It is not a gap.** It covers its stretch for the continuity rule, so a
+  night with a blank still saves and shares. That is the difference between a
+  blank and a hole: a gap is something nobody decided, a blank is a decision.
+- **It is never quiet about it.** Every blank is a line of its own at the top
+  of the suggestions, the position's dot on the board turns amber, the Cover
+  figure reads "1h 30m blank" instead of "Full", and every export names it
+  `BLANK` — `1600-1800 BLANK` by position. It is left out by person, because
+  nobody holds it.
+- **No rule about people applies to it**, because nobody holds it. What is
+  still checked is its place on the board: inside the night, on a position in
+  use and open then, not where the position is merged away, and not on top of
+  somebody's duty.
+- **Tapping it opens the fill dialog**: put someone on all of it, or part of
+  it — the rest stays blank — or give it to the duty next to it, which is how
+  a blank is taken back off the board.
+- **A generate replaces blanks** along with the duties: a fresh plan covers
+  every stretch. **Clear board** takes them off too. DB slots stay in both.
+- Blanks side by side on one position are one blank; a blank squeezed down to
+  nothing by a handover goes.
+
 ## 3. The rules
 
 Implemented once, in
@@ -180,6 +209,7 @@ validation therefore cannot disagree.
 
 1. **Continuity.** Every in-use channel is covered with no gap from `open_at` to
    `close_at`. Relieved at 18:30 means the next person starts at exactly 18:30.
+   A [blank](#blanks) covers its stretch: it was left empty on purpose.
 2. **No double-booking a channel.** Two people may not hold one position at once.
 3. **No double-booking a person.** One person may not hold two positions at once.
    The one exception is a **merge**: CLD may be folded into the SMC in use for
@@ -230,6 +260,20 @@ validation therefore cannot disagree.
 
 ### Preferences — advisory, never blocking
 
+- **Blanks**, one line each and first in the list: "TWR 16:00–18:00 is left
+  blank — nobody is on it." Allowed, but never unannounced.
+- **The evening rest: 4 hours in a row off every position, starting between
+  16:30 and 23:30** (`EVENING_REST_WINDOW`, `EVENING_REST_MIN`). TSO doesn't
+  count (`EVENING_REST_EXEMPT_CHANNELS`): time on it neither counts as work nor
+  breaks the rest. A DB slot counts as work. The rest may run on past 23:30,
+  up to 01:30 — a rest held wholly inside 16:30–23:30 would always include
+  19:30–20:30, so nobody on a position then could ever have one — and a break
+  that began before 16:30 counts from 16:30. So a 2nd Half person, off
+  17:30–21:30, has it by construction, and so does a 1st Half person, off from
+  21:30. Everyone who doesn't is named in one line with their longest break —
+  "Not met for Asha Rao (longest 2h 30m, 19:00–21:30)" — and marked with an
+  amber dot on the by-person board. `eveningRestShortfalls` in
+  [`rules.ts`](../src/domain/night-allocation/rules.ts).
 - **Duty length: 1h, 1h 30m or 2h.** Anything else of an hour or more is fine;
   under an hour is the last resort (`PREFERRED_DUTY_LENGTHS`,
   `PREFERRED_MIN_DUTY_MIN`, ranked by `dutyLengthRank`). Every duty under an
@@ -318,6 +362,23 @@ are kept free for TSO when few are qualified.
 people must cover the channels falling due within the next 30 minutes, and TSO
 must always have a qualified, rested person available at its own handover.
 
+**The evening rest.** Tried first, before anything else is given up: the
+generator places each owed person's 4-hour rest up front (`planEveningRests`)
+and the search keeps them off every position but TSO for it, exactly as it
+does for time away — they may still take TSO while resting. People in a half
+are owed nothing, and neither is anyone away for 4 hours of the evening;
+someone whose DB slots leave no room for one is left alone. The rests are
+placed one at a time, the most constrained person first, where the crew can
+best spare them — the stretch whose thinnest moment still has the most people
+over what the open positions need to keep turning at the usual duty length
+(`k(L + 30)/L` people for `k` positions and duties of `L`; 2 hours on Auto) —
+so they stagger instead of all starting at 16:30. A rest is only placed where
+it leaves enough people, so on a thin night some people get one and some
+don't. Restarts place them afresh. If no plan keeps the rests, the night is
+planned exactly as before, and the note says how many people couldn't be
+given one. It is given up before short duties, the TSO crossover and the
+merge, and it never stretches a usual length someone chose.
+
 **Straight onto and off TSO.** It is the rule, not a relaxation, but letting the
 search use it (`tsoWithoutBreak`) widens the search a lot, and on a big night
 the wider search finds a plan less often inside its node budget. So each duty
@@ -363,21 +424,46 @@ would otherwise creep in.
   block the edit — otherwise two broken duties side by side (two people who
   called in sick, back to back) could each only be fixed after the other. A
   neighbouring duty is part of an edit only when its handover time moves.
+- **Leave blank** takes the person off the duty and keeps the stretch on the
+  board with nobody on it — see [Blanks](#blanks). **Leave part of it blank**
+  does the same for a stretch inside the duty; the person keeps what is left
+  either side, which has to be a duty in its own right (30 minutes at least).
+  Nothing is handed to a neighbour. It is refused when it would break a rule —
+  leaving someone in a half with no duty in it, say (`leaveBlank`).
+- **Fill** a blank from its own dialog: someone on all of it, or on part of
+  it, and the rest stays blank (`fillBlank`). A new duty added over a blank
+  fills it the same way.
+- **Move to another position** by changing the duty's position in the editor
+  (`isMove`). The stretch it leaves is left blank, and on the new position it
+  takes its stretch outright: whoever is there then is cut back to either side
+  of it, and keeps the rest. The dialog says who before Move is pressed
+  (`describeMove`). A DB slot is never cut back for it.
+- **Swap** exchanges the people on two duties — whoever is on another position
+  while this duty runs — each taking the other's times (`swapPeople`). A swap
+  with a blank moves the person there and leaves their own stretch blank.
+  Every swap on offer is tried first, and one that would break a rule is shown
+  with the reason instead of being offered.
 - **Delete** hands the freed time to the previous duty (or to the next one if
-  the deleted duty was the first), and is refused when that would break a rule.
+  the deleted duty was the first) — never to a blank or a DB slot — and is
+  refused when that would break a rule; the refusal points at Leave blank. On a
+  blank it gives the blank's time to the duty beside it.
 - **Split** ends the duty at a chosen time and gives the remainder to someone
   else, with no gap.
-- **Clear board**, above the board, takes every duty off it at once — two taps,
+- A blank beside a duty is part of the handover chain: shortening the duty
+  grows the blank, lengthening it fills it.
+- The editor shows what an edit would cost in **preferences** too — "Asha Rao
+  would have no 4h break starting between 16:30 and 23:30" — without refusing
+  it, and the person picker says who is already on another position then.
+- **Clear board**, above the board, takes every duty and blank off it at once — two taps,
   like Reset, and the second only counts while the board is unchanged since
   the first. It clears the plan and nothing else: the crew, halves, times,
   channel settings, starters, the merge and DB slots all stay, where Reset
   seeds the whole night afresh from the roster. The saved night is untouched
   until the next save (`clearBoard` in
   [`stateActions.ts`](../src/components/night-allocation/stateActions.ts)).
-- **The channel of an existing duty cannot be changed** — that would empty the
-  position it came from. Edit the duty on the other position instead.
 - Changing a channel's open or close time re-fits its first and last duty to the
-  new boundaries and drops duties entirely outside it.
+  new boundaries and drops duties entirely outside it. A blank is never
+  stretched to new hours: nobody decided to leave them empty.
 - The first duty's start and the last duty's end are pinned to the channel's
   open and close times.
 - **DB slots don't move.** A linked handover that would drag one is refused
@@ -394,7 +480,7 @@ would otherwise creep in.
 | `night_allocations` | One row per night: `night_date`, `duty_length_pref`, `status`, `version`, who saved it and when. |
 | `night_allocation_channels` | Per night: `in_use`, `open_at`, `close_at`, `starter_key`. |
 | `night_allocation_people` | Per night: availability, half, a **snapshot** of `can_take_tso`, and `role` — which carries the roster unit (`TWR`, `SMC-N & SMC-S`) for seeded people and the designation for anyone added by hand. `availability` (JSONB) holds part-night times as entered, `{"mode": "only" \| "except", "periods": [[start, end], …]}` in minutes from 13:30; NULL is the whole night. |
-| `night_allocation_duties` | `channel_code`, `person_key`, `start_min`, `end_min`, and `kind` — `'duty'`, or `'db'` for a DB slot, whose `person_key` is the instructor and whose `note` is the trainee. |
+| `night_allocation_duties` | `channel_code`, `person_key`, `start_min`, `end_min`, and `kind` — `'duty'`; `'db'` for a DB slot, whose `person_key` is the instructor and whose `note` is the trainee; or `'blank'` for a stretch left with nobody on it, whose `person_key` is empty. |
 | `night_allocation_audit` | One row per save, generate, reset, share and email, with the acting user. |
 
 `profiles.can_take_tso` is the person-level attribute, edited in **Employee
@@ -427,13 +513,24 @@ Beyond that, **no role check anywhere**: every approved role has the same rights
 | `PUT` | `/api/night-allocation/:date` | Save. Body carries `version`. |
 | `POST` | `/api/night-allocation/:date/generate` | Run the solver on the submitted settings. Persists nothing. |
 | `POST` | `/api/night-allocation/:date/validate` | `{ errors, warnings }` for a candidate state. |
-| `POST` | `/api/night-allocation/:date/reset` | A working state seeded afresh from the shift roster. |
+| `POST` | `/api/night-allocation/:date/reset` | The night seeded afresh from the shift roster. On a night that has been saved, the fresh night is **saved in its place**, so everyone sees the reset. Body carries the `version` the page was showing. |
 | `GET` | `/api/night-allocation/:date/shift` | Everyone on the night roster, whatever their unit — the pool behind "add someone from the shift". |
 | `GET` | `/api/night-allocation/:date/export.txt` | The saved roster as WhatsApp-friendly plain text. |
 | `POST` | `/api/night-allocation/:date/email` | Send the saved roster. |
 
 - **`PUT` re-runs the full hard-rule validation** and rejects with `422` and the
   list of violations. The client is never trusted.
+- **Reset replaces a saved night.** Pressed twice, like everything destructive
+  here, it seeds the night afresh from the roster and, when the night has been
+  saved, saves the fresh night as a new version — Reset used to change only the
+  page it was pressed on, and the old allocation came back on the next load.
+  It carries the same version check as a save: a reset of a night someone else
+  has saved since is a `409` with their version, and nothing is written. A
+  night nobody has saved is only seeded (opening a date never creates a row),
+  and a fresh night the rules refuse — a roster with nobody on a tower
+  position leaves no channel in use — comes back as a working copy with the
+  reason instead of being written. A request with no `version` (a page loaded
+  before this change) gets the old working-copy reset.
 - **Optimistic concurrency:** a mismatched `version` returns `409` with the
   current server state, and the page offers "Load their version" rather than
   overwriting. `version` is bumped in the same transaction as the write.
@@ -458,7 +555,10 @@ then the date and window, then **who is in each half**, and then **both
 rosters** — by position and by person. A DB slot reads as the instructor's
 line with DB and the trainee beside it — `1730-1930 Rehan Ahmed (DB · Sulagna)`
 by position, `1730-1930 TWR (DB · Sulagna)` by person — and is drawn dashed in
-the image, as on the board. The halves come first because they are
+the image, as on the board. A blank reads `BLANK` by position —
+`1600-1800 BLANK` — is drawn in the image's red BLANK row, and is
+listed in the short WhatsApp summary too ("Left BLANK: TWR 1600-1800"); the
+share sheet says a night with blanks will go out with them. The halves come first because they are
 what a reader checks first; both rosters are included because a supervisor reads
 down the positions and everyone else looks for their own name.
 
@@ -468,12 +568,21 @@ roster is the unit's; who saved it is on the page and in the audit trail.
 - **Plain text** is rendered **server-side** from the saved night, so everyone
   shares the same artefact. It uses WhatsApp's `*bold*` markup and falls back to
   a summary plus a link when a full roster would be too long for one message.
-- **PNG** is drawn on a canvas from the same numbers the board renders from, so
-  it looks the same whatever the sender's screen, theme or scroll position.
-  Every piece of text is **clipped to the shape it belongs in** — an unclipped
-  `fillText` runs past the end of its strip and off the canvas, which is how the
-  last duty of the night once exported as a half-drawn employee number. Strips
-  are labelled with initials, never the employee number.
+- **PNG** — the image downloaded and sent with WhatsApp and email — is a
+  **grid, the way a duty sheet reads: positions across the top, people down the
+  side**, and in each cell the times that person holds that position, coloured
+  by position. Each row ends with the person's total; their half is under
+  their name; a DB slot is outlined dashed with its trainee; the SMC duty that
+  holds CLD during the merge is marked `+CLD`, and both positions' headings say
+  so. Blanks get a red row of their own at the bottom. The cells come from
+  `buildRosterGrid` in
+  [`roster-text.ts`](../src/domain/night-allocation/roster-text.ts); the
+  drawing is in [`exports.ts`](../src/components/night-allocation/exports.ts).
+  It is drawn on a canvas from the same numbers the board renders from, so it
+  looks the same whatever the sender's screen, theme or scroll position, and
+  every piece of text is **cut to the box it belongs in** — an unclipped
+  `fillText` runs off the canvas, which is how the last duty of the night once
+  exported as a half-drawn employee number.
 - **WhatsApp** uses `navigator.share({ files })` where the browser supports it,
   which sends the text and the image together. Otherwise it opens
   `https://wa.me/?text=…` and downloads the image to attach by hand. No Business
@@ -518,18 +627,21 @@ channels and gain the new one, unticked configuration and all, on next load.
 | `src/domain/night-allocation/__tests__/rules.test.ts` | Every hard rule, positive and negative, plus the staffing notices. |
 | `.../solver.test.ts` | Four people cleared for TSO covering three control positions and TSO by using TSO as the break; a night with enough people still getting a real break after every duty. The classic 3-channel/4-person night, TSO with exactly two qualified people, part-night channels, several people per half, the duty-length preference, preferred lengths (1h or more wherever possible, short duties only when nothing else works), and refusals. |
 | `.../editing.test.ts` | Linked handovers, delete-merge, split, channel re-fit. Uncovered minutes stay at zero after every accepted operation, refused operations leave state untouched, and one of two already-broken duties can be fixed without the other blocking it. |
-| `.../fuzz.test.ts` | 250 random nights (5–14 people, 3–5 channels, random halves, TSO flags and close times). Every returned plan has zero uncovered minutes and zero hard-rule violations; every refusal carries an explanation; runtime stays inside budget. Then 150 more with random part-night times and DB slots, where every plan also hands the slots back untouched. |
-| `.../roster-text.test.ts` | The share formats. |
-| `lib/nightAllocation/service.test.ts` | The API's payload coercion — clamping, truncation, caps — and that server-side validation catches what a hostile client would send. |
+| `.../fuzz.test.ts` | 250 random nights (5–14 people, 3–5 channels, random halves, TSO flags and close times). Every returned plan has zero uncovered minutes and zero hard-rule violations; every refusal carries an explanation; runtime stays inside budget. Then 150 more with random part-night times and DB slots, where every plan also hands the slots back untouched. Then random manual edits of every kind on generated plans — leave blank, fill, move, swap, change the person, delete — where every accepted edit leaves no gap and no broken rule, and every refusal says why. |
+| `.../manual-edits.test.ts` | Blanks in the rules (covered, listed first, never anybody's, still kept to their place on the board); leaving a duty or part of one blank; filling a blank whole or in part; moving a duty to another position; swapping, including with a blank; blanks beside the handover chain; preferences reported while editing. |
+| `.../evening-rest.test.ts` | The 4-hour evening rest: met by both halves, missed by 30-minute breaks all evening, TSO ignored, a break before 16:30 counted from 16:30, DB slots counted. The generator keeping it where the crew can spare people, giving it to as many as it can on a thin night, staggering the rests, letting a resting person take TSO, and replacing blanks. |
+| `.../roster-text.test.ts` | The share formats, and the image's grid: which times land in which person's row and position's column, DB slots, the merge, partial positions and the blank row. |
+| `lib/nightAllocation/service.test.ts` | The API's payload coercion — clamping, truncation, caps — and that server-side validation catches what a hostile client would send. A blank arrives and is written with nobody on it, whatever key came with it. |
 | `lib/nightAllocation/roster-rows.test.ts` | Reading the Google Sheet roster: unit spellings, name parsing, the half column, and rejecting working notes written in the name cell. |
 | `lib/nightAllocation/access.test.ts` | The route itself with the database stubbed: unapproved accounts are refused on every route, and email goes only to account holders with vetted attachments. |
+| `lib/nightAllocation/reset.test.ts` | Reset through the route: it saves the fresh night over a saved one against the page's version, refuses with a `409` when someone saved since, only seeds a night nobody has saved, and never writes a fresh night the rules refuse. |
 | `lib/nightAllocation/emailPayload.test.ts` | Recipient and attachment vetting for the email route. |
 | `lib/nightAllocation/load-state.test.ts` | Reading a night against an in-memory Supabase: the roster is read once, profiles are paged past the 1,000-row cap, and positions come back in board order. |
 | `src/domain/night-allocation/__tests__/time.test.ts` | Which night a moment belongs to, across midnight, month and year ends; real calendar dates. |
 | `src/domain/night-allocation/__tests__/availability.test.ts` | Part-night times: "only" and "except", the minute someone leaves and returns, tidying what arrives, and the quick-entry parser — ranges, open ends, words, times outside the night, rounding the safe way. |
 | `src/domain/night-allocation/__tests__/db-slots.test.ts` | Placing, moving and removing DB slots: what refuses one, cutting the plan back with no gap, clashes that don't refuse, the trainee note. |
-| `src/components/night-allocation/__tests__/shareGate.test.ts` | What the share sheet offers for empty, broken, unsaved and saved nights. |
-| `src/components/night-allocation/__tests__/stateActions.test.ts` | Page actions: unticking a merge target clears the merge, and the merge switch can always turn a stale merge off. Clearing the board takes the duties and leaves DB slots and every setting as they were. |
+| `src/components/night-allocation/__tests__/shareGate.test.ts` | What the share sheet offers for empty, broken, unsaved and saved nights, and what it says about a night with blanks. |
+| `src/components/night-allocation/__tests__/stateActions.test.ts` | Page actions: unticking a merge target clears the merge, and the merge switch can always turn a stale merge off. Clearing the board takes the duties and blanks and leaves DB slots and every setting as they were. |
 
 ## 11. Rollout
 
@@ -538,7 +650,10 @@ channels and gain the new one, unticked configuration and all, on next load.
    **on**. `20260925120000_night_allocation_db_slots_and_availability.sql` adds
    the DB-slot and availability columns and the save function that writes
    them — **run it before deploying the code that reads them**, or every saved
-   night fails to load.
+   night fails to load. `20260926120000_night_allocation_blanks.sql` lets
+   `kind` be `'blank'` — **run it before deploying the code that saves
+   blanks**, or saving a night with a blank in it is refused by the old
+   constraint.
 2. Set `can_take_tso` for the people who may take TSO, in **Employee
    Management → Edit Employee**. Until at least two people on a night are
    flagged, the module will correctly refuse to plan continuous TSO cover and

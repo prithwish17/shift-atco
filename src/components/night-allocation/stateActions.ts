@@ -21,6 +21,7 @@ import {
   formatDuration,
   formatMinutes,
   isAvailableAt,
+  isBlank,
   isFixedDuty,
   isFreeDuring,
   normalizeAvailability,
@@ -38,6 +39,13 @@ export interface Applied {
 }
 
 const halfLabel = (half: HalfKey) => (half === "1st" ? "1st Half" : half === "2nd" ? "2nd Half" : "no half");
+
+/** "3 duties", "3 duties and a blank", "2 blanks" — what a change took off the board. */
+function countLabel(duties: number, blanks: number): string {
+  const dutyPart = duties ? `${duties} ${duties === 1 ? "duty" : "duties"}` : "";
+  const blankPart = blanks ? (blanks === 1 ? (duties ? "a blank" : "1 blank") : `${blanks} blanks`) : "";
+  return [dutyPart, blankPart].filter(Boolean).join(" and ");
+}
 
 /** Clear every dependent selection a person has when they stop being eligible. */
 function clearDependencies(state: NightAllocationState, personKey: string) {
@@ -145,17 +153,19 @@ export function removeDbSlot(state: NightAllocationState, slotId: string): Appli
  * The crew, halves, times, positions, starters and the merge are the night's
  * settings, and clearing those is Reset's job. DB slots stay for the reason
  * they survive a generate: they were put down on purpose, and nothing takes
- * one away as a side effect.
+ * one away as a side effect. Blanks go with the duties: they are part of the
+ * plan.
  */
 export function clearBoard(state: NightAllocationState): Applied {
   const slots = state.duties.filter(isFixedDuty);
-  const cleared = state.duties.length - slots.length;
-  if (!cleared) return { state, note: "" };
+  const blanks = state.duties.filter(isBlank).length;
+  const cleared = state.duties.length - slots.length - blanks;
+  if (!cleared && !blanks) return { state, note: "" };
 
   return {
     state: { ...state, duties: slots },
     note:
-      `Cleared ${cleared} ${cleared === 1 ? "duty" : "duties"} from the board` +
+      `Cleared ${countLabel(cleared, blanks)} from the board` +
       (slots.length ? `, leaving ${slots.length === 1 ? "the DB slot" : `the ${slots.length} DB slots`}` : "") +
       "." +
       (state.savedAt ? " The saved version is unchanged until you save." : ""),
@@ -294,7 +304,8 @@ export function setChannelInUse(state: NightAllocationState, code: string, inUse
     return { state: { ...state, channels }, note: `${code} back in use. Pick who starts it, then generate again.` };
   }
 
-  const dropped = state.duties.filter(duty => duty.channelCode === code).length;
+  const dropped = state.duties.filter(duty => duty.channelCode === code && !isBlank(duty)).length;
+  const droppedBlanks = state.duties.filter(duty => duty.channelCode === code && isBlank(duty)).length;
   const droppedSlots = state.duties.filter(duty => duty.channelCode === code && isFixedDuty(duty)).length;
   // A position folded into this one has nothing left to fold into. Left set,
   // the merge would be an error the switch could no longer turn off.
@@ -313,7 +324,7 @@ export function setChannelInUse(state: NightAllocationState, code: string, inUse
     },
     note:
       `${code} not needed tonight.` +
-      (dropped ? ` Removed its ${dropped} ${dropped === 1 ? "duty" : "duties"}.` : "") +
+      (dropped || droppedBlanks ? ` Removed its ${countLabel(dropped, droppedBlanks)}.` : "") +
       (droppedSlots
         ? ` ${droppedSlots === 1 ? "That included its DB slot" : `That included its ${droppedSlots} DB slots`}.`
         : "") +
@@ -420,13 +431,16 @@ export function setMergeSmcCld(state: NightAllocationState, merged: boolean): Ap
     };
   }
 
-  // Duties on the folded stretch would now conflict, so they go with it.
-  const dropped = state.duties.filter(
+  // Duties on the folded stretch would now conflict, so they go with it —
+  // blanks too, as there is nothing left there to be blank.
+  const folded = state.duties.filter(
     duty =>
       duty.channelCode === MERGE_SOURCE_CHANNEL &&
       duty.startMin < MERGE_WINDOW[1] &&
       duty.endMin > MERGE_WINDOW[0],
-  ).length;
+  );
+  const dropped = folded.filter(duty => !isBlank(duty)).length;
+  const droppedBlanks = folded.length - dropped;
 
   return {
     state: {
@@ -443,7 +457,7 @@ export function setMergeSmcCld(state: NightAllocationState, merged: boolean): Ap
     },
     note:
       `${MERGE_SOURCE_CHANNEL} merged into ${target} ${formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1])} — whoever holds ${target} holds both.` +
-      (dropped ? ` Removed ${dropped} ${dropped === 1 ? "duty" : "duties"} from that stretch.` : ""),
+      (dropped || droppedBlanks ? ` Removed ${countLabel(dropped, droppedBlanks)} from that stretch.` : ""),
   };
 }
 

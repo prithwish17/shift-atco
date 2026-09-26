@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { NIGHT_DATE_PATTERN, parseIncomingState, validate } from "./service.js";
+import { describe, expect, it, vi } from "vitest";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { NIGHT_DATE_PATTERN, parseIncomingState, saveState, validate } from "./service.js";
 
 /**
  * The API's structural gate. Everything that arrives over the wire passes
@@ -217,5 +218,73 @@ describe("DB slots and part-night times over the wire", () => {
     expect(validate(state).errors.map(issue => issue.message)).toContain(
       "Person One isn't available 17:30–18:30 but has TWR 16:30–18:30.",
     );
+  });
+});
+
+describe("blanks over the wire", () => {
+  const people = [
+    { key: "p1", name: "Person One", available: true },
+    { key: "p2", name: "Person Two", available: true },
+  ];
+  const channels = [{ code: "TWR", inUse: true, openAt: 0, closeAt: 180 }];
+
+  it("keeps a blank as a blank, with nobody on it whatever key arrives with it", () => {
+    const state = parseIncomingState("2026-09-17", {
+      state: {
+        people,
+        channels,
+        duties: [
+          { id: "d1", channelCode: "TWR", personKey: "p1", startMin: 0, endMin: 90 },
+          { id: "b1", channelCode: "TWR", personKey: "p2", startMin: 90, endMin: 180, kind: "blank", note: "x" },
+        ],
+      },
+    });
+    expect(state.duties[1]).toEqual({
+      id: "b1",
+      channelCode: "TWR",
+      personKey: "",
+      startMin: 90,
+      endMin: 180,
+      kind: "blank",
+    });
+    // Saved as it stands: the blank covers its stretch, and nobody holds it.
+    expect(validate(state).errors).toEqual([]);
+  });
+
+  it("still refuses a blank laid over somebody's duty", () => {
+    const state = parseIncomingState("2026-09-17", {
+      state: {
+        people,
+        channels,
+        duties: [
+          { id: "d1", channelCode: "TWR", personKey: "p1", startMin: 0, endMin: 180 },
+          { id: "b1", channelCode: "TWR", personKey: "", startMin: 90, endMin: 180, kind: "blank" },
+        ],
+      },
+    });
+    expect(validate(state).errors.map(issue => issue.message)).toContain(
+      "TWR is both blank and held by Person One from 15:00 to 16:30.",
+    );
+  });
+
+  it("writes a blank with its kind and no person", async () => {
+    const rpc = vi.fn(async () => ({ data: { ok: true, version: 1 }, error: null }));
+    const state = parseIncomingState("2026-09-17", {
+      state: {
+        people,
+        channels,
+        duties: [
+          { id: "d1", channelCode: "TWR", personKey: "p1", startMin: 0, endMin: 90 },
+          { id: "b1", channelCode: "TWR", personKey: "", startMin: 90, endMin: 180, kind: "blank" },
+        ],
+      },
+    });
+    await saveState({ rpc } as unknown as SupabaseClient, state, { id: "user-1", name: "Asha Rao" });
+
+    const payload = (rpc.mock.calls[0] as unknown as [string, { p_duties: unknown[] }])[1];
+    expect(payload.p_duties).toEqual([
+      { channel_code: "TWR", person_key: "p1", start_min: 0, end_min: 90, kind: "duty", note: null },
+      { channel_code: "TWR", person_key: "", start_min: 90, end_min: 180, kind: "blank", note: null },
+    ]);
   });
 });

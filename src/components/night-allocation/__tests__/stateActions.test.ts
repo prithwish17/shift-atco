@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isPlanned, validateAllocation } from "@/domain/night-allocation";
-import { channel, dbSlot, duty, night, team } from "@/domain/night-allocation/__tests__/fixtures";
+import { blank, channel, dbSlot, duty, night, team } from "@/domain/night-allocation/__tests__/fixtures";
 import {
   clearBoard,
   mergeToggle,
@@ -157,6 +157,17 @@ describe("clearing the board", () => {
     expect(clearBoard(base).note).toBe(
       "Cleared 1 duty from the board, leaving the DB slot. The saved version is unchanged until you save.",
     );
+  });
+
+  it("takes blanks off with the duties, and counts them apart", () => {
+    const base = night({
+      people: team(2),
+      channels: [channel("TWR")],
+      duties: [duty("TWR", "p1", 0, 120), blank("TWR", 120, 240), dbSlot("TWR", "p2", 240, 360)],
+    });
+    const { state, note } = clearBoard(base);
+    expect(state.duties).toEqual([base.duties[2]]);
+    expect(note).toBe("Cleared 1 duty and a blank from the board, leaving the DB slot.");
   });
 
   it("leaves a board of DB slots alone, since there is no plan to clear", () => {

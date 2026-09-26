@@ -13,11 +13,13 @@ import type { RuleIssue, ValidationResult } from "@/domain/night-allocation";
 interface ChecksPanelProps {
   validation: ValidationResult;
   hasDuties: boolean;
+  /** Stretches left blank on purpose — allowed, so not errors, but "covered end to end" would be untrue. */
+  blanks?: number;
   /** Scrolls the board to the duty an error points at. */
   onFocusDuty: (dutyId: string) => void;
 }
 
-export function ChecksPanel({ validation, hasDuties, onFocusDuty }: ChecksPanelProps) {
+export function ChecksPanel({ validation, hasDuties, blanks = 0, onFocusDuty }: ChecksPanelProps) {
   const { errors, warnings } = validation;
 
   const renderIssue = (issue: RuleIssue, tone: "error" | "warning") => {
@@ -93,7 +95,11 @@ export function ChecksPanel({ validation, hasDuties, onFocusDuty }: ChecksPanelP
           <div className="flex items-start gap-2.5 rounded-lg border border-status-success/25 bg-status-success-soft/50 px-3 py-3">
             <CheckCircle2 className="mt-px h-4 w-4 shrink-0 text-status-success" />
             <span className="text-[0.85rem] font-medium text-corp-text-main">
-              All hard rules pass. Every open position is covered end to end.
+              {blanks
+                ? `All hard rules pass. Every open position is covered, apart from ${
+                    blanks === 1 ? "one stretch" : `${blanks} stretches`
+                  } left blank on purpose — listed below.`
+                : "All hard rules pass. Every open position is covered end to end."}
             </span>
           </div>
         ) : null}

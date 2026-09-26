@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channel, dbSlot, duty, night, team } from "@/domain/night-allocation/__tests__/fixtures";
+import { blank, channel, dbSlot, duty, night, team } from "@/domain/night-allocation/__tests__/fixtures";
 import { shareGate } from "../shareGate";
 
 const planned = (version: number) =>
@@ -53,5 +53,27 @@ describe("a night holding only DB slots", () => {
       { dirty: false, errorCount: 0 },
     );
     expect(gate.blocked).toMatch(/Nothing is allocated yet/);
+  });
+});
+
+describe("blanks", () => {
+  const withBlank = (version: number) =>
+    night({
+      version,
+      people: team(1),
+      channels: [channel("TWR", { closeAt: 240 })],
+      duties: [duty("TWR", "p1", 0, 120), blank("TWR", 120, 240)],
+    });
+
+  it("shares a night with a blank in it, and says the blank goes out as BLANK", () => {
+    const gate = shareGate(withBlank(3), { dirty: false, errorCount: 0 });
+    expect(gate.blocked).toBeNull();
+    expect(gate.emailBlocked).toBeNull();
+    expect(gate.notice).toBe("One stretch is left blank, with nobody on it. The roster shows it as BLANK.");
+  });
+
+  it("adds it to what the sheet already has to say", () => {
+    const gate = shareGate(withBlank(0), { dirty: true, errorCount: 0 });
+    expect(gate.notice).toMatch(/hasn't been saved yet.* One stretch is left blank/);
   });
 });

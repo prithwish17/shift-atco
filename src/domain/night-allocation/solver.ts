@@ -17,12 +17,15 @@
 import {
   CROSS_HALF_CHANNEL,
   DEFAULT_TARGET_DUTY_MIN,
+  EVENING_REST_MIN,
+  EVENING_REST_WINDOW,
   FIRST_HALF,
   MERGE_SOURCE_CHANNEL,
   MERGE_WINDOW,
   MAX_DUTY_MIN,
   MIN_BREAK_MIN,
   MIN_DUTY_MIN,
+  NIGHT_SPAN_MIN,
   PREFERRED_MIN_DUTY_MIN,
   SECOND_HALF,
   SECOND_HALF_PREFERRED_CHANNEL,
@@ -34,24 +37,28 @@ import {
   availablePeople,
   canTakeChannel,
   dutyLengthRank,
+  eveningRestShortfalls,
   findPerson,
   fixedDutyErrors,
   fixedOpeningDuty,
   halfWindow,
   isBreakExempt,
+  isEveningRestExempt,
   isFixedDuty,
   isRestrictedChannel,
+  longestEveningBreak,
   maxDutyFor,
   mergeTargetFor,
+  mergedAwayWindow,
   openChannels,
   shortStretchNotices,
   staffingNotices,
   stretchesToPlan,
   dutyLengthNote,
 } from "./rules.js";
-import { isAvailableAt, minutesAvailable, unavailableSpans } from "./availability.js";
-import type { NightChannel } from "./types.js";
-import { formatMinutes, formatRange } from "./time.js";
+import { availableSpans, isAvailableAt, minutesAvailable, unavailableSpans } from "./availability.js";
+import type { HalfKey, NightChannel, NightPerson } from "./types.js";
+import { formatDuration, formatMinutes, formatRange } from "./time.js";
 import type { GenerateResult, NightAllocationState, NightDuty } from "./types.js";
 
 /**
@@ -128,6 +135,27 @@ export interface SolveOptions {
    * narrower search, and gives everyone a real rest besides.
    */
   tsoWithoutBreak?: boolean;
+  /**
+   * Evening rests to keep, by person key: 4 hours off every position but TSO,
+   * placed by `planEveningRests`. The search keeps each person off control for
+   * theirs exactly as if they were away — TSO they may still take, because the
+   * rest ignores it. None by default; the generator tries a night with them
+   * first where it could work.
+   */
+  rests?: Readonly<Record<string, readonly [number, number]>>;
+}
+
+/**
+ * A half that hands its people the evening rest whatever the plan, because
+ * the half rules already keep them off every position for long enough: the
+ * 2nd Half through the 1st Half, and the 1st Half from the start of the 2nd —
+ * bar the crossover position, which the rest ignores.
+ */
+function halfGivesEveningRest(half: HalfKey): boolean {
+  if (!half) return false;
+  if (half === "1st" && !isEveningRestExempt(CROSS_HALF_CHANNEL)) return false;
+  const [from, to] = half === "2nd" ? FIRST_HALF : [SECOND_HALF[0], NIGHT_SPAN_MIN];
+  return from >= EVENING_REST_WINDOW[0] && from <= EVENING_REST_WINDOW[1] && to - from >= EVENING_REST_MIN;
 }
 
 /** Nothing about a night changes while the solver runs, so this is all local. */
@@ -141,6 +169,7 @@ export function solveContinuous(
     allowCrossHalfTso = false,
     shortDuties = true,
     tsoWithoutBreak = true,
+    rests,
   }: SolveOptions = {},
 ): NightDuty[] | null {
   const preferred = state.dutyLengthPref || 0;
@@ -216,7 +245,11 @@ export function solveContinuous(
   }
   /** Each person's time away. */
   const awaySpans = people.map(person => unavailableSpans(person));
-  const constrained = people.map((_, index) => fixedSpans[index].length > 0 || awaySpans[index].length > 0);
+  /** Each person's evening rest, when the generator placed one. */
+  const restSpans = people.map(person => rests?.[person.key] ?? null);
+  const constrained = people.map(
+    (_, index) => fixedSpans[index].length > 0 || awaySpans[index].length > 0 || !!restSpans[index],
+  );
 
   /**
    * Could this person hold a duty on `code` over `[start, end)`: around for all
@@ -226,6 +259,8 @@ export function solveContinuous(
   const rangeFree = (index: number, start: number, end: number, code: string) => {
     if (!constrained[index]) return true;
     for (const [from, to] of awaySpans[index]) if (start < to && end > from) return false;
+    const rest = restSpans[index];
+    if (rest && !isEveningRestExempt(code) && start < rest[1] && end > rest[0]) return false;
     for (const [from, to, slotCode] of fixedSpans[index]) {
       const gap = breakFor(slotCode, code);
       if (start < to + gap && end > from - gap) return false;
@@ -751,6 +786,148 @@ function activeCount(state: NightAllocationState): number {
   return state.channels.filter(channel => channel.inUse).length;
 }
 
+/**
+ * Is a search that keeps to the evening rest worth running tonight? Only when
+ * someone owed one can be given it — a half hands its people the rest anyway,
+ * and on a night too thin to spare anybody the plain night is the one to plan.
+ */
+export function eveningRestWorthTrying(state: NightAllocationState): boolean {
+  return Object.keys(planEveningRests(state).rests).length > 0;
+}
+
+/** A small seeded PRNG, as the search uses, so a seeded placement is reproducible. */
+function seededRandom(seed: number): () => number {
+  let randomState = seed >>> 0;
+  return () => {
+    randomState = (randomState + 0x6d2b79f5) >>> 0;
+    let x = randomState;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Where the evening rests go, and who could not be given one. */
+export interface EveningRestPlan {
+  /** Each placed rest, by person key: 4 hours off every position but TSO. */
+  rests: Record<string, [number, number]>;
+  /** People owed a rest the crew can't spare them for anywhere. */
+  unplaced: string[];
+}
+
+/**
+ * Where everyone still owed an evening rest takes it, placed before the search
+ * so the search can keep them off control for it just as it does for time away.
+ *
+ * A rest is 4 hours off every position but TSO, starting between 16:30 and
+ * 23:30 — in practice by 21:30, so it is over by the end of the night. People
+ * in a half have one whatever the plan, and so does anyone away for 4 hours of
+ * the evening; someone whose DB slots leave no room for one is left alone.
+ * Everyone else is placed one at a time, the most constrained first, where
+ * the crew can best spare them: the stretch whose thinnest moment still has
+ * the most people over what the open positions need. So the rests stagger
+ * rather than all starting at 16:30. Someone resting may still take TSO, so a
+ * rest held by someone cleared for it doesn't cost TSO its cover.
+ *
+ * A rest is only placed where it leaves enough people to keep every open
+ * position turning at the usual duty length. On a thin night that means some
+ * people get one and the rest don't — which is still more than none.
+ *
+ * A non-zero `seed` breaks ties at random, which is what the restarts vary.
+ */
+export function planEveningRests(state: NightAllocationState, seed = 0): EveningRestPlan {
+  const [windowStart, windowEnd] = EVENING_REST_WINDOW;
+  const latestStart = Math.min(windowEnd, NIGHT_SPAN_MIN - EVENING_REST_MIN);
+  const people = availablePeople(state);
+  const open = openChannels(state);
+  const control = open.filter(channel => !isEveningRestExempt(channel.code));
+  const exempt = open.filter(channel => isEveningRestExempt(channel.code));
+  const random = seededRandom(seed);
+
+  const minutes: number[] = [];
+  for (let minute = windowStart; minute < NIGHT_SPAN_MIN; minute += SLOT_MIN) minutes.push(minute);
+  const halfAllows = (person: NightPerson, minute: number) =>
+    minute < FIRST_HALF[0] || (minute < SECOND_HALF[0] ? person.half !== "2nd" : person.half !== "1st");
+  const onHand = (person: NightPerson, minute: number) => isAvailableAt(person, minute) && halfAllows(person, minute);
+  const openAt = (list: NightChannel[], minute: number) =>
+    list.filter(channel => {
+      if (channel.openAt > minute || channel.closeAt <= minute) return false;
+      const merged = mergedAwayWindow(state, channel.code);
+      return !(merged && minute >= merged[0] && minute < merged[1]);
+    });
+  // With duties of length L and a 30-minute break after each, one person holds
+  // a position for L of every L + 30 minutes, so k open positions take
+  // k(L + 30)/L people to keep turning. L is the usual length someone chose —
+  // rests don't get to stretch it — or on Auto the longest duty, 2 hours.
+  const length = state.dutyLengthPref || MAX_DUTY_MIN;
+  const controlNeed = minutes.map(
+    minute => (openAt(control, minute).length * (length + MIN_BREAK_MIN)) / length,
+  );
+  const exemptOpen = minutes.map(minute => openAt(exempt, minute).map(channel => channel.code));
+  const working = minutes.map(minute => people.filter(person => onHand(person, minute)).length);
+  const resting: NightPerson[][] = minutes.map(() => []);
+
+  /** People to spare at one moment: those not resting, less what control needs and what resting people can't hold. */
+  const spareAt = (index: number, extra?: NightPerson) => {
+    const off = extra && onHand(extra, minutes[index]) ? [...resting[index], extra] : resting[index];
+    const uncovered = exemptOpen[index].filter(code => !off.some(person => canTakeChannel(person, code))).length;
+    return working[index] - off.length - controlNeed[index] - uncovered;
+  };
+
+  const owed: Array<{ person: NightPerson; starts: number[]; jitter: number }> = [];
+  for (const person of people) {
+    if (halfGivesEveningRest(person.half)) continue;
+    const away = longestEveningBreak(availableSpans(person));
+    if (away.to - away.from >= EVENING_REST_MIN) continue;
+    const slots = state.duties.filter(
+      duty => isFixedDuty(duty) && duty.personKey === person.key && !isEveningRestExempt(duty.channelCode),
+    );
+    const starts: number[] = [];
+    for (let start = windowStart; start <= latestStart; start += SLOT_MIN) {
+      if (slots.some(slot => slot.startMin < start + EVENING_REST_MIN && slot.endMin > start)) continue;
+      starts.push(start);
+    }
+    if (starts.length) owed.push({ person, starts, jitter: seed ? random() : 0 });
+  }
+  owed.sort((a, b) => a.starts.length - b.starts.length || a.jitter - b.jitter);
+
+  const rests: Record<string, [number, number]> = {};
+  const unplaced: string[] = [];
+  const span = EVENING_REST_MIN / SLOT_MIN;
+  for (const { person, starts } of owed) {
+    let best: { start: number; thinnest: number; total: number; tie: number } | null = null;
+    for (const start of starts) {
+      const from = (start - windowStart) / SLOT_MIN;
+      // Only the moments they would otherwise be on hand for cost anything.
+      let thinnest = Number.POSITIVE_INFINITY;
+      let total = 0;
+      for (let index = from; index < from + span; index++) {
+        const left = spareAt(index, person);
+        if (onHand(person, minutes[index])) thinnest = Math.min(thinnest, left);
+        total += left;
+      }
+      const tie = seed ? random() : 0;
+      if (
+        !best ||
+        thinnest > best.thinnest ||
+        (thinnest === best.thinnest && (total > best.total || (total === best.total && tie > best.tie)))
+      ) {
+        best = { start, thinnest, total, tie };
+      }
+    }
+    if (!best || best.thinnest < 0) {
+      unplaced.push(person.key);
+      continue;
+    }
+    const from = (best.start - windowStart) / SLOT_MIN;
+    for (let index = from; index < from + span; index++) {
+      if (onHand(person, minutes[index])) resting[index].push(person);
+    }
+    rests[person.key] = [best.start, best.start + EVENING_REST_MIN];
+  }
+  return { rests, unplaced };
+}
+
 function activeChannelsShorterThanMinimum(state: NightAllocationState): string[] {
   return state.channels
     .filter(channel => channel.inUse && channel.closeAt - channel.openAt < MIN_DUTY_MIN)
@@ -835,15 +1012,23 @@ export function generateAllocation(
     allowCrossHalfTso: boolean,
     shortDuties: boolean,
     tsoWithoutBreak: boolean,
+    eveningRest: boolean,
     deadline: number,
   ): GenerateResult | null => {
+    // A search keeping to the evening rest is a preference being tried, and
+    // on a night it can't hold it would only spend what the plain night needs.
+    // Each restart places the rests afresh.
+    const nodeLimit = eveningRest ? 20_000 : 60_000;
+    const restsFor = (seed: number) => (eveningRest ? planEveningRests(state, seed).rests : undefined);
+    const rests = restsFor(0);
     const first = solveContinuous(state, {
       forceStarters: true,
-      nodeLimit: 60_000,
+      nodeLimit,
       seed: anyStarterChosen ? 0 : baseSeed,
       allowCrossHalfTso,
       shortDuties,
       tsoWithoutBreak,
+      rests,
     });
     if (first) {
       return { ok: true, state: { ...state, duties: first }, note: allowCrossHalfTso ? crossoverNote : rhythmNote };
@@ -851,11 +1036,12 @@ export function generateAllocation(
 
     const relaxed = solveContinuous(state, {
       forceStarters: false,
-      nodeLimit: 60_000,
+      nodeLimit,
       seed: anyStarterChosen ? 0 : baseSeed,
       allowCrossHalfTso,
       shortDuties,
       tsoWithoutBreak,
+      rests,
     });
     if (relaxed) {
       return {
@@ -875,6 +1061,7 @@ export function generateAllocation(
         allowCrossHalfTso,
         shortDuties,
         tsoWithoutBreak,
+        rests: restsFor(baseSeed + attempt),
       });
       if (!restart) continue;
       return {
@@ -911,11 +1098,21 @@ export function generateAllocation(
     crossover: boolean;
     shortDuties: boolean;
     tsoWithoutBreak: boolean;
+    eveningRest?: boolean;
     mergedInto: string | null;
     weight: number;
   };
   const attempts: Attempt[] = [];
   const plain = { state, crossover: false, mergedInto: null };
+  // The evening rest comes first: the night as it would otherwise be planned,
+  // with everyone also getting 4 hours off from 16:30. It is a preference, so
+  // it is the first thing given up — before short duties, the TSO crossover
+  // or the merge — and it is only tried where it could possibly hold.
+  if (eveningRestWorthTrying(state)) {
+    const evening = { ...plain, shortDuties: shortChosen, eveningRest: true };
+    attempts.push({ ...evening, tsoWithoutBreak: false, weight: 1 });
+    if (tsoOpen) attempts.push({ ...evening, tsoWithoutBreak: true, weight: 1 });
+  }
   if (!shortChosen) {
     attempts.push({ ...plain, shortDuties: false, tsoWithoutBreak: false, weight: 2 });
     if (tsoOpen) attempts.push({ ...plain, shortDuties: false, tsoWithoutBreak: true, weight: 1 });
@@ -934,10 +1131,28 @@ export function generateAllocation(
     budget,
     attempts.map(attempt => attempt.weight),
   );
+  // Whatever else the note says, a plan that leaves someone without their
+  // evening rest says that too — the suggestions name who.
+  const withEveningNote = (result: Extract<GenerateResult, { ok: true }>): GenerateResult => {
+    const missed = eveningRestShortfalls(result.state).length;
+    if (!missed) return result;
+    const sentence =
+      `${missed === 1 ? "One person" : `${missed} people`} couldn't be given ` +
+      `${formatDuration(EVENING_REST_MIN)} off in a row from ${formatMinutes(EVENING_REST_WINDOW[0])}. See suggestions.`;
+    return { ...result, note: `${result.note ?? "Continuous plan made."} ${sentence}` };
+  };
+
   let deadline = startedAt;
   for (const [index, attempt] of attempts.entries()) {
     deadline += shares[index];
-    const planned = sweep(attempt.state, attempt.crossover, attempt.shortDuties, attempt.tsoWithoutBreak, deadline);
+    const planned = sweep(
+      attempt.state,
+      attempt.crossover,
+      attempt.shortDuties,
+      attempt.tsoWithoutBreak,
+      !!attempt.eveningRest,
+      deadline,
+    );
     if (!planned || !planned.ok) continue;
     if (!attempt.mergedInto) {
       // Say so when the all-long attempt failed and the plan needed short duties.
@@ -946,15 +1161,16 @@ export function generateAllocation(
         !attempt.crossover &&
         attempt.shortDuties &&
         planned.state.duties.some(duty => duty.endMin - duty.startMin < PREFERRED_MIN_DUTY_MIN);
-      return neededShort ? { ...planned, note: shortNote } : planned;
+      const done = planned as Extract<GenerateResult, { ok: true }>;
+      return withEveningNote(neededShort ? { ...done, note: shortNote } : done);
     }
-    return {
-      ...planned,
+    return withEveningNote({
+      ...(planned as Extract<GenerateResult, { ok: true }>),
       mergedInto: attempt.mergedInto,
       note:
         `Continuous plan made, but only by merging ${MERGE_SOURCE_CHANNEL} into ${attempt.mergedInto} ` +
         `${formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1])}. See suggestions.`,
-    };
+    });
   }
 
   return {

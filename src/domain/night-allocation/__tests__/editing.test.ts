@@ -395,7 +395,7 @@ describe("DB slots on the board", () => {
     });
     const refusal = refused(deleteDuty(state, state.duties[1].id));
     expect(refusal.problems[0]).toBe(
-      "Can't delete: TWR would have no one on duty 19:30–20:30. Someone must take over at the handover time.",
+      "Can't delete: nobody next to it on TWR can take 19:30–20:30 over. Leave it blank instead.",
     );
   });
 
