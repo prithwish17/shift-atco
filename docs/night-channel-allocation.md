@@ -551,15 +551,17 @@ can do it. The rules for what is offered live in
 
 Every format leads the same way: **title, then a sub-header naming the team and
 the shift** (`Team A · Night`, derived from `rosters.team` rather than stored),
-then the date and window, then **who is in each half**, and then **both
-rosters** — by position and by person. A DB slot reads as the instructor's
+then the date and window, then **who is in each half**, and then the roster
+both ways — by position and by person. The text and the email body give it as
+**two rosters**, one after the other; the PDF and the image as **one grid**
+that reads both ways at once. A DB slot reads as the instructor's
 line with DB and the trainee beside it — `1730-1930 Rehan Ahmed (DB · Sulagna)`
 by position, `1730-1930 TWR (DB · Sulagna)` by person — and is drawn dashed in
-the image, as on the board. A blank reads `BLANK` by position —
-`1600-1800 BLANK` — is drawn in the image's red BLANK row, and is
+the PDF and the image, as on the board. A blank reads `BLANK` by position —
+`1600-1800 BLANK` — is drawn in the red BLANK row of the PDF and the image, and is
 listed in the short WhatsApp summary too ("Left BLANK: TWR 1600-1800"); the
 share sheet says a night with blanks will go out with them. The halves come first because they are
-what a reader checks first; both rosters are included because a supervisor reads
+what a reader checks first; the roster reads both ways because a supervisor reads
 down the positions and everyone else looks for their own name.
 
 Every artefact is attributed to **Atcora**, not to whoever pressed Save. The
@@ -568,21 +570,29 @@ roster is the unit's; who saved it is on the page and in the audit trail.
 - **Plain text** is rendered **server-side** from the saved night, so everyone
   shares the same artefact. It uses WhatsApp's `*bold*` markup and falls back to
   a summary plus a link when a full roster would be too long for one message.
-- **PNG** — the image downloaded and sent with WhatsApp and email — is a
-  **grid, the way a duty sheet reads: positions across the top, people down the
-  side**, and in each cell the times that person holds that position, coloured
-  by position. Each row ends with the person's total; their half is under
-  their name; a DB slot is outlined dashed with its trainee; the SMC duty that
-  holds CLD during the merge is marked `+CLD`, and both positions' headings say
-  so. Blanks get a red row of their own at the bottom. The cells come from
-  `buildRosterGrid` in
+- **PDF and PNG** — the files downloaded, and sent with WhatsApp and email —
+  are the same **grid, the way a duty sheet reads: positions across the top,
+  people down the side**, and in each cell the times that person holds that
+  position, coloured by position. Each row ends with the person's total; their
+  half is under their name; a DB slot is outlined dashed with its trainee; the
+  SMC duty that holds CLD during the merge is marked `+CLD`, and both
+  positions' headings say so. Blanks get a red row of their own at the bottom.
+  The cells come from `buildRosterGrid` in
   [`roster-text.ts`](../src/domain/night-allocation/roster-text.ts); the
-  drawing is in [`exports.ts`](../src/components/night-allocation/exports.ts).
-  It is drawn on a canvas from the same numbers the board renders from, so it
-  looks the same whatever the sender's screen, theme or scroll position, and
-  every piece of text is **cut to the box it belongs in** — an unclipped
-  `fillText` runs off the canvas, which is how the last duty of the night once
-  exported as a half-drawn employee number.
+  drawing of both is in
+  [`exports.ts`](../src/components/night-allocation/exports.ts).
+- The **PNG** is drawn on a canvas from the same numbers the board renders
+  from, so it looks the same whatever the sender's screen, theme or scroll
+  position, and every piece of text is **cut to the box it belongs in** — an
+  unclipped `fillText` runs off the canvas, which is how the last duty of the
+  night once exported as a half-drawn employee number.
+- The **PDF** is A4 landscape. AutoTable lays the grid out and breaks the
+  pages — the headings repeat on every page, nobody's row is split across two,
+  and each page past the first says whose roster it is and which page it is —
+  and the cells are drawn by hand, as in the image, because a cell of plain
+  text can't carry the boxes. A night that runs a little past the first page
+  is drawn **up to a fifth smaller** to keep it on one; a longer one keeps its
+  size and runs on.
 - **WhatsApp** uses `navigator.share({ files })` where the browser supports it,
   which sends the text and the image together. Otherwise it opens
   `https://wa.me/?text=…` and downloads the image to attach by hand. No Business
@@ -640,6 +650,7 @@ channels and gain the new one, unticked configuration and all, on next load.
 | `src/domain/night-allocation/__tests__/time.test.ts` | Which night a moment belongs to, across midnight, month and year ends; real calendar dates. |
 | `src/domain/night-allocation/__tests__/availability.test.ts` | Part-night times: "only" and "except", the minute someone leaves and returns, tidying what arrives, and the quick-entry parser — ranges, open ends, words, times outside the night, rounding the safe way. |
 | `src/domain/night-allocation/__tests__/db-slots.test.ts` | Placing, moving and removing DB slots: what refuses one, cutting the plan back with no gap, clashes that don't refuse, the trainee note. |
+| `src/components/night-allocation/__tests__/exports.test.ts` | The PDF, read back page by page: the image's grid — headings per position, a row per person with their times in their positions' columns and their total, the blank row — a night a little too long drawn smaller to stay on one page, and a long one running on with the headings repeated and no row split. |
 | `src/components/night-allocation/__tests__/shareGate.test.ts` | What the share sheet offers for empty, broken, unsaved and saved nights, and what it says about a night with blanks. |
 | `src/components/night-allocation/__tests__/stateActions.test.ts` | Page actions: unticking a merge target clears the merge, and the merge switch can always turn a stale merge off. Clearing the board takes the duties and blanks and leaves DB slots and every setting as they were. |
 

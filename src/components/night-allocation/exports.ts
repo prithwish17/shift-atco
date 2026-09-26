@@ -1,6 +1,6 @@
 /**
- * The shareable artefacts: the roster as a PDF, and as an image — a grid of
- * positions across and people down.
+ * The shareable artefacts: the roster as a PDF and as an image, both the same
+ * grid — positions across, people down.
  *
  * Both are produced in the browser with jsPDF and a canvas — the same route
  * every other printed output in Atcora takes (the duty report, the attendance
@@ -13,9 +13,7 @@ import autoTable from "jspdf-autotable";
 import {
   BLANK_LABEL,
   buildRosterGrid,
-  channelTableRows,
   formatNightDate,
-  personTableRows,
   rosterSubtitle,
   type NightAllocationState,
   type RosterGridEntry,
@@ -24,71 +22,285 @@ import { HALF_COLORS, channelSwatch } from "./palette";
 
 const fileStem = (state: NightAllocationState) => `night-allocation-${state.nightDate}`;
 
-/** A4 landscape: the channel timetable, the by-person summary, the halves. */
+/**
+ * The roster as a PDF, A4 landscape: the same grid as the image — positions
+ * across, people down, each person's times as boxes in their position's
+ * column and their total at the end of the row, blanks in a red row of their
+ * own.
+ *
+ * AutoTable lays the grid out and breaks the pages: the heading row repeats on
+ * each page and nobody's row is split across two. The cells themselves are
+ * drawn by hand, as on the image, because a cell of plain text can't carry
+ * the boxes. A night that runs a little past the first page is drawn up to a
+ * fifth smaller to keep it on one; a longer one keeps its size and runs on.
+ */
 export function buildRosterPdf(
   state: NightAllocationState,
   teams?: string[] | null,
 ): { blob: Blob; filename: string } {
+  const margin = 14;
+  const bottomMargin = 16;
+  const nameWidth = 50;
+  const totalWidth = 18;
+
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const setFont = (style: "normal" | "bold", size: number, colour: string) => {
+    doc.setFont("helvetica", style);
+    doc.setFontSize(size);
+    doc.setTextColor(colour);
+  };
 
-  doc.setFontSize(15);
-  doc.text("Night Channel Allocation", 14, 15);
+  const grid = buildRosterGrid(state);
+  const title = "Night Channel Allocation";
+  const subtitle = rosterSubtitle(teams);
+  const date = formatNightDate(state.nightDate);
 
-  doc.setFontSize(11);
-  doc.setTextColor(29, 78, 216);
-  doc.text(rosterSubtitle(teams), 14, 22);
+  // ── Header: title, team and shift, date, then the two halves ──
+  setFont("bold", 15, "#0F172A");
+  doc.text(title, margin, 14);
+  setFont("bold", 11, "#1D4ED8");
+  doc.text(subtitle, margin, 20.5);
+  setFont("normal", 10, "#475569");
+  doc.text(`${date}   13:30 to 01:30 next day`, margin, 26);
+  doc.setDrawColor("#E2E8F0");
+  doc.setLineWidth(0.3);
+  doc.line(margin, 29, pageWidth - margin, 29);
 
-  doc.setFontSize(10);
-  doc.setTextColor(90);
-  doc.text(`${formatNightDate(state.nightDate)}   13:30 to 01:30 next day`, 14, 28);
-
-  // The halves lead, because they are what a reader checks first.
   const firstHalf = state.people.filter(person => person.half === "1st").map(person => person.name);
   const secondHalf = state.people.filter(person => person.half === "2nd").map(person => person.name);
-  doc.setTextColor(0);
-  let headerY = 36;
-  for (const [label, names] of [
-    ["1st Half (17:30-21:30)", firstHalf],
-    ["2nd Half (21:30-01:30)", secondHalf],
+  let headerY = 35;
+  for (const [label, names, colour] of [
+    ["1st Half (17:30-21:30)", firstHalf, HALF_COLORS.first.text],
+    ["2nd Half (21:30-01:30)", secondHalf, HALF_COLORS.second.text],
   ] as const) {
-    doc.setFont(undefined, "bold");
-    doc.text(`${label}:`, 14, headerY);
-    doc.setFont(undefined, "normal");
+    setFont("bold", 10, colour);
+    doc.text(label, margin, headerY);
+    setFont("normal", 10, "#0F172A");
     // Wrapped, so a long half does not run off the page.
-    const lines = doc.splitTextToSize(names.join(", ") || "nobody", pageWidth - 70) as string[];
+    const lines = doc.splitTextToSize(names.join(", ") || "nobody", pageWidth - margin - 62) as string[];
     doc.text(lines, 62, headerY);
-    headerY += Math.max(6, lines.length * 5 + 1);
+    headerY += Math.max(5.5, lines.length * 4.5 + 1);
   }
 
-  const tableTop = headerY + 4;
-  autoTable(doc, {
-    startY: tableTop,
-    head: [["Position", "Time", "Who", "Length"]],
-    body: channelTableRows(state),
-    styles: { fontSize: 9, cellPadding: 1.6 },
-    headStyles: { fillColor: [30, 41, 59] },
-    margin: { left: 14, right: 150 },
-    tableWidth: 130,
-  });
+  // ── The grid ──
+  const columnWidth = (pageWidth - margin * 2 - nameWidth - totalWidth) / Math.max(1, grid.columns.length);
+  const totalColumn = grid.columns.length + 1;
+  const rows = [
+    ...grid.rows.map(row => ({ kind: "person" as const, row, cells: row.cells })),
+    ...(grid.blanks ? [{ kind: "blank" as const, cells: grid.blanks }] : []),
+  ];
 
-  autoTable(doc, {
-    startY: tableTop,
-    head: [["Name", "Half", "Duties", "Total"]],
-    body: personTableRows(state),
-    styles: { fontSize: 9, cellPadding: 1.6 },
-    headStyles: { fillColor: [30, 41, 59] },
-    margin: { left: 152, right: 14 },
-    tableWidth: 131,
-  });
+  // Sizes in millimetres and fonts in points, the image's proportions scaled
+  // to the page, all times `scale`; and where that puts everything.
+  const layout = (scale: number) => {
+    const size = {
+      scale,
+      pad: 1.2 * scale,
+      inset: 2.4 * scale,
+      pill: 4.2 * scale,
+      taggedPill: 6.8 * scale,
+      gap: 0.6 * scale,
+      line: 3.5 * scale,
+      under: 3.1 * scale,
+      codeFont: 10 * scale,
+      nameFont: 9 * scale,
+      totalFont: 8.5 * scale,
+      timeFont: 8 * scale,
+      smallFont: 7 * scale,
+      noteFont: 6.5 * scale,
+    };
+    // A heading's notes (open window, merge) wrap under its code.
+    setFont("normal", size.noteFont, "#64748B");
+    const notes = grid.columns.map(column =>
+      [column.window, column.mergedNote]
+        .filter((note): note is string => Boolean(note))
+        .flatMap(note => doc.splitTextToSize(note, columnWidth - size.inset * 2) as string[]),
+    );
+    const headHeight = (9 + Math.max(1, ...notes.map(lines => lines.length)) * 2.7) * scale;
+
+    // A name wraps to two lines at most.
+    setFont("bold", size.nameFont, "#0F172A");
+    const nameLines = rows.map(entry => {
+      if (entry.kind === "blank") return [BLANK_LABEL];
+      const lines = doc.splitTextToSize(entry.row.name, nameWidth - size.inset * 2) as string[];
+      return lines.length > 2
+        ? [lines[0], fitPdfText(doc, lines.slice(1).join(" "), nameWidth - size.inset * 2)]
+        : lines;
+    });
+
+    // Each row is as tall as its fullest cell, the name's included.
+    const entryHeight = (entry: RosterGridEntry) => (entry.tag || entry.absorbs ? size.taggedPill : size.pill);
+    const rowHeights = rows.map((entry, index) => {
+      const underName = entry.kind === "blank" || entry.row.half ? size.under : 0;
+      const name = size.pad * 2 + 4.5 * scale + (nameLines[index].length - 1) * size.line + underName;
+      const times = entry.cells.map(
+        cell => size.pad * 2 + cell.reduce((sum, time, slot) => sum + entryHeight(time) + (slot ? size.gap : 0), 0),
+      );
+      return Math.max(8.4 * scale, name, ...times);
+    });
+    const height = headHeight + rowHeights.reduce((sum, rowHeight) => sum + rowHeight, 0);
+    return { size, notes, headHeight, nameLines, entryHeight, rowHeights, height };
+  };
+  const room = pageHeight - bottomMargin - headerY - 0.5;
+  const natural = layout(1);
+  const shrink = room / natural.height;
+  const { size, notes, headHeight, nameLines, entryHeight, rowHeights } =
+    shrink < 1 && shrink >= 0.8 ? layout(shrink) : natural;
+
+  // One time: a box in the position's colour with an edge down its left side;
+  // a DB slot is outlined dashed, as on the board, and a blank is red.
+  const drawEntry = (entry: RosterGridEntry, x: number, y: number, width: number, code: string) => {
+    const height = entryHeight(entry);
+    const swatch = channelSwatch(code);
+    if (entry.blank) {
+      doc.setFillColor("#FEF2F2");
+      doc.rect(x, y, width, height, "F");
+    } else {
+      doc.setFillColor(swatch.fill);
+      doc.rect(x, y, width, height, "F");
+      doc.setFillColor(swatch.edge);
+      doc.rect(x, y, 0.9 * size.scale, height, "F");
+    }
+    if (entry.blank || entry.tag) {
+      doc.setDrawColor(entry.blank ? "#EF4444" : swatch.edge);
+      doc.setLineWidth(0.25);
+      doc.setLineDashPattern([1, 0.8], 0);
+      doc.rect(x, y, width, height, "S");
+      doc.setLineDashPattern([], 0);
+    }
+    const colour = entry.blank ? "#B91C1C" : swatch.text;
+    setFont("bold", size.timeFont, colour);
+    doc.text(fitPdfText(doc, entry.range, width - size.inset - 1), x + size.inset * 0.8, y + 3 * size.scale);
+    const extra = [entry.tag, entry.absorbs].filter(Boolean).join(" ");
+    if (extra) {
+      setFont("bold", size.noteFont, colour);
+      doc.text(fitPdfText(doc, extra, width - size.inset - 1), x + size.inset * 0.8, y + 5.7 * size.scale);
+    }
+  };
 
   const savedAt = state.savedAt ? new Date(state.savedAt) : null;
   const when = savedAt && !Number.isNaN(savedAt.getTime()) ? `, ${savedAt.toLocaleString()}` : "";
-  doc.setFontSize(8);
-  doc.setTextColor(120);
-  doc.text(`Prepared by Atcora${when}`, 14, doc.internal.pageSize.getHeight() - 8);
+
+  autoTable(doc, {
+    startY: headerY,
+    head: [["NAME", ...grid.columns.map(column => column.code), "TOTAL"]],
+    body: rows.length
+      ? rows.map(() => Array.from({ length: totalColumn + 1 }, () => ""))
+      : [[{ content: "Nobody is on a position yet.", colSpan: totalColumn + 1 }]],
+    theme: "grid",
+    showHead: "everyPage",
+    rowPageBreak: "avoid",
+    margin: { top: 18, left: margin, right: margin, bottom: bottomMargin },
+    styles: {
+      font: "helvetica",
+      fontSize: 9,
+      cellPadding: size.pad,
+      lineColor: "#E2E8F0",
+      lineWidth: 0.2,
+      textColor: "#64748B",
+      fillColor: "#FFFFFF",
+    },
+    headStyles: { fillColor: "#F1F5F9", lineWidth: 0.2, minCellHeight: headHeight },
+    columnStyles: {
+      0: { cellWidth: nameWidth },
+      ...Object.fromEntries(grid.columns.map((_, index) => [index + 1, { cellWidth: columnWidth }])),
+      [totalColumn]: { cellWidth: totalWidth },
+    },
+    didParseCell: data => {
+      if (data.section === "body" && !rows.length) return;
+      // Everything below is drawn by hand; AutoTable only sizes and places it.
+      data.cell.text = [];
+      if (data.section === "body") {
+        data.cell.styles.minCellHeight = rowHeights[data.row.index];
+        if (data.row.index % 2 === 1) data.cell.styles.fillColor = "#F8FAFC";
+      }
+    },
+    didDrawCell: data => {
+      const { x, y, width, height } = data.cell;
+      const column = data.column.index - 1;
+      const isChannel = column >= 0 && column < grid.columns.length;
+
+      if (data.section === "head") {
+        if (!isChannel) {
+          setFont("bold", size.smallFont, "#64748B");
+          doc.text(data.column.index === 0 ? "NAME" : "TOTAL", x + size.inset, y + height / 2 + 1.2 * size.scale);
+          return;
+        }
+        const code = grid.columns[column].code;
+        setFont("bold", size.codeFont, "#0F172A");
+        doc.text(fitPdfText(doc, code, width - size.inset * 2), x + size.inset, y + 5.2 * size.scale);
+        setFont("normal", size.noteFont, "#64748B");
+        notes[column].forEach((line, index) =>
+          doc.text(line, x + size.inset, y + (8.6 + index * 2.7) * size.scale),
+        );
+        // The position's colour, as a bar along the foot of its heading.
+        doc.setFillColor(channelSwatch(code).edge);
+        doc.rect(x + 0.3, y + height - 1.2 * size.scale, width - 0.6, 1.2 * size.scale, "F");
+        return;
+      }
+
+      const entry = rows[data.row.index];
+      if (!entry) return;
+      if (isChannel) {
+        let top = y + size.pad;
+        for (const time of entry.cells[column]) {
+          drawEntry(time, x + size.pad, top, width - size.pad * 2, grid.columns[column].code);
+          top += entryHeight(time) + size.gap;
+        }
+        return;
+      }
+
+      // Level with the first time in the row.
+      const baseline = y + size.pad + 3 * size.scale;
+      if (data.column.index === totalColumn) {
+        if (entry.kind === "person") {
+          setFont("bold", size.totalFont, "#0F172A");
+          doc.text(fitPdfText(doc, entry.row.total, width - size.inset * 2), x + size.inset, baseline);
+        }
+        return;
+      }
+
+      // Who the row is: the name, and under it the half, or what a blank is.
+      const lines = nameLines[data.row.index];
+      setFont("bold", size.nameFont, entry.kind === "blank" ? "#B91C1C" : "#0F172A");
+      lines.forEach((line, index) => doc.text(line, x + size.inset, baseline + index * size.line));
+      const under = baseline + (lines.length - 1) * size.line + size.under;
+      if (entry.kind === "blank") {
+        setFont("normal", size.smallFont, "#64748B");
+        doc.text("nobody on these", x + size.inset, under);
+      } else if (entry.row.half) {
+        const colour = entry.row.half === "1st Half" ? HALF_COLORS.first.text : HALF_COLORS.second.text;
+        setFont("bold", size.smallFont, colour);
+        doc.text(entry.row.half, x + size.inset, under);
+      }
+    },
+  });
+
+  // On every page: who prepared it and, when there is more than one, which
+  // page this is — and past the first, whose roster it is.
+  const pages = doc.getNumberOfPages();
+  for (let page = 1; page <= pages; page += 1) {
+    doc.setPage(page);
+    setFont("normal", 8, "#64748B");
+    doc.text(`Prepared by Atcora${when}`, margin, pageHeight - 8);
+    if (pages > 1) doc.text(`Page ${page} of ${pages}`, pageWidth - margin, pageHeight - 8, { align: "right" });
+    if (page > 1) {
+      setFont("bold", 9, "#475569");
+      doc.text(`${title} — ${subtitle} — ${date}`, margin, 12);
+    }
+  }
 
   return { blob: doc.output("blob"), filename: `${fileStem(state)}.pdf` };
+}
+
+/** Text cut to `maxWidth` with an ellipsis, in the document's current font. */
+function fitPdfText(doc: jsPDF, text: string, maxWidth: number) {
+  if (doc.getTextWidth(text) <= maxWidth) return text;
+  let shown = text;
+  while (shown.length > 1 && doc.getTextWidth(`${shown}...`) > maxWidth) shown = shown.slice(0, -1);
+  return `${shown.trimEnd()}...`;
 }
 
 /**
