@@ -16,6 +16,7 @@
  */
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BLANK_LABEL,
   DB_LABEL,
   FIRST_HALF,
   MERGE_WINDOW,
@@ -32,8 +33,10 @@ import {
   activeMerge,
   breakBetween,
   gapsForChannel,
+  isBlank,
   isFixedDuty,
   isPlanned,
+  maxDutyFor,
   mergedAwayWindow,
   minutesOnDuty,
   personShortLabel,
@@ -56,7 +59,13 @@ interface AllocationBoardProps {
   /** Scrolled into view and highlighted when the checks panel points at it. */
   focusedDutyId: string | null;
   onOpenDuty: (duty: NightDuty) => void;
-  onAddDuty: (channelCode: string, startMin: number, personKey?: string) => void;
+  /** `endMin`, when given, is where the new duty should end — the end of the gap tapped. */
+  onAddDuty: (channelCode: string, startMin: number, personKey?: string, endMin?: number) => void;
+  /**
+   * People without 4 hours in a row off from 16:30, marked on their row of the
+   * by-person view. A preference, so a mark, not an error.
+   */
+  eveningRestShort?: ReadonlySet<string>;
 }
 
 interface BoardRow {
@@ -71,6 +80,10 @@ interface BoardRow {
   mergedAway?: { window: readonly [number, number]; intoCode: string } | null;
   /** When this person is away tonight. Person rows only. */
   away?: Array<[number, number]>;
+  /** Stretches left blank on purpose. Channel rows only. */
+  blanks?: number;
+  /** Short of the evening rest. Person rows only. */
+  restShort?: boolean;
 }
 
 const AXIS_HEIGHT = 46;
@@ -83,6 +96,7 @@ export function AllocationBoard({
   focusedDutyId,
   onOpenDuty,
   onAddDuty,
+  eveningRestShort,
 }: AllocationBoardProps) {
   const [compact, setCompact] = useState(() => typeof window !== "undefined" && window.innerWidth < 700);
   const [nowMin, setNowMin] = useState<number | null>(null);
@@ -139,6 +153,7 @@ export function AllocationBoard({
           // position read as uncovered.
           gaps: channel?.inUse && isPlanned(state) ? gapsForChannel(state.duties, channel, window) : [],
           mergedAway: window && channel?.mergedInto ? { window, intoCode: channel.mergedInto } : null,
+          blanks: state.duties.filter(duty => duty.channelCode === code && isBlank(duty)).length,
         };
       });
     }
@@ -157,18 +172,27 @@ export function AllocationBoard({
         // Someone marked not available has no lane-worth of away to draw: their
         // row only shows while they still hold a duty, which is the problem.
         away: person.available ? unavailableSpans(person) : [],
+        restShort: !!eveningRestShort?.has(person.key),
       }));
-  }, [state, view]);
+  }, [state, view, eveningRestShort]);
 
   const firstOpenChannel = state.channels.find(channel => channel.inUse) ?? state.channels[0];
 
   const handleLaneClick = (row: BoardRow, event: React.MouseEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement).closest("button")) return;
     const bounds = event.currentTarget.getBoundingClientRect();
-    const minute = snapToSlot((event.clientX - bounds.left) / pxPerMin);
+    const exact = (event.clientX - bounds.left) / pxPerMin;
+    const minute = snapToSlot(exact);
     const startMin = Math.min(minute, NIGHT_SPAN_MIN - 30);
-    if (view === "channel") onAddDuty(row.key, startMin);
-    else if (firstOpenChannel) onAddDuty(firstOpenChannel.code, startMin, row.key);
+    if (view !== "channel") {
+      if (firstOpenChannel) onAddDuty(firstOpenChannel.code, startMin, row.key);
+      return;
+    }
+    // Tapping an uncovered stretch offers a duty for exactly that stretch, as
+    // far as one duty may run.
+    const gap = row.gaps.find(([start, end]) => exact >= start && exact < end);
+    if (gap) onAddDuty(row.key, gap[0], undefined, Math.min(gap[1], gap[0] + maxDutyFor(row.key)));
+    else onAddDuty(row.key, startMin);
   };
 
   return (
@@ -298,6 +322,8 @@ function currentMinuteOfNight(nightDate: string): number | null {
 
 function RowLabel({ row, view, width }: { row: BoardRow; view: BoardView; width: number }) {
   const covered = view === "channel" && row.channel?.inUse ? row.gaps.length === 0 : null;
+  // Covered but for stretches left blank on purpose: not a fault, not full either.
+  const withBlanks = covered && !!row.blanks;
 
   return (
     <div
@@ -310,13 +336,20 @@ function RowLabel({ row, view, width }: { row: BoardRow; view: BoardView; width:
             aria-hidden
             className={cn(
               "h-1.5 w-1.5 shrink-0 rounded-full",
-              covered ? "bg-status-success" : "bg-status-danger",
+              withBlanks ? "bg-status-warning" : covered ? "bg-status-success" : "bg-status-danger",
             )}
           />
         )}
         <span className="truncate whitespace-nowrap text-[0.88rem] font-semibold tracking-tight text-corp-text-main sm:text-[1rem]">
           {row.title}
         </span>
+        {row.restShort ? (
+          <span
+            title="No 4h break in a row from 16:30 — preferred, not required"
+            aria-label="No 4 hour break from 16:30"
+            className="h-1.5 w-1.5 shrink-0 rounded-full bg-status-warning"
+          />
+        ) : null}
       </span>
       {row.subtitle ? (
         <span className="truncate whitespace-nowrap font-mono text-[0.65rem] tabular-nums text-corp-text-soft">
@@ -556,6 +589,42 @@ const DutyStrip = forwardRef<HTMLButtonElement, DutyStripProps>(function DutyStr
   const swatch = view === "channel" ? personSwatch(person?.colorIndex ?? 0) : channelSwatch(duty.channelCode);
   const left = Math.max(0, duty.startMin) * pxPerMin;
   const width = Math.max(16, (Math.min(NIGHT_SPAN_MIN, duty.endMin) - Math.max(0, duty.startMin)) * pxPerMin);
+
+  // A blank: the stretch is on the board, nobody is on it. Outlined in red and
+  // left empty, so it can never pass for a duty at a glance.
+  if (isBlank(duty)) {
+    const range = formatRange(duty.startMin, duty.endMin);
+    return (
+      <button
+        ref={ref}
+        type="button"
+        onClick={onOpen}
+        title={`Left blank ${range} — nobody is on ${duty.channelCode}. Tap to put someone on.`}
+        style={{ left, width }}
+        className={cn(
+          "group absolute inset-y-1.5 z-10 flex flex-col items-start justify-center gap-px overflow-hidden rounded-md px-2 text-left",
+          "border border-dashed border-status-danger/70 bg-surface text-status-danger",
+          "transition-[transform,box-shadow] duration-150 motion-safe:hover:-translate-y-px",
+          "hover:shadow-[0_4px_10px_rgba(15,23,42,0.14)]",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+          hasProblem && "ring-2 ring-status-danger ring-offset-1 ring-offset-surface",
+          isFocused && "ring-2 ring-ring ring-offset-2 ring-offset-surface",
+        )}
+        aria-label={`${duty.channelCode} left blank, ${range}${hasProblem ? ", has a problem" : ""}. Fill this blank.`}
+      >
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.08]"
+          style={{ backgroundImage: "repeating-linear-gradient(135deg, currentColor 0 3px, transparent 3px 9px)" }}
+        />
+        <span className="shrink-0 pl-1 text-[0.72rem] font-bold leading-none tracking-wide">{BLANK_LABEL}</span>
+        {width >= 62 ? (
+          <span className="truncate pl-1 font-mono text-[0.63rem] tabular-nums leading-none opacity-80">{range}</span>
+        ) : null}
+      </button>
+    );
+  }
+
   const heading = view === "channel" ? personShortLabel(person) : duty.channelCode;
   const firstName = person ? person.name.split(" ")[0] : "Removed";
   // A DB slot is the instructor's, fixed in advance: marked so it reads as a

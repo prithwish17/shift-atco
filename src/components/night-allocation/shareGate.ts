@@ -7,7 +7,7 @@
  * screen, so it is offered only when those are the same thing: saved, with no
  * changes since.
  */
-import { isPlanned, type NightAllocationState } from "@/domain/night-allocation";
+import { BLANK_LABEL, isBlank, isPlanned, type NightAllocationState } from "@/domain/night-allocation";
 
 export interface ShareGate {
   /** Why nothing can be shared yet, or null. */
@@ -19,6 +19,21 @@ export interface ShareGate {
 }
 
 export function shareGate(
+  state: NightAllocationState,
+  options: { dirty: boolean; errorCount: number },
+): ShareGate {
+  const gate = baseGate(state, options);
+  // Blanks are allowed, and go out as BLANK — but nobody should be surprised
+  // to find a position with nobody on it in what they sent.
+  const blanks = state.duties.filter(isBlank).length;
+  if (gate.blocked || !blanks) return gate;
+  const blankNotice =
+    `${blanks === 1 ? "One stretch is" : `${blanks} stretches are`} left blank, with nobody on ` +
+    `${blanks === 1 ? "it" : "them"}. The roster shows ${blanks === 1 ? "it" : "them"} as ${BLANK_LABEL}.`;
+  return { ...gate, notice: gate.notice ? `${gate.notice} ${blankNotice}` : blankNotice };
+}
+
+function baseGate(
   state: NightAllocationState,
   { dirty, errorCount }: { dirty: boolean; errorCount: number },
 ): ShareGate {

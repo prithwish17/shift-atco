@@ -167,6 +167,8 @@ describe("reading DB slots and part-night times back", () => {
         { id: "d2", channel_code: "TWR", person_key: "p1", start_min: 0, end_min: 120, kind: "duty", note: null },
         // Saved before DB slots existed: no kind at all.
         { id: "d3", channel_code: "TWR", person_key: "p2", start_min: 120, end_min: 240 },
+        // A blank holds nobody, even if a stray key was stored with it.
+        { id: "b1", channel_code: "TWR", person_key: "p1", start_min: 360, end_min: 480, kind: "blank", note: null },
       ],
     });
 
@@ -174,6 +176,7 @@ describe("reading DB slots and part-night times back", () => {
     expect(state.duties.find(duty => duty.id === "d1")).toMatchObject({ kind: "db", note: "Sulagna" });
     expect(state.duties.find(duty => duty.id === "d2")?.kind).toBeUndefined();
     expect(state.duties.find(duty => duty.id === "d3")?.kind).toBeUndefined();
+    expect(state.duties.find(duty => duty.id === "b1")).toMatchObject({ kind: "blank", personKey: "" });
     expect(state.people.find(person => person.key === "p1")?.availability).toEqual({
       mode: "except",
       periods: [[240, 360]],

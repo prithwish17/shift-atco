@@ -132,21 +132,43 @@ export function useNightAllocation(nightDate: string) {
     },
   });
 
+  /**
+   * Reset. On a night that has been saved, the server saves the fresh night in
+   * its place, so it is adopted exactly as a save is. On one that hasn't, it is
+   * a working copy like any other edit. Never retried: a reset is not
+   * something to repeat behind anyone's back.
+   */
   const reset = useMutation({
-    mutationFn: () => resetNightAllocation(nightDate),
+    mutationFn: () => resetNightAllocation(nightDate, working?.version ?? 0),
     onMutate: () => ({ nightDate }),
+    retry: false,
     onSuccess: response => {
+      queryClient.setQueryData(nightAllocationKey(response.state.nightDate), current =>
+        response.persisted ? response : current,
+      );
       if (response.state.nightDate !== currentNightRef.current) return;
       setWorking(response.state);
-      setDirty(true);
       setConflict(null);
-      setStatus({
-        text: "Reset to a blank allocation. The last saved version stays until you save again.",
-        tone: "neutral",
-      });
+      if (response.persisted) {
+        adoptedRef.current = `${response.state.nightDate}:${response.state.version}`;
+        setDirty(false);
+        setStatus({ text: "Night reset and saved. Everyone sees the fresh night now.", tone: "saved" });
+        return;
+      }
+      setDirty(true);
+      setStatus(
+        response.unsavedReason
+          ? { text: `Reset here, but not saved: ${response.unsavedReason} Fix that, then save.`, tone: "blocked" }
+          : { text: "Reset to a fresh night from the roster. Save it when you're ready.", tone: "neutral" },
+      );
     },
     onError: (error, _variables, context) => {
       if (context && context.nightDate !== currentNightRef.current) return;
+      if (error instanceof NightAllocationConflict) {
+        setConflict(error.current);
+        setStatus({ text: error.message, tone: "blocked" });
+        return;
+      }
       setStatus({ text: (error as Error).message, tone: "blocked" });
     },
   });

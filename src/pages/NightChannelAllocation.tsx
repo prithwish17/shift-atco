@@ -37,8 +37,12 @@ import {
   DEFAULT_DB_SLOT,
   activeChannels,
   availablePeople,
+  blankMinutes,
+  eveningRestShortfalls,
   findChannel,
+  formatDuration,
   formatNightDate,
+  isBlank,
   isFixedDuty,
   isGenerateFailure,
   isNightDate,
@@ -55,6 +59,7 @@ import { AllocationBoard, type BoardView } from "@/components/night-allocation/A
 import { ChannelsPanel, DbSlotsPanel, HalvesPanel, PeoplePanel } from "@/components/night-allocation/SetupPanels";
 import { ChecksPanel } from "@/components/night-allocation/ChecksPanel";
 import { DutyDialog, type DutyDraft } from "@/components/night-allocation/DutyDialog";
+import { BlankDialog } from "@/components/night-allocation/BlankDialog";
 import { DbSlotDialog } from "@/components/night-allocation/DbSlotDialog";
 import { AvailabilityDialog } from "@/components/night-allocation/AvailabilityDialog";
 import { ShareSheet } from "@/components/night-allocation/ShareSheet";
@@ -64,13 +69,18 @@ type Role = "admin" | "supervisor" | "wso" | "employee";
 
 /** How long a two-step confirm stays armed before it quietly stands down. */
 const CONFIRM_WINDOW_MS = 5000;
-const GENERATE_ARMED_TEXT = "This replaces the duties on the board — DB slots stay. Tap again to confirm.";
+const GENERATE_ARMED_TEXT =
+  "This replaces the duties and blanks on the board — DB slots stay. Tap again to confirm.";
 const RESET_ARMED_TEXT =
   "Reset clears halves, everyone's times, channel settings, starters, DB slots and all duties for this night. " +
   "Tap again to confirm.";
+/** The same, for a night that has been saved: the reset replaces what everyone sees. */
+const RESET_SAVED_ARMED_TEXT =
+  "Reset clears halves, everyone's times, channel settings, starters, DB slots and all duties, and saves the " +
+  "fresh night in place of the saved one — for everyone. Tap again to confirm.";
 const CLEAR_ARMED_TEXT =
-  "Clear takes every duty off the board. The crew, halves, everyone's times, channel settings, starters and " +
-  "DB slots stay. Tap again to confirm.";
+  "Clear takes every duty and blank off the board. The crew, halves, everyone's times, channel settings, " +
+  "starters and DB slots stay. Tap again to confirm.";
 
 /** The DB dialog's starting point for a slot already on the board. */
 function draftFromSlot(slot: NightDuty): DbSlotDraft {
@@ -104,7 +114,7 @@ function Stat({
 }: {
   label: string;
   value: string;
-  tone?: "neutral" | "good" | "bad";
+  tone?: "neutral" | "good" | "bad" | "warn";
 }) {
   return (
     <div className="flex min-w-0 flex-col">
@@ -116,6 +126,7 @@ function Stat({
           "font-mono text-[0.95rem] font-semibold tabular-nums leading-tight",
           tone === "good" && "text-status-success",
           tone === "bad" && "text-status-danger",
+          tone === "warn" && "text-status-warning",
           tone === "neutral" && "text-corp-text-main",
         )}
       >
@@ -155,6 +166,8 @@ export default function NightChannelAllocation() {
 
   const [view, setView] = useState<BoardView>("channel");
   const [draft, setDraft] = useState<DutyDraft | null>(null);
+  /** The blank open in the fill dialog. */
+  const [blankDraft, setBlankDraft] = useState<NightDuty | null>(null);
   const [slotDraft, setSlotDraft] = useState<DbSlotDraft | null>(null);
   /** Whose times are open in the availability dialog. */
   const [timesFor, setTimesFor] = useState<string | null>(null);
@@ -188,7 +201,11 @@ export default function NightChannelAllocation() {
     const timer = window.setTimeout(() => {
       setResetArmed(false);
       const before = statusBeforeReset.current;
-      if (before) setStatus(current => (current.text === RESET_ARMED_TEXT ? before : current));
+      if (before) {
+        setStatus(current =>
+          current.text === RESET_ARMED_TEXT || current.text === RESET_SAVED_ARMED_TEXT ? before : current,
+        );
+      }
     }, CONFIRM_WINDOW_MS);
     return () => window.clearTimeout(timer);
   }, [resetArmed, setStatus]);
@@ -266,6 +283,12 @@ export default function NightChannelAllocation() {
   );
 
   const uncovered = useMemo(() => (state ? uncoveredMinutes(state) : 0), [state]);
+  const blank = useMemo(() => (state ? blankMinutes(state) : 0), [state]);
+  /** Who is without 4 hours in a row off from 16:30 — marked on the by-person board. */
+  const eveningRestShort = useMemo(
+    () => new Set(state ? eveningRestShortfalls(state).map(shortfall => shortfall.person.key) : []),
+    [state],
+  );
 
   const handleGenerate = () => {
     if (!state) return;
@@ -325,7 +348,7 @@ export default function NightChannelAllocation() {
     if (!resetArmed) {
       statusBeforeReset.current = status;
       setResetArmed(true);
-      setStatus({ text: RESET_ARMED_TEXT, tone: "blocked" });
+      setStatus({ text: state?.version ? RESET_SAVED_ARMED_TEXT : RESET_ARMED_TEXT, tone: "blocked" });
       return;
     }
     setResetArmed(false);
@@ -348,11 +371,11 @@ export default function NightChannelAllocation() {
     applyBoard(next, note);
   };
 
-  const openNewDuty = (channelCode: string, startMin: number, personKey?: string) => {
+  const openNewDuty = (channelCode: string, startMin: number, personKey?: string, endMin?: number) => {
     if (!state) return;
     const channel = findChannel(state, channelCode);
     const start = Math.max(startMin, channel?.openAt ?? 0);
-    const end = Math.min(channel?.closeAt ?? 720, start + 90);
+    const end = Math.min(channel?.closeAt ?? 720, endMin ?? start + 90);
     setDraft({
       isNew: true,
       duty: {
@@ -370,9 +393,10 @@ export default function NightChannelAllocation() {
     window.setTimeout(() => setFocusedDutyId(current => (current === dutyId ? null : current)), 1800);
   };
 
-  /** A DB slot opens in its own dialog; everything else in the duty editor. */
+  /** A DB slot and a blank each open in a dialog of their own; everything else in the duty editor. */
   const openDuty = (duty: NightDuty) => {
     if (isFixedDuty(duty)) setSlotDraft(draftFromSlot(duty));
+    else if (isBlank(duty)) setBlankDraft(duty);
     else setDraft({ duty, isNew: false });
   };
 
@@ -481,8 +505,16 @@ export default function NightChannelAllocation() {
                   <Stat label="Positions" value={`${activeChannels(state).length}`} />
                   <Stat
                     label="Cover"
-                    value={isPlanned(state) ? (uncovered ? `−${uncovered}m` : "Full") : "—"}
-                    tone={isPlanned(state) ? (uncovered ? "bad" : "good") : "neutral"}
+                    value={
+                      !isPlanned(state)
+                        ? "—"
+                        : uncovered
+                          ? `−${uncovered}m`
+                          : blank
+                            ? `${formatDuration(blank)} blank`
+                            : "Full"
+                    }
+                    tone={!isPlanned(state) ? "neutral" : uncovered ? "bad" : blank ? "warn" : "good"}
                   />
                   <Stat
                     label="Problems"
@@ -636,7 +668,8 @@ export default function NightChannelAllocation() {
                       Channel board
                     </CardTitle>
                     <p className="mt-1 text-[0.78rem] leading-snug text-corp-text-soft">
-                      Tap a duty to change it. Handovers are linked — relieving someone moves both duties together.
+                      Tap a duty to change it, move it to another position, swap it or leave it blank. Handovers are
+                      linked — relieving someone moves both duties together.
                     </p>
                   </div>
                   <div
@@ -711,11 +744,14 @@ export default function NightChannelAllocation() {
                     focusedDutyId={focusedDutyId}
                     onOpenDuty={openDuty}
                     onAddDuty={openNewDuty}
+                    eveningRestShort={eveningRestShort}
                   />
                   <p className="px-4 py-2.5 text-[0.72rem] text-corp-text-soft sm:px-5">
                     A duty runs 30 min to 2 h — TSO has no maximum — with at least 30 min break before the same
-                    person's next one, except straight onto or off TSO, which needs none. Striped strips marked DB
-                    are fixed slots; the generator plans around them.
+                    person's next one, except straight onto or off TSO, which needs none. Everyone should also get
+                    4 h off in a row starting between 16:30 and 23:30 (TSO doesn't count); an amber dot in the
+                    Person view marks who doesn't. Striped strips marked DB are fixed slots; the generator plans
+                    around them. Red outlines marked BLANK have nobody on them — tap one to fill it.
                   </p>
                 </CardContent>
               </Card>
@@ -723,6 +759,7 @@ export default function NightChannelAllocation() {
               <ChecksPanel
                 validation={validation}
                 hasDuties={isPlanned(state)}
+                blanks={state.duties.filter(isBlank).length}
                 onFocusDuty={focusDuty}
               />
             </div>
@@ -733,6 +770,7 @@ export default function NightChannelAllocation() {
       {state ? (
         <>
           <DutyDialog state={state} draft={draft} onClose={() => setDraft(null)} onApply={applyBoard} />
+          <BlankDialog state={state} blank={blankDraft} onClose={() => setBlankDraft(null)} onApply={applyBoard} />
           <DbSlotDialog state={state} draft={slotDraft} onClose={() => setSlotDraft(null)} onApply={applyBoard} />
           <AvailabilityDialog
             state={state}

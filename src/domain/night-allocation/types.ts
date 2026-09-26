@@ -71,9 +71,10 @@ export interface NightChannel {
 
 /**
  * What a duty is. An ordinary duty is placed by the generator or by hand; a DB
- * slot is training time fixed in advance — see `NightDuty.kind`.
+ * slot is training time fixed in advance; a blank is a stretch of a position
+ * left with nobody on it — see `NightDuty.kind`.
  */
-export type DutyKind = "duty" | "db";
+export type DutyKind = "duty" | "db" | "blank";
 
 /** One stretch of one position held by one person. */
 export interface NightDuty {
@@ -88,6 +89,11 @@ export interface NightDuty {
    * position then. The generator plans everyone else around it and never moves
    * it; every other rule applies to it exactly as to any duty. Absent, or
    * `"duty"`, on an ordinary duty.
+   *
+   * `"blank"` for a stretch of the position deliberately left with nobody on
+   * it: `personKey` is `""`. A blank is not a gap — it saves and shares as
+   * BLANK and is listed under suggestions until someone fills it — and no
+   * rule about people applies to it.
    */
   kind?: DutyKind;
   /** Who is being trained, shown beside a DB slot. Free text; null otherwise. */

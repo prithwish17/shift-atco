@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CHANNEL_CODES, NIGHT_SPAN_MIN, SLOT_MIN } from "../constants";
 import { generateAllocation } from "../solver";
-import { canTakeChannel, isFixedDuty, uncoveredMinutes, validateAllocation } from "../rules";
+import { canTakeChannel, isBlank, isFixedDuty, uncoveredMinutes, validateAllocation } from "../rules";
+import {
+  applyDutyChange,
+  deleteDuty,
+  fillBlank,
+  leaveBlank,
+  swapCandidates,
+  swapPeople,
+  type EditResult,
+} from "../editing";
 import { isAvailableAt } from "../availability";
 import { channel, dbSlot, night, refused, team } from "./fixtures";
 import type { HalfKey, NightAllocationState, NightPerson } from "../types";
@@ -177,6 +186,68 @@ describe("random nights", () => {
     expect(refusals).toBeGreaterThan(0);
     // Plans with a slot in them must actually occur, or the slots prove nothing.
     expect(slotsPlanned).toBeGreaterThan(0);
+  }, 120_000);
+
+  it("never lets a manual edit open a gap or break a hard rule", () => {
+    // Plans from the generator, then random edits of every kind on top: leave
+    // blank (whole or part), fill a blank, move to another position, swap,
+    // change the person, delete. Whatever is accepted must leave the board
+    // exactly as sound as it was; whatever is refused must say why.
+    let accepted = 0;
+    let refusals = 0;
+    for (let seed = 1; seed <= 60; seed++) {
+      const generated = generateAllocation(randomNight(seed), { budgetMs: 60, seed });
+      if (!generated.ok) continue;
+      let state = (generated as Extract<typeof generated, { ok: true }>).state;
+      const random = mulberry32(seed * 31 + 7);
+      const pick = <T>(list: T[]) => list[Math.floor(random() * list.length)];
+
+      for (let step = 0; step < 25; step++) {
+        const entries = state.duties.filter(entry => !isFixedDuty(entry));
+        if (!entries.length) break;
+        const target = pick(entries);
+        const someone = pick(state.people.filter(person => person.available))?.key ?? "";
+        const roll = random();
+        let edit: EditResult;
+        if (isBlank(target)) {
+          edit = roll < 0.7 ? fillBlank(state, target.id, someone) : deleteDuty(state, target.id);
+        } else if (roll < 0.2) {
+          edit = leaveBlank(state, target.id);
+        } else if (roll < 0.35) {
+          const from = target.startMin + Math.floor((random() * (target.endMin - target.startMin)) / SLOT_MIN) * SLOT_MIN;
+          const to = Math.min(target.endMin, from + SLOT_MIN * (1 + Math.floor(random() * 6)));
+          edit = leaveBlank(state, target.id, from, to);
+        } else if (roll < 0.55) {
+          const elsewhere = state.channels.filter(entry => entry.inUse && entry.code !== target.channelCode);
+          if (!elsewhere.length) continue;
+          edit = applyDutyChange(state, { ...target, channelCode: pick(elsewhere).code }, target.id);
+        } else if (roll < 0.75) {
+          const candidates = swapCandidates(state, target);
+          if (!candidates.length) continue;
+          edit = swapPeople(state, target.id, pick(candidates).id);
+        } else if (roll < 0.9) {
+          edit = applyDutyChange(state, { ...target, personKey: someone }, target.id);
+        } else {
+          edit = deleteDuty(state, target.id);
+        }
+
+        if (!edit.ok) {
+          refusals++;
+          expect(refused(edit).problems.length, `seed ${seed} step ${step} refused without a reason`).toBeGreaterThan(0);
+          continue;
+        }
+        accepted++;
+        const next = (edit as Extract<EditResult, { ok: true }>).state;
+        expect(uncoveredMinutes(next), `seed ${seed} step ${step} opened a gap`).toBe(0);
+        expect(
+          validateAllocation(next).errors.map(issue => issue.message),
+          `seed ${seed} step ${step} broke a hard rule`,
+        ).toEqual([]);
+        state = next;
+      }
+    }
+    expect(accepted).toBeGreaterThan(100);
+    expect(refusals).toBeGreaterThan(0);
   }, 120_000);
 
   it("stays inside its time budget on an impossible night", () => {

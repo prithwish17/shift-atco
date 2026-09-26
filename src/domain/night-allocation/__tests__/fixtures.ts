@@ -54,6 +54,11 @@ export function dbSlot(
   return { ...duty(channelCode, personKey, startMin, endMin), kind: "db", note };
 }
 
+/** A stretch of `channelCode` left blank: on the board, nobody on it. */
+export function blank(channelCode: string, startMin: number, endMin: number): NightDuty {
+  return { ...duty(channelCode, "", startMin, endMin), kind: "blank" };
+}
+
 export function night(overrides: Partial<NightAllocationState> = {}): NightAllocationState {
   return {
     nightDate: "2026-09-17",

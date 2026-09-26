@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildRosterGrid,
   buildRosterSummary,
   buildRosterText,
   channelTableRows,
@@ -7,7 +8,7 @@ import {
   formatNightDate,
   personTableRows,
 } from "../roster-text";
-import { channel, duty, night, team } from "./fixtures";
+import { blank, channel, dbSlot, duty, night, team } from "./fixtures";
 
 function sharedNight() {
   const people = team(4, { halves: { 1: "1st", 2: "2nd" } });
@@ -135,5 +136,81 @@ describe("DB slots in the shared roster", () => {
     const state = nightWithSlot();
     state.duties.find(entry => entry.kind === "db")!.note = null;
     expect(buildRosterText(state)).toContain("1730-1930 Person 4 (DB)");
+  });
+});
+
+describe("blanks in the shared roster", () => {
+  function withBlank() {
+    const state = sharedNight();
+    const index = state.duties.findIndex(entry => entry.channelCode === "TWR" && entry.startMin === 240);
+    state.duties[index] = blank("TWR", 240, 360);
+    return state;
+  }
+
+  it("names a blank stretch BLANK by position, and leaves it out by person", () => {
+    const text = buildRosterText(withBlank(), null, { teams: ["A"] });
+    expect(text).toContain("1730-1930 BLANK");
+    expect(text).not.toContain("BLANK  ");
+    const summary = buildRosterSummary(withBlank());
+    expect(summary.people.some(person => person.name === "Removed person")).toBe(false);
+    expect(summary.blanks).toEqual(["TWR 1730-1930"]);
+  });
+
+  it("puts BLANK in the table the PDF and the email read", () => {
+    const rows = channelTableRows(withBlank());
+    expect(rows).toContainEqual(["", "17:30–19:30", "BLANK", "2h"]);
+  });
+
+  it("still lists the blanks when the roster is too long for one message", () => {
+    const text = buildRosterText(withBlank(), null, { maxLength: 100 });
+    expect(text).toContain("Left BLANK: TWR 1730-1930");
+  });
+});
+
+describe("the image's grid", () => {
+  it("puts positions across and people down, each person's times in their position's column", () => {
+    const grid = buildRosterGrid(sharedNight());
+
+    // CLD isn't in use, so it isn't a column; TSO closes at 21:30.
+    expect(grid.columns).toEqual([{ code: "TWR" }, { code: "TSO", window: "13:30–21:30" }]);
+    expect(grid.rows.map(row => row.name)).toEqual(["Person 1", "Person 2", "Person 3", "Person 4"]);
+
+    const p4 = grid.rows.find(row => row.key === "p4")!;
+    expect(p4.cells).toEqual([
+      [{ range: "17:30-19:30" }, { range: "23:30-01:30" }],
+      [{ range: "13:30-15:30" }, { range: "17:30-19:30" }],
+    ]);
+    expect(p4.total).toBe("8h");
+    expect(grid.rows.find(row => row.key === "p1")?.half).toBe("1st Half");
+    expect(grid.blanks).toBeNull();
+  });
+
+  it("leaves out people with nothing on, and gives blanks a row of their own", () => {
+    const state = sharedNight();
+    const index = state.duties.findIndex(entry => entry.channelCode === "TWR" && entry.startMin === 480);
+    state.duties[index] = blank("TWR", 480, 600);
+    state.people.push({ ...state.people[0], key: "idle", name: "Nobody's Duty" });
+
+    const grid = buildRosterGrid(state);
+    expect(grid.rows.map(row => row.key)).not.toContain("idle");
+    // Person 2's only duty was the one left blank.
+    expect(grid.rows.map(row => row.key)).not.toContain("p2");
+    expect(grid.blanks).toEqual([[{ range: "21:30-23:30", blank: true }], []]);
+  });
+
+  it("marks a DB slot, and the SMC duty that holds CLD during the merge, on both headings too", () => {
+    const state = night({
+      people: team(3),
+      channels: [channel("SMC-S"), channel("CLD", { mergedInto: "SMC-S" })],
+      duties: [dbSlot("SMC-S", "p1", 120, 240, "Sulagna"), duty("SMC-S", "p2", 360, 480), duty("CLD", "p3", 0, 330)],
+    });
+    const grid = buildRosterGrid(state);
+
+    expect(grid.columns).toEqual([
+      { code: "SMC-S", mergedNote: "19:00–21:30 also CLD" },
+      { code: "CLD", mergedNote: "19:00–21:30 with SMC-S" },
+    ]);
+    expect(grid.rows.find(row => row.key === "p1")?.cells[0]).toEqual([{ range: "15:30-17:30", tag: "DB · Sulagna" }]);
+    expect(grid.rows.find(row => row.key === "p2")?.cells[0]).toEqual([{ range: "19:30-21:30", absorbs: "+CLD" }]);
   });
 });

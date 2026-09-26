@@ -137,11 +137,32 @@ export async function fetchShiftCandidates(nightDate: string): Promise<ShiftCand
   return body.candidates ?? [];
 }
 
-/** A working state seeded afresh from the roster. The saved version stands. */
-export async function resetNightAllocation(nightDate: string): Promise<NightAllocationResponse> {
-  const response = await fetch(url(nightDate, "reset"), { method: "POST", headers: await authHeaders() });
+/** What a reset answers: the fresh night, and whether it was saved in place of the old one. */
+export interface NightAllocationResetResponse extends NightAllocationResponse {
+  /** True when the fresh night replaced a saved one, so everyone sees it now. */
+  persisted?: boolean;
+  /** Why a fresh night that should have been saved wasn't — a rule it breaks. */
+  unsavedReason?: string;
+}
+
+/**
+ * The night seeded afresh from the roster. On a night that has been saved, the
+ * fresh night is saved in its place — as long as `version` is still the saved
+ * one; otherwise this throws `NightAllocationConflict` with the newer version,
+ * exactly as a save does.
+ */
+export async function resetNightAllocation(nightDate: string, version: number): Promise<NightAllocationResetResponse> {
+  const response = await fetch(url(nightDate, "reset"), {
+    method: "POST",
+    headers: { ...(await authHeaders()), "Content-Type": "application/json" },
+    body: JSON.stringify({ version }),
+  });
+  if (response.status === 409) {
+    const body = (await response.json()) as NightAllocationResponse & { error: string };
+    throw new NightAllocationConflict(body.error, body);
+  }
   if (!response.ok) throw new Error(await readError(response, "Could not reset this night."));
-  return (await response.json()) as NightAllocationResponse;
+  return (await response.json()) as NightAllocationResetResponse;
 }
 
 /** The saved roster as plain text, rendered server-side from the saved night. */
@@ -170,7 +191,7 @@ export async function emailNightAllocation(request: EmailRosterRequest): Promise
   });
   // The platform's own 413 arrives before the function runs, with no JSON body.
   if (response.status === 413) {
-    throw new Error(await readError(response, "The attachments are too large to email. Untick the board image."));
+    throw new Error(await readError(response, "The attachments are too large to email. Untick the roster image."));
   }
   if (!response.ok) throw new Error(await readError(response, "The roster could not be emailed."));
   return (await response.json()) as { sent: number; provider: string };

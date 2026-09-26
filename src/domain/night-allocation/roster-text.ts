@@ -6,14 +6,27 @@
  * text from the saved allocation, and the browser renders the same text for the
  * clipboard and the Web Share sheet.
  */
-import { FIRST_HALF, MERGE_WINDOW, NIGHT_SPAN_MIN, SECOND_HALF } from "./constants.js";
-import { activeChannels, activeMerge, dutyLength, minutesOnDuty, personName } from "./rules.js";
+import { BLANK_LABEL, FIRST_HALF, MERGE_WINDOW, NIGHT_SPAN_MIN, SECOND_HALF } from "./constants.js";
+import {
+  activeChannels,
+  activeMerge,
+  blanksInBoardOrder,
+  dutiesOf,
+  dutyLength,
+  isBlank,
+  minutesOnDuty,
+  personName,
+} from "./rules.js";
 import { dbTag } from "./db-slots.js";
-import { formatDuration, formatMinutesCompact, formatRange } from "./time.js";
+import { formatDuration, formatMinutes, formatMinutesCompact, formatRange } from "./time.js";
 import type { NightAllocationState, NightDuty } from "./types.js";
 
 /** " (DB · Sulagna)" after a name, or nothing for an ordinary duty. */
 const tagSuffix = (tag?: string | null) => (tag ? ` (${tag})` : "");
+
+/** Who a line of the roster names: the person on it, or BLANK when nobody is. */
+const holderName = (state: NightAllocationState, duty: NightDuty) =>
+  isBlank(duty) ? BLANK_LABEL : personName(state, duty.personKey);
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -39,8 +52,11 @@ export interface ChannelRosterLine {
   window?: string;
   /** Set when this position folds into another one for the merge window. */
   mergedNote?: string;
-  /** `tag` is "DB", or "DB · trainee", on a DB slot — the instructor holds it. */
-  duties: Array<{ range: string; name: string; tag?: string }>;
+  /**
+   * `tag` is "DB", or "DB · trainee", on a DB slot — the instructor holds it.
+   * `blank` marks a stretch left with nobody on it; its name is BLANK.
+   */
+  duties: Array<{ range: string; name: string; tag?: string; blank?: boolean }>;
 }
 
 export interface PersonRosterLine {
@@ -60,6 +76,8 @@ export interface RosterSummary {
   secondHalf: string[];
   channels: ChannelRosterLine[];
   people: PersonRosterLine[];
+  /** Every stretch left blank, "TWR 1500-1630", so a short summary can still name them. */
+  blanks: string[];
   preparedBy: string | null;
 }
 
@@ -97,18 +115,18 @@ export function buildRosterSummary(
       .sort(byStart)
       .map(duty => ({
         range: `${formatMinutesCompact(duty.startMin)}-${formatMinutesCompact(duty.endMin)}`,
-        name: personName(state, duty.personKey),
+        name: holderName(state, duty),
         ...(dbTag(duty) ? { tag: dbTag(duty) as string } : {}),
+        ...(isBlank(duty) ? { blank: true } : {}),
       })),
   }));
 
   const people: PersonRosterLine[] = state.people
-    .filter(person => state.duties.some(duty => duty.personKey === person.key))
+    .filter(person => dutiesOf(state, person.key).length > 0)
     .map(person => ({
       name: person.name,
       half: person.half === "1st" ? "1st Half" : person.half === "2nd" ? "2nd Half" : "",
-      duties: state.duties
-        .filter(duty => duty.personKey === person.key)
+      duties: dutiesOf(state, person.key)
         .sort(byStart)
         .map(duty => ({
           range: `${formatMinutesCompact(duty.startMin)}-${formatMinutesCompact(duty.endMin)}`,
@@ -127,6 +145,9 @@ export function buildRosterSummary(
     secondHalf: state.people.filter(person => person.half === "2nd").map(person => person.name),
     channels,
     people,
+    blanks: blanksInBoardOrder(state).map(
+      duty => `${duty.channelCode} ${formatMinutesCompact(duty.startMin)}-${formatMinutesCompact(duty.endMin)}`,
+    ),
     preparedBy: preparedBy ?? state.savedByName ?? null,
   };
 }
@@ -201,6 +222,8 @@ function renderShortText(summary: RosterSummary, options: RosterTextOptions): st
   lines.push(...halfLines(summary));
   lines.push("");
   lines.push(`${summary.channels.length} positions, ${summary.people.length} people on duty.`);
+  // Nobody on a position is the one thing a summary must not leave out.
+  if (summary.blanks.length) lines.push(`Left ${BLANK_LABEL}: ${summary.blanks.join(", ")}`);
   lines.push("Full roster in the attached file.");
   if (options.pageUrl) lines.push(options.pageUrl);
   lines.push("");
@@ -231,6 +254,108 @@ export function defaultEmailSubject(nightDate: string): string {
   return `Night channel allocation — ${formatNightDateShort(nightDate)}`;
 }
 
+/** One time in a cell of the roster grid: a duty, a DB slot or a blank. */
+export interface RosterGridEntry {
+  /** "13:30-15:00". */
+  range: string;
+  /** "DB", or "DB · trainee", on a DB slot — the instructor holds it. */
+  tag?: string;
+  /** "+CLD" on the SMC duty that holds CLD too while it is merged. */
+  absorbs?: string;
+  /** Set on a stretch left with nobody on it. */
+  blank?: boolean;
+}
+
+export interface RosterGridColumn {
+  code: string;
+  /** "13:30–21:30" when the position is open for only part of the night. */
+  window?: string;
+  /** The merge, said on both positions it joins. */
+  mergedNote?: string;
+}
+
+export interface RosterGridRow {
+  key: string;
+  name: string;
+  /** "1st Half", "2nd Half", or "". */
+  half: string;
+  /** Their time on duty, "6h 30m". */
+  total: string;
+  /** One list of times per column, in column order. */
+  cells: RosterGridEntry[][];
+}
+
+export interface RosterGrid {
+  columns: RosterGridColumn[];
+  rows: RosterGridRow[];
+  /** The blank stretches per column, or null when there are none. */
+  blanks: RosterGridEntry[][] | null;
+}
+
+/**
+ * The roster as a grid: positions across, people down, and in each cell the
+ * times that person holds that position — the way a duty sheet reads, one row
+ * per person. What the shared image draws. Blanks, which nobody holds, get a
+ * row of their own at the bottom.
+ */
+export function buildRosterGrid(state: NightAllocationState): RosterGrid {
+  const merge = activeMerge(state);
+  const mergeRange = formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1]);
+  const channels = activeChannels(state);
+  const range = (duty: NightDuty) => `${formatMinutes(duty.startMin)}-${formatMinutes(duty.endMin)}`;
+
+  const columns: RosterGridColumn[] = channels.map(channel => ({
+    code: channel.code,
+    ...(channel.openAt > 0 || channel.closeAt < NIGHT_SPAN_MIN
+      ? { window: formatRange(channel.openAt, channel.closeAt) }
+      : {}),
+    ...(merge && channel.code === merge.source.code
+      ? { mergedNote: `${mergeRange} with ${merge.targetCode}` }
+      : merge && channel.code === merge.targetCode
+        ? { mergedNote: `${mergeRange} also ${merge.source.code}` }
+        : {}),
+  }));
+
+  const entry = (duty: NightDuty): RosterGridEntry => {
+    const tag = dbTag(duty);
+    const absorbs =
+      merge &&
+      duty.channelCode === merge.targetCode &&
+      duty.startMin < MERGE_WINDOW[1] &&
+      duty.endMin > MERGE_WINDOW[0]
+        ? `+${merge.source.code}`
+        : null;
+    return { range: range(duty), ...(tag ? { tag } : {}), ...(absorbs ? { absorbs } : {}) };
+  };
+
+  const rows: RosterGridRow[] = state.people
+    .map(person => {
+      const mine = dutiesOf(state, person.key);
+      return {
+        key: person.key,
+        name: person.name,
+        half: person.half === "1st" ? "1st Half" : person.half === "2nd" ? "2nd Half" : "",
+        total: formatDuration(minutesOnDuty(state, person.key)),
+        cells: channels.map(channel =>
+          mine
+            .filter(duty => duty.channelCode === channel.code)
+            .sort(byStart)
+            .map(entry),
+        ),
+      };
+    })
+    .filter(row => row.cells.some(cell => cell.length > 0));
+
+  const blankCells = channels.map(channel =>
+    state.duties
+      .filter(duty => isBlank(duty) && duty.channelCode === channel.code)
+      .sort(byStart)
+      .map(duty => ({ range: range(duty), blank: true })),
+  );
+
+  return { columns, rows, blanks: blankCells.some(cell => cell.length > 0) ? blankCells : null };
+}
+
 /** Rows for the PDF and the HTML email body: one line per duty, in board order. */
 export function channelTableRows(state: NightAllocationState): string[][] {
   const merge = activeMerge(state);
@@ -251,7 +376,7 @@ export function channelTableRows(state: NightAllocationState): string[][] {
       rows.push([
         index === 0 ? channel.code : "",
         formatRange(duty.startMin, duty.endMin),
-        `${personName(state, duty.personKey)}${tagSuffix(dbTag(duty))}`,
+        `${holderName(state, duty)}${tagSuffix(dbTag(duty))}`,
         formatDuration(dutyLength(duty)),
       ]);
     });

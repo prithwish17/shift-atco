@@ -13,6 +13,9 @@ import {
   BREAK_EXEMPT_CHANNELS,
   CROSS_HALF_CHANNEL,
   DEFAULT_CHANNEL_CODES,
+  EVENING_REST_EXEMPT_CHANNELS,
+  EVENING_REST_MIN,
+  EVENING_REST_WINDOW,
   FIRST_HALF,
   MAX_DUTY_MIN,
   MERGE_SOURCE_CHANNEL,
@@ -231,10 +234,114 @@ export function isFixedDuty(duty: Pick<NightDuty, "kind">): boolean {
 /**
  * Has anything been planned yet? DB slots are entered before a plan is made,
  * so a board holding only those is still an unplanned night, not one with
- * every other stretch uncovered.
+ * every other stretch uncovered. A blank counts: it is part of a plan.
  */
 export function isPlanned(state: NightAllocationState): boolean {
   return state.duties.some(duty => !isFixedDuty(duty));
+}
+
+// ── Blanks ──────────────────────────────────────────────────────────────────
+
+/**
+ * A stretch of a position left with nobody on it, on purpose. It is not a gap:
+ * it covers its stretch for the continuity rule, saves and shares as BLANK,
+ * and is listed under suggestions until someone fills it. No rule about
+ * people applies to it, because nobody holds it.
+ */
+export function isBlank(duty: Pick<NightDuty, "kind">): boolean {
+  return duty.kind === "blank";
+}
+
+/** One person's duties — never a blank, whatever key a blank carries. */
+export function dutiesOf(state: NightAllocationState, personKey: string): NightDuty[] {
+  return state.duties.filter(duty => duty.personKey === personKey && !isBlank(duty));
+}
+
+/** The night's blanks, in board order and then by time. */
+export function blanksInBoardOrder(state: NightAllocationState): NightDuty[] {
+  const order = inBoardOrder(state.channels).map(channel => channel.code);
+  const rank = (code: string) => (order.includes(code) ? order.indexOf(code) : order.length);
+  return state.duties
+    .filter(isBlank)
+    .sort((a, b) => rank(a.channelCode) - rank(b.channelCode) || a.startMin - b.startMin);
+}
+
+/** Minutes of open positions left blank — shown beside the cover figure. */
+export function blankMinutes(state: NightAllocationState): number {
+  const open = new Set(openChannels(state).map(channel => channel.code));
+  return state.duties
+    .filter(duty => isBlank(duty) && open.has(duty.channelCode))
+    .reduce((sum, duty) => sum + Math.max(0, dutyLength(duty)), 0);
+}
+
+// ── The evening rest ────────────────────────────────────────────────────────
+
+/** True when a duty on this position neither counts against nor breaks the evening rest. */
+export function isEveningRestExempt(channelCode: string): boolean {
+  return EVENING_REST_EXEMPT_CHANNELS.includes(channelCode);
+}
+
+/**
+ * The longest stretch `busy` leaves free that counts as the evening rest: it
+ * starts between 16:30 and 23:30 — a break that began earlier counts from
+ * 16:30 — and runs on at most to the end of the night.
+ */
+export function longestEveningBreak(busy: Array<[number, number]>): { from: number; to: number } {
+  const [windowStart, windowEnd] = EVENING_REST_WINDOW;
+  let best = { from: windowStart, to: windowStart };
+  let cursor = windowStart;
+  const consider = (to: number) => {
+    if (cursor <= windowEnd && to - cursor > best.to - best.from) best = { from: cursor, to };
+  };
+  for (const [start, end] of mergeIntervals(busy.filter(([start, end]) => start < end))) {
+    if (end <= cursor) continue;
+    if (start >= NIGHT_SPAN_MIN) break;
+    if (start > cursor) consider(start);
+    cursor = Math.max(cursor, end);
+  }
+  if (cursor < NIGHT_SPAN_MIN) consider(NIGHT_SPAN_MIN);
+  return best;
+}
+
+export interface EveningRestShortfall {
+  person: NightPerson;
+  /** The longest break that counts, which is under `EVENING_REST_MIN`. */
+  longest: { from: number; to: number };
+  /** Their duties from 16:30 on that the rest is measured around. */
+  dutyIds: string[];
+}
+
+/**
+ * Everyone without their evening rest: 4 hours in a row off every position
+ * but TSO, starting between 16:30 and 23:30. A preference — see
+ * `EVENING_REST_WINDOW`. Someone holding nothing but TSO, or nothing at all,
+ * has nothing to rest from and is left out.
+ */
+export function eveningRestShortfalls(state: NightAllocationState): EveningRestShortfall[] {
+  const out: EveningRestShortfall[] = [];
+  for (const person of state.people) {
+    const work = dutiesOf(state, person.key).filter(duty => !isEveningRestExempt(duty.channelCode));
+    if (!work.length) continue;
+    const longest = longestEveningBreak(work.map(duty => [duty.startMin, duty.endMin] as [number, number]));
+    if (longest.to - longest.from >= EVENING_REST_MIN) continue;
+    out.push({
+      person,
+      longest,
+      dutyIds: work
+        .filter(duty => duty.endMin > EVENING_REST_WINDOW[0])
+        .sort((a, b) => a.startMin - b.startMin)
+        .map(duty => duty.id),
+    });
+  }
+  return out;
+}
+
+/** "longest 2h 30m, 19:00–21:30", or "no break at all", for a shortfall. */
+export function describeEveningBreak(longest: { from: number; to: number }): string {
+  const length = longest.to - longest.from;
+  return length > 0
+    ? `longest ${formatDuration(length)}, ${formatRange(longest.from, longest.to)}`
+    : "no break at all";
 }
 
 /** The DB slot that holds a position's opening minute, if one does. */
@@ -334,7 +441,8 @@ export function mergeIntervals(spans: Array<[number, number]>): Array<[number, n
  * Stretches of an open channel with nobody on it.
  *
  * `mergedAway` is the window the channel is folded into another one for — it is
- * covered by that position's holder, so it is not a gap.
+ * covered by that position's holder, so it is not a gap. A blank is not a gap
+ * either: it was left empty on purpose, and says so.
  */
 export function gapsForChannel(
   duties: NightDuty[],
@@ -378,9 +486,7 @@ export function uncoveredMinutes(state: NightAllocationState): number {
 
 /** Minutes a person is on duty across the night. */
 export function minutesOnDuty(state: NightAllocationState, personKey: string): number {
-  return state.duties
-    .filter(duty => duty.personKey === personKey)
-    .reduce((sum, duty) => sum + Math.max(0, dutyLength(duty)), 0);
+  return dutiesOf(state, personKey).reduce((sum, duty) => sum + Math.max(0, dutyLength(duty)), 0);
 }
 
 // ── Staffing feasibility ────────────────────────────────────────────────────
@@ -779,7 +885,45 @@ function validateHalves(state: NightAllocationState, errors: RuleIssue[]) {
   }
 }
 
+/**
+ * A blank holds nobody, so only its place on the board is checked: inside the
+ * night, on a position in use and open then, and not where the position is
+ * merged away.
+ */
+function validateBlank(state: NightAllocationState, blank: NightDuty, errors: RuleIssue[]) {
+  const range = formatRange(blank.startMin, blank.endMin);
+  if (!(blank.startMin >= 0 && blank.endMin <= NIGHT_SPAN_MIN && blank.endMin > blank.startMin)) {
+    errors.push({ message: `A blank on ${blank.channelCode} must end after it starts.`, dutyIds: [blank.id] });
+    return;
+  }
+  const channel = findChannel(state, blank.channelCode);
+  if (!channel || !channel.inUse) {
+    errors.push({
+      message: `${blank.channelCode} isn't in use tonight, but has a blank ${range}.`,
+      dutyIds: [blank.id],
+    });
+  } else if (blank.startMin < channel.openAt || blank.endMin > channel.closeAt) {
+    errors.push({
+      message: `${blank.channelCode} is open ${formatRange(channel.openAt, channel.closeAt)}, but a blank on it runs ${range}.`,
+      dutyIds: [blank.id],
+    });
+  }
+  const merged = mergedAwayWindow(state, blank.channelCode);
+  if (merged && overlaps(blank, merged[0], merged[1])) {
+    errors.push({
+      message:
+        `${blank.channelCode} is merged into ${channel?.mergedInto} ${formatRange(merged[0], merged[1])}, ` +
+        `so it can't have a blank of its own then.`,
+      dutyIds: [blank.id],
+    });
+  }
+}
+
 function validateDuty(state: NightAllocationState, duty: NightDuty, errors: RuleIssue[]) {
+  if (isBlank(duty)) {
+    validateBlank(state, duty, errors);
+    return;
+  }
   const name = personName(state, duty.personKey);
   const length = dutyLength(duty);
   const range = formatRange(duty.startMin, duty.endMin);
@@ -849,6 +993,7 @@ function validateDuty(state: NightAllocationState, duty: NightDuty, errors: Rule
 function validatePersonTimeline(state: NightAllocationState, errors: RuleIssue[]) {
   const byPerson = new Map<string, NightDuty[]>();
   for (const duty of state.duties) {
+    if (isBlank(duty)) continue;
     const list = byPerson.get(duty.personKey) ?? [];
     list.push(duty);
     byPerson.set(duty.personKey, list);
@@ -893,11 +1038,18 @@ function validateChannelTimeline(state: NightAllocationState, errors: RuleIssue[
         const first = sorted[i];
         const second = sorted[j];
         if (!overlaps(first, second.startMin, second.endMin)) continue;
+        const from = formatMinutes(Math.max(first.startMin, second.startMin));
+        const to = formatMinutes(Math.min(first.endMin, second.endMin));
+        const blanks = [first, second].filter(isBlank);
+        const held = [first, second].find(entry => !isBlank(entry));
         errors.push({
           message:
-            `${code} has two people from ${formatMinutes(Math.max(first.startMin, second.startMin))} to ` +
-            `${formatMinutes(Math.min(first.endMin, second.endMin))}: ${personName(state, first.personKey)} and ` +
-            `${personName(state, second.personKey)}.`,
+            blanks.length === 2
+              ? `${code} has two blanks at once from ${from} to ${to}.`
+              : blanks.length === 1 && held
+                ? `${code} is both blank and held by ${personName(state, held.personKey)} from ${from} to ${to}.`
+                : `${code} has two people from ${from} to ${to}: ${personName(state, first.personKey)} and ` +
+                  `${personName(state, second.personKey)}.`,
           dutyIds: [first.id, second.id],
         });
       }
@@ -921,8 +1073,7 @@ export function halfCrossovers(state: NightAllocationState): Array<{ person: Nig
   const out: Array<{ person: NightPerson; duty: NightDuty }> = [];
   for (const person of state.people) {
     if (person.half !== "1st") continue;
-    for (const duty of state.duties) {
-      if (duty.personKey !== person.key) continue;
+    for (const duty of dutiesOf(state, person.key)) {
       if (!overlaps(duty, SECOND_HALF[0], SECOND_HALF[1])) continue;
       if (isAllowedHalfCrossover(person, duty)) out.push({ person, duty });
     }
@@ -937,7 +1088,7 @@ function validateHalfDuties(state: NightAllocationState, errors: RuleIssue[]) {
     const otherLabel = person.half === "1st" ? "2nd Half" : "1st Half";
     const own = halfWindow(person.half);
     const other = halfWindow(person.half === "1st" ? "2nd" : "1st");
-    const mine = state.duties.filter(duty => duty.personKey === person.key);
+    const mine = dutiesOf(state, person.key);
 
     for (const duty of mine) {
       if (!overlaps(duty, other[0], other[1])) continue;
@@ -1003,7 +1154,9 @@ function collectWarnings(state: NightAllocationState): RuleIssue[] {
     });
   }
 
+  warnings.unshift(...blankWarnings(state));
   warnings.push(...shortDutyWarnings(state));
+  warnings.push(...eveningRestWarnings(state));
   warnings.push(...secondHalfChannelPreferences(state));
   warnings.push(...crossoverWarnings(state));
   warnings.push(...mergeWarnings(state));
@@ -1056,7 +1209,7 @@ function shortDutyWarnings(state: NightAllocationState): RuleIssue[] {
   const short = state.duties
     .filter(duty => {
       const length = dutyLength(duty);
-      if (length <= 0 || length >= PREFERRED_MIN_DUTY_MIN || isFixedDuty(duty)) return false;
+      if (length <= 0 || length >= PREFERRED_MIN_DUTY_MIN || isFixedDuty(duty) || isBlank(duty)) return false;
       const channel = findChannel(state, duty.channelCode);
       return !channel || channel.closeAt - channel.openAt >= PREFERRED_MIN_DUTY_MIN;
     })
@@ -1071,6 +1224,43 @@ function shortDutyWarnings(state: NightAllocationState): RuleIssue[] {
           .join(", ") +
         ".",
       dutyIds: short.map(duty => duty.id),
+    },
+  ];
+}
+
+/**
+ * Every blank, one line each and first in the list. A blank is allowed — it
+ * was left on purpose, and it saves and shares as BLANK — but a position with
+ * nobody on it is the last thing a reader should have to find for themselves.
+ */
+function blankWarnings(state: NightAllocationState): RuleIssue[] {
+  return blanksInBoardOrder(state).map(blank => ({
+    message:
+      `${blank.channelCode} ${formatRange(blank.startMin, blank.endMin)} is left blank — nobody is on it. ` +
+      `Tap it on the board to put someone on.`,
+    dutyIds: [blank.id],
+  }));
+}
+
+/**
+ * Everyone who doesn't get 4 hours in a row off every position — TSO aside —
+ * starting between 16:30 and 23:30. One line, like the short duties: the
+ * generator keeps to it wherever staffing allows, so what is left is usually
+ * the night's doing rather than a choice.
+ */
+function eveningRestWarnings(state: NightAllocationState): RuleIssue[] {
+  const shortfalls = eveningRestShortfalls(state);
+  if (!shortfalls.length) return [];
+  return [
+    {
+      message:
+        `Preferred: ${formatDuration(EVENING_REST_MIN)} in a row off every position, starting between ` +
+        `${formatMinutes(EVENING_REST_WINDOW[0])} and ${formatMinutes(EVENING_REST_WINDOW[1])} ` +
+        `(TSO doesn't count). Not met for ` +
+        shortfalls.map(({ person, longest }) => `${person.name} (${describeEveningBreak(longest)})`).join(", ") +
+        ".",
+      dutyIds: shortfalls.flatMap(shortfall => shortfall.dutyIds),
+      personKeys: shortfalls.map(shortfall => shortfall.person.key),
     },
   ];
 }

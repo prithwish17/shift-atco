@@ -93,6 +93,40 @@ export const UNCAPPED_DUTY_CHANNELS: readonly string[] = [TSO_CHANNEL];
 export const BREAK_EXEMPT_CHANNELS: readonly string[] = [TSO_CHANNEL];
 
 
+/**
+ * The evening rest — a preference, not a rule.
+ *
+ * Everyone should have one stretch of at least `EVENING_REST_MIN` off every
+ * position, starting between 16:30 and 23:30 (`EVENING_REST_WINDOW`). It may
+ * run on past 23:30, up to the end of the night: a 2nd Half person off
+ * 17:30–21:30 has it, and so does a 1st Half person off from 21:30. A rest
+ * held wholly inside 16:30–23:30 would always include 19:30–20:30, so nobody
+ * on a position then could ever have one. A break that began before 16:30
+ * counts from 16:30.
+ */
+export const EVENING_REST_WINDOW: readonly [number, number] = [180, 600];
+
+/** The evening rest is at least this long: 4 hours. */
+export const EVENING_REST_MIN = 240;
+
+/**
+ * Positions the evening rest ignores. A duty on one neither counts as work
+ * nor interrupts the rest — TSO, as it needs no break either side either.
+ */
+export const EVENING_REST_EXEMPT_CHANNELS: readonly string[] = [TSO_CHANNEL];
+
+/**
+ * A blank: a stretch of a position left with nobody on it, on purpose.
+ *
+ * It is kept on the board as an entry of its own, so it reads, saves and
+ * shares as a decision rather than as a hole in the plan. It holds nobody, so
+ * its person key is always this.
+ */
+export const BLANK_PERSON_KEY = "";
+
+/** How a blank reads on the board and in every export. */
+export const BLANK_LABEL = "BLANK";
+
 /** Channel preferred by 2nd Half people, per the office's working preference. */
 export const SECOND_HALF_PREFERRED_CHANNEL = "CLD";
 

@@ -197,7 +197,7 @@ export function ShareSheet({ open, onOpenChange, state, teams, errorCount, dirty
         const megabytes = (size: number) => (size / (1024 * 1024)).toFixed(1);
         throw new Error(
           `The attachments come to ${megabytes(bytes)} MB, over the ${megabytes(MAX_EMAIL_ATTACHMENT_BYTES)} MB ` +
-            "an email can carry. Untick the board image, or download it and share it separately.",
+            "an email can carry. Untick the roster image, or download it and share it separately.",
         );
       }
 
@@ -291,7 +291,7 @@ export function ShareSheet({ open, onOpenChange, state, teams, errorCount, dirty
                     </label>
                     <label className="flex items-center gap-2 text-sm">
                       <Checkbox checked={attachImage} onCheckedChange={checked => setAttachImage(checked === true)} />
-                      Board image
+                      Roster image
                     </label>
                   </div>
 

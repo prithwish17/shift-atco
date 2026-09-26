@@ -5,7 +5,7 @@
  *   PUT  /api/night-allocation/:date            save it (optimistic lock)
  *   POST /api/night-allocation/:date/generate   run the solver, persist nothing
  *   POST /api/night-allocation/:date/validate   errors and warnings for a candidate
- *   POST /api/night-allocation/:date/reset      a freshly seeded working state
+ *   POST /api/night-allocation/:date/reset      a freshly seeded night, saved in place of a saved one
  *   GET  /api/night-allocation/:date/shift      everyone the roster puts on nights
  *   GET  /api/night-allocation/:date/export.txt the saved roster as plain text
  *   POST /api/night-allocation/:date/email      send the saved roster
@@ -135,7 +135,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === "POST" && action === "generate") return await handleGenerate(supabase, req, res, nightDate, user);
     if (req.method === "POST" && action === "validate") return handleValidate(req, res, nightDate);
-    if (req.method === "POST" && action === "reset") return await handleReset(supabase, res, nightDate, user);
+    if (req.method === "POST" && action === "reset") return await handleReset(supabase, req, res, nightDate, user);
     if (req.method === "GET" && action === "shift") return await handleShift(supabase, res, nightDate);
     if (req.method === "GET" && action === "export.txt") return await handleExportText(supabase, req, res, nightDate, user);
     if (req.method === "POST" && action === "email") return await handleEmail(supabase, req, res, nightDate, user);
@@ -231,32 +231,89 @@ function handleValidate(req: VercelRequest, res: VercelResponse, nightDate: stri
   return res.status(200).json(validate(incoming));
 }
 
+/**
+ * The version a reset request says the page was showing, or null when it
+ * carries none — a page from before resets were saved, which still gets the
+ * old behaviour: a fresh working copy and nothing written.
+ */
+function requestedVersion(body: unknown): number | null {
+  const value = body && typeof body === "object" ? (body as { version?: unknown }).version : undefined;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/**
+ * Reset: the night seeded afresh from the shift roster.
+ *
+ * On a night that has been saved, the fresh night is saved in its place, so a
+ * reset is what everyone sees and not just the person who pressed it — with
+ * the same version check as a save: a reset of a night somebody else has saved
+ * since is a 409 with their version, never a silent overwrite. A night nobody
+ * has saved is only seeded: that is already what everyone sees, and opening a
+ * date must never create a row. A fresh night the rules refuse — a roster with
+ * nobody on a tower position leaves no channel in use — comes back as a
+ * working copy with the reason, rather than being written.
+ */
 async function handleReset(
   supabase: ReturnType<typeof serviceClient>,
+  req: VercelRequest,
   res: VercelResponse,
   nightDate: string,
   user: { id: string; email?: string },
 ) {
-  // Reset clears the working state only. The last saved version stands until
-  // the user saves again, which is what the two-step confirm promises.
   const roster = await nightRosterRows(supabase, nightDate);
   const seeded = await seedState(supabase, nightDate, roster);
   const saved = await loadState(supabase, nightDate, roster);
   const name = await actorName(supabase, user.id, user.email);
   await recordAudit(supabase, nightDate, { id: user.id, name }, "reset", {});
 
-  const state = {
+  const fresh = {
     ...seeded.state,
     version: saved.state.version,
     savedAt: saved.state.savedAt,
     savedByName: saved.state.savedByName,
   };
+  const workingCopy = (unsavedReason?: string) =>
+    res.status(200).json({
+      state: fresh,
+      exists: saved.exists,
+      rosterStatus: seeded.rosterStatus,
+      teams: saved.teams,
+      validation: validate(fresh),
+      persisted: false,
+      ...(unsavedReason ? { unsavedReason } : {}),
+    });
+
+  const expected = requestedVersion(req.body);
+  if (!saved.exists || expected === null) return workingCopy();
+
+  const conflict = async () => {
+    const current = await loadState(supabase, nightDate, roster);
+    return res.status(409).json({
+      error: "Someone else saved this night while you were looking at it. Load their version, then reset again.",
+      state: current.state,
+      exists: current.exists,
+      rosterStatus: current.rosterStatus,
+      teams: current.teams,
+      validation: validate(current.state),
+    });
+  };
+  if (expected !== saved.state.version) return await conflict();
+
+  const validation = validate(fresh);
+  if (validation.errors.length) return workingCopy(validation.errors[0].message);
+
+  const outcome = await saveState(supabase, fresh, { id: user.id, name });
+  if (outcome.conflict) return await conflict();
+  if (!outcome.ok) return res.status(500).json({ error: "The reset night could not be saved." });
+
+  const after = await loadState(supabase, nightDate, roster);
   return res.status(200).json({
-    state,
-    exists: saved.exists,
+    state: after.state,
+    exists: true,
     rosterStatus: seeded.rosterStatus,
-    teams: saved.teams,
-    validation: validate(state),
+    teams: after.teams,
+    validation: validate(after.state),
+    persisted: true,
   });
 }
 
