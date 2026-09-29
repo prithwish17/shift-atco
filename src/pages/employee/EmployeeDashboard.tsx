@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Calendar, CalendarDays, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye, Phone, MapPin, Hash, FileCheck, Globe, Star, ChevronLeft, ChevronRight, ArrowLeftRight, FlaskConical, X, Palmtree, Moon } from "lucide-react";
+import { Calendar, CalendarDays, FileText, Clock, Shield, Users, AlertTriangle, CheckCircle, XCircle, Award, Mail, Waves, Eye, Phone, MapPin, Hash, FileCheck, Globe, Star, ChevronLeft, ChevronRight, ArrowLeftRight, FlaskConical, X, Moon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
@@ -13,7 +13,6 @@ import { useMySchedule, DUTY_DESCRIPTIONS } from "@/hooks/useEmployeeSchedules";
 import { isFinalLeaveApproved, useMyLeaveRequests } from "@/hooks/useLeaveRequests";
 import { useDutyExchanges } from "@/hooks/useDutyExchanges";
 import { buildEmployeeLicenseHealth, type LicenseWithExtras } from "@/hooks/useLicenseDashboard";
-import { useHolidaysByYear, useNextHoliday } from "@/hooks/useHolidayDashboard";
 import { extractTraineeMilestone, getScheduledTraineeMilestone } from "@/lib/traineeMilestones";
 import { OjtDashboardSummary } from "@/components/ojt/OjtDashboardSummary";
 import { format, addDays, isSameDay, parse, parseISO, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, isAfter, isBefore } from "date-fns";
@@ -317,11 +316,6 @@ export default function EmployeeDashboard() {
 
   const yearBalances = balances?.filter(b => b.year === currentYear) || [];
   const compOff = yearBalances.find(b => b.leave_type === "comp_off");
-
-  // Holidays quick action: the same year query the Holidays page uses, so the
-  // two share one cache entry instead of each paying for a fetch.
-  const { data: yearHolidays = [] } = useHolidaysByYear(currentYear);
-  const nextHoliday = useNextHoliday(yearHolidays);
 
   // 2-day roster + schedule lookup
   const now = new Date();
@@ -717,8 +711,8 @@ export default function EmployeeDashboard() {
             </div>
           </div>
 
-          {/* Five tiles: two per row on mobile, a single row on desktop. */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
+          {/* Four tiles: two per row on mobile, a single row on desktop. */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
             <Link
               to="/employee/leave-dashboard"
               className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
@@ -776,30 +770,6 @@ export default function EmployeeDashboard() {
                 </div>
               </div>
               <div className="text-xl md:text-2xl font-bold text-gray-900 dark:text-gray-100 mb-1">{compOff ? compOff.balance : ""}</div>
-            </div>
-            </Link>
-
-            <Link
-              to="/employee/holidays"
-              className="block rounded-xl transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-            >
-            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 md:p-4 h-full">
-              <div className="flex items-center justify-between mb-2 md:mb-3">
-                <div>
-                  <span className="text-sm md:text-[15px] font-semibold text-gray-900 dark:text-gray-100">Holidays</span>
-                  <div className="mt-0.5 text-[10px] md:text-xs text-gray-500 dark:text-gray-400">Holiday calendar and restricted holidays</div>
-                </div>
-                <div className="size-6 md:size-8 bg-emerald-100 dark:bg-emerald-900/40 rounded-lg flex items-center justify-center">
-                  <Palmtree className="size-3 md:size-4 text-emerald-600 dark:text-emerald-400" />
-                </div>
-              </div>
-              {nextHoliday && (
-                <div className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400">
-                  {nextHoliday.daysUntil === 0
-                    ? `${nextHoliday.name} — today`
-                    : `${nextHoliday.name} in ${nextHoliday.daysUntil} day${nextHoliday.daysUntil > 1 ? "s" : ""}`}
-                </div>
-              )}
             </div>
             </Link>
 
