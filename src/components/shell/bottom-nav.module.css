@@ -37,13 +37,15 @@
   --dot-size: 46px;
 
   /* Theme tokens - Light Mode */
-  --nav-bg: #ffffff;
-  --nav-surface: #ffffff;
+  /* A faint green-grey rather than white, so the bar stands apart from the
+     white page and cards behind it. Bar and bubble share it, as before. */
+  --nav-bg: #edf3ef;
+  --nav-surface: #edf3ef;
   --nav-border: transparent;
   --nav-shadow: rgba(18, 30, 24, 0.12);
   --nav-active: #1b6644;
   --nav-active-glow: rgba(27, 102, 68, 0.28);
-  --nav-inactive: #64748b;
+  --nav-inactive: #475569;
   --nav-inactive-hover: #1e293b;
 
   position: relative;
