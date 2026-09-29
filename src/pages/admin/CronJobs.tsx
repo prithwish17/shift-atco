@@ -106,6 +106,27 @@ function istTimeString(cron: string): string {
     return `${String(ist.hour).padStart(2, "0")}:${String(ist.minute).padStart(2, "0")}`;
 }
 
+/** Human label for any cron expression: "05:30 IST", "Sun 09:10 IST", "every 2 min". */
+function scheduleLabel(cron: string): string {
+    const [min = "", hour = "", dom = "", , dow = ""] = cron.trim().split(/\s+/);
+    const step = (field: string) => field.match(/^\*\/(\d+)$/)?.[1];
+    if (hour === "*") {
+        if (min === "*") return "every min";
+        const n = step(min);
+        return n ? `every ${n} min` : "hourly";
+    }
+    const everyHours = step(hour);
+    if (everyHours) return `every ${everyHours} h`;
+    const time = istTimeString(cron);
+    if (time === "—") return cron;
+    // IST can roll the day forward, so name the day only when it is still correct.
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const crossesMidnight = (cronToIST(cron)?.hour ?? 0) < parseInt(hour, 10);
+    if (dow !== "*" && /^\d$/.test(dow) && !crossesMidnight) return `${days[Number(dow) % 7]} ${time} IST`;
+    if (dom !== "*" && !crossesMidnight) return `day ${dom}, ${time} IST`;
+    return `${time} IST`;
+}
+
 function parseTimeInput(val: string): { hour: number; minute: number } | null {
     const [h, m] = val.split(":").map(Number);
     if (isNaN(h) || isNaN(m)) return null;
@@ -880,7 +901,7 @@ export default function CronJobs() {
                                                             </Badge>
                                                         </td>
                                                         <td className="py-1.5 pr-3 text-muted-foreground whitespace-nowrap">
-                                                            {row.cron_schedule ? `${istTimeString(row.cron_schedule)} IST` : "—"}
+                                                            {row.cron_schedule ? scheduleLabel(row.cron_schedule) : "—"}
                                                         </td>
                                                         <td className="py-1.5 pr-3 text-muted-foreground whitespace-nowrap">
                                                             {row.last_run_at
