@@ -1,6 +1,7 @@
 /**
- * The shareable artefacts: the roster as a PDF and as an image, both the same
- * grid — positions across, people down.
+ * The shareable artefacts: the roster as a PDF — a grid, positions across and
+ * people down — and as a portrait image, channel by channel, each position's
+ * duties running down the night from 13:30.
  *
  * Both are produced in the browser with jsPDF and a canvas — the same route
  * every other printed output in Atcora takes (the duty report, the attendance
@@ -12,13 +13,22 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
   BLANK_LABEL,
+  FIRST_HALF,
+  MIDNIGHT_MIN,
+  NIGHT_SPAN_MIN,
+  NIGHT_START_MIN,
+  SECOND_HALF,
+  SLOT_MIN,
+  buildChannelTimeline,
   buildRosterGrid,
+  formatMinutes,
   formatNightDate,
   rosterSubtitle,
   type NightAllocationState,
   type RosterGridEntry,
+  type TimelineEntry,
 } from "@/domain/night-allocation";
-import { HALF_COLORS, channelSwatch } from "./palette";
+import { HALF_COLORS, channelSwatch, personSwatch } from "./palette";
 
 const fileStem = (state: NightAllocationState) => `night-allocation-${state.nightDate}`;
 
@@ -41,7 +51,8 @@ export function buildRosterPdf(
   const margin = 14;
   const bottomMargin = 16;
   const nameWidth = 50;
-  const totalWidth = 18;
+  // Wide enough for duty hours with TSO beside them: "4h 30m + TSO 2h".
+  const totalWidth = 30;
 
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -304,12 +315,17 @@ function fitPdfText(doc: jsPDF, text: string, maxWidth: number) {
 }
 
 /**
- * The roster as a PNG, for pasting into a chat.
+ * The roster as a PNG — what WhatsApp sends and Download image saves.
  *
- * A grid, the way a duty sheet reads: positions across the top, people down
- * the side, and in each cell the times that person holds that position — so
- * everyone finds their own row and reads their night along it. Blanks, which
- * nobody holds, get a red row of their own at the bottom.
+ * Portrait, and channel by channel: the positions across the top, the night
+ * down the side from 13:30 to 01:30, and in each position's column its duties
+ * from 13:30 downwards, each drawn from its own start to its own end with who
+ * holds it and when. The handovers read straight down the column, the way a
+ * position is actually worked through the night, and the shape fits a phone
+ * held upright. Everyone keeps their board colour in every column, so anyone
+ * can follow their own night across. A DB slot is outlined dashed with its
+ * trainee, a blank is red, and a position shut for part of the night — or
+ * folded into SMC for the merge — says so where it is.
  *
  * Drawn from the same numbers the board renders from rather than screenshotting
  * the DOM: the image then looks the same whatever the sender's screen, theme or
@@ -325,26 +341,27 @@ export async function buildBoardImage(
   teams?: string[] | null,
 ): Promise<{ blob: Blob; filename: string }> {
   const scale = 2;
+  const width = 720;
   const gutter = 16;
-  const nameWidth = 176;
-  const columnWidth = 128;
-  const totalWidth = 76;
-  const headerRowHeight = 50;
-  const pillHeight = 20;
-  const taggedPillHeight = 33;
-  const pillGap = 4;
-  const cellPadding = 8;
-  const minRowHeight = 40;
+  const axisWidth = 62;
+  /** The strip down the time column that names the halves. */
+  const halfBarWidth = 14;
+  const headRowHeight = 50;
+  const footerHeight = 40;
+  /** One quarter-hour of the night, top to bottom. */
+  const slotHeight = 24;
+  const pxPerMin = slotHeight / SLOT_MIN;
 
-  const grid = buildRosterGrid(state);
+  const columns = buildChannelTimeline(state);
   const firstHalf = state.people.filter(person => person.half === "1st").map(person => person.name);
   const secondHalf = state.people.filter(person => person.half === "2nd").map(person => person.name);
 
-  const tableWidth = nameWidth + grid.columns.length * columnWidth + totalWidth;
-  const width = Math.max(640, tableWidth + gutter * 2);
   const tableLeft = gutter;
-  const columnLeft = (index: number) => tableLeft + nameWidth + index * columnWidth;
-  const totalLeft = tableLeft + nameWidth + grid.columns.length * columnWidth;
+  const tableWidth = width - gutter * 2;
+  const bodyLeft = tableLeft + axisWidth;
+  const tableRight = tableLeft + tableWidth;
+  const columnWidth = (tableWidth - axisWidth) / Math.max(1, columns.length);
+  const columnLeft = (index: number) => bodyLeft + index * columnWidth;
 
   // Header block: title, team and shift, date, then the two halves. Measured
   // first because the halves wrap, and the canvas has to be tall enough.
@@ -356,21 +373,12 @@ export async function buildBoardImage(
   const secondLines = wrapText(measure, secondHalf.join(", ") || "nobody", textWidth);
   const headerHeight = 96 + (firstLines.length + secondLines.length) * 18 + 14;
 
-  // Each row is as tall as its fullest cell.
-  const entryHeight = (entry: RosterGridEntry) => (entry.tag || entry.absorbs ? taggedPillHeight : pillHeight);
-  const cellHeight = (cell: RosterGridEntry[]) =>
-    cell.reduce((sum, entry, index) => sum + entryHeight(entry) + (index ? pillGap : 0), 0);
-  const rowHeight = (cells: RosterGridEntry[][]) =>
-    Math.max(minRowHeight, cellPadding * 2 + Math.max(0, ...cells.map(cellHeight)));
-  const rows = [
-    ...grid.rows.map(row => ({ kind: "person" as const, row, height: rowHeight(row.cells) })),
-    ...(grid.blanks ? [{ kind: "blank" as const, cells: grid.blanks, height: rowHeight(grid.blanks) }] : []),
-  ];
-  const bodyHeight = rows.reduce((sum, row) => sum + row.height, 0);
-  const emptyHeight = rows.length ? 0 : 44;
-  const footerHeight = 36;
   const tableTop = headerHeight + 8;
-  const height = tableTop + headerRowHeight + bodyHeight + emptyHeight + footerHeight;
+  const bodyTop = tableTop + headRowHeight;
+  const bodyHeight = NIGHT_SPAN_MIN * pxPerMin;
+  const bodyBottom = bodyTop + bodyHeight;
+  const height = bodyBottom + footerHeight;
+  const y = (minute: number) => bodyTop + minute * pxPerMin;
 
   const canvas = document.createElement("canvas");
   canvas.width = width * scale;
@@ -418,140 +426,181 @@ export async function buildBoardImage(
   halfBlock("1st Half", firstLines, HALF_COLORS.first.text);
   halfBlock("2nd Half", secondLines, HALF_COLORS.second.text);
 
-  // ── Column headings: one per position, then the total ──
-  const bodyTop = tableTop + headerRowHeight;
+  // ── Column headings: the time, then one per position ──
   context.fillStyle = "#f1f5f9";
-  context.fillRect(tableLeft, tableTop, tableWidth, headerRowHeight);
-
+  context.fillRect(tableLeft, tableTop, tableWidth, headRowHeight);
   context.fillStyle = "#64748b";
   context.font = "600 11px system-ui, sans-serif";
-  context.fillText("NAME", tableLeft + 10, tableTop + 29);
-  fitText(context, "TOTAL", totalLeft + 10, tableTop + 29, totalWidth - 16);
+  context.fillText("TIME", tableLeft + 10, tableTop + 29);
 
-  grid.columns.forEach((column, index) => {
+  columns.forEach((column, index) => {
     const x = columnLeft(index);
-    const swatch = channelSwatch(column.code);
-    context.fillStyle = swatch.edge;
-    context.fillRect(x + 1, tableTop + headerRowHeight - 4, columnWidth - 2, 4);
+    context.fillStyle = channelSwatch(column.code).edge;
+    context.fillRect(x + 1, tableTop + headRowHeight - 4, columnWidth - 2, 4);
     context.fillStyle = "#0f172a";
-    context.font = "700 14px system-ui, sans-serif";
-    fitText(context, column.code, x + 10, tableTop + 22, columnWidth - 20);
+    context.font = "700 15px system-ui, sans-serif";
+    fitText(context, column.code, x + 8, tableTop + 22, columnWidth - 16);
     const note = [column.window, column.mergedNote].filter(Boolean).join(" · ");
     if (note) {
       context.fillStyle = "#64748b";
       context.font = "10px system-ui, sans-serif";
-      fitText(context, note, x + 10, tableTop + 38, columnWidth - 20);
+      if (context.measureText(note).width > columnWidth - 16) context.font = "9px system-ui, sans-serif";
+      fitText(context, note, x + 8, tableTop + 38, columnWidth - 16);
     }
   });
 
-  // ── Rows: one per person, then the blanks ──
-  const drawEntry = (entry: RosterGridEntry, x: number, y: number, code: string) => {
-    const boxWidth = columnWidth - cellPadding * 2;
-    const boxHeight = entryHeight(entry);
-    const swatch = channelSwatch(code);
+  // ── The night, down the side ──
+  // The halves as bands down the edge of the time column, each named.
+  for (const [[from, to], label, colours] of [
+    [FIRST_HALF, "1st Half", HALF_COLORS.first],
+    [SECOND_HALF, "2nd Half", HALF_COLORS.second],
+  ] as const) {
+    context.fillStyle = colours.band;
+    context.fillRect(tableLeft, y(from), axisWidth, (to - from) * pxPerMin);
+    context.fillStyle = colours.text;
+    context.fillRect(tableLeft, y(from), 3, (to - from) * pxPerMin);
     context.save();
-    if (entry.blank) {
-      context.fillStyle = "rgba(220,38,38,0.06)";
-      context.fillRect(x, y, boxWidth, boxHeight);
-      context.strokeStyle = "rgba(220,38,38,0.75)";
-      context.setLineDash([4, 3]);
-      context.strokeRect(x + 0.5, y + 0.5, boxWidth - 1, boxHeight - 1);
-      context.setLineDash([]);
-    } else {
-      context.fillStyle = swatch.fill;
-      context.fillRect(x, y, boxWidth, boxHeight);
-      context.fillStyle = swatch.edge;
-      context.fillRect(x, y, 3, boxHeight);
-      // A DB slot is outlined dashed, as on the board: fixed, not planned.
-      if (entry.tag) {
-        context.strokeStyle = swatch.edge;
-        context.setLineDash([4, 3]);
-        context.strokeRect(x + 0.5, y + 0.5, boxWidth - 1, boxHeight - 1);
-        context.setLineDash([]);
-      }
-    }
+    context.translate(tableLeft + halfBarWidth / 2 + 4, y((from + to) / 2));
+    context.rotate(-Math.PI / 2);
+    context.textAlign = "center";
+    context.font = "700 10px system-ui, sans-serif";
+    context.fillText(label.toUpperCase(), 0, 0);
+    context.restore();
+  }
+
+  // A line every half hour, stronger on the hour, and midnight marked.
+  for (let minute = 0; minute <= NIGHT_SPAN_MIN; minute += 30) {
+    const onTheHour = (NIGHT_START_MIN + minute) % 60 === 0;
+    const midnight = minute === MIDNIGHT_MIN;
+    context.strokeStyle = midnight ? "#94a3b8" : onTheHour ? "#e2e8f0" : "#f1f5f9";
+    context.setLineDash(midnight ? [5, 4] : []);
+    // Across the positions, and only a tick in the time column, so the line
+    // never runs through its own label.
     context.beginPath();
-    context.rect(x, y, boxWidth, boxHeight);
+    context.moveTo(bodyLeft - 4, y(minute) + 0.5);
+    context.lineTo(tableRight, y(minute) + 0.5);
+    context.stroke();
+    context.setLineDash([]);
+
+    const label = formatMinutes(minute);
+    const baseline = minute === 0 ? y(minute) + 13 : minute === NIGHT_SPAN_MIN ? y(minute) - 4 : y(minute) + 4;
+    context.fillStyle = midnight ? "#0f172a" : onTheHour ? "#334155" : "#94a3b8";
+    context.font = `${onTheHour || midnight ? 600 : 500} 11px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    context.textAlign = "right";
+    context.fillText(label, bodyLeft - 8, baseline);
+    context.textAlign = "left";
+  }
+
+  /** A shaded, hatched stretch of a column with a word in it: shut, or merged away. */
+  const drawShaded = (x: number, from: number, to: number, label: string) => {
+    const top = y(from);
+    const tall = (to - from) * pxPerMin;
+    context.save();
+    context.beginPath();
+    context.rect(x + 1, top, columnWidth - 2, tall);
     context.clip();
-    context.fillStyle = entry.blank ? "#b91c1c" : swatch.text;
-    context.font = "600 11px ui-monospace, SFMono-Regular, Menlo, monospace";
-    context.fillText(entry.range, x + 8, y + 14);
-    const extra = [entry.tag, entry.absorbs].filter(Boolean).join(" ");
-    if (extra) {
-      context.font = "700 9.5px system-ui, sans-serif";
-      context.fillText(extra, x + 8, y + 27);
+    context.fillStyle = "#f8fafc";
+    context.fillRect(x + 1, top, columnWidth - 2, tall);
+    context.strokeStyle = "rgba(100,116,139,0.16)";
+    for (let offset = -tall; offset < columnWidth + tall; offset += 9) {
+      context.beginPath();
+      context.moveTo(x + offset, top + tall);
+      context.lineTo(x + offset + tall, top);
+      context.stroke();
+    }
+    if (tall >= 18) {
+      context.fillStyle = "#64748b";
+      context.font = "600 10.5px system-ui, sans-serif";
+      context.textAlign = "center";
+      fitText(context, label, x + columnWidth / 2, top + Math.min(tall / 2 + 4, 20), columnWidth - 12, "center");
+      context.textAlign = "left";
     }
     context.restore();
   };
 
-  let rowTop = bodyTop;
-  rows.forEach((entry, index) => {
-    if (index % 2 === 1) {
-      context.fillStyle = "#f8fafc";
-      context.fillRect(tableLeft, rowTop, tableWidth, entry.height);
-    }
-    const cells = entry.kind === "person" ? entry.row.cells : entry.cells;
-
-    // Who the row is.
-    if (entry.kind === "person") {
-      context.fillStyle = "#0f172a";
-      context.font = "600 13px system-ui, sans-serif";
-      fitText(context, entry.row.name, tableLeft + 10, rowTop + 22, nameWidth - 20);
-      if (entry.row.half) {
-        context.fillStyle = entry.row.half === "1st Half" ? HALF_COLORS.first.text : HALF_COLORS.second.text;
-        context.font = "600 10.5px system-ui, sans-serif";
-        context.fillText(entry.row.half, tableLeft + 10, rowTop + 36);
-      }
-      context.fillStyle = "#0f172a";
-      context.font = "600 12px ui-monospace, SFMono-Regular, Menlo, monospace";
-      fitText(context, entry.row.total, totalLeft + 10, rowTop + 22, totalWidth - 16);
+  /** One stretch of a position, from its start to its end. */
+  const drawEntry = (entry: TimelineEntry, x: number, code: string) => {
+    const left = x + 4;
+    const boxWidth = columnWidth - 8;
+    const top = y(entry.startMin) + 1.5;
+    const boxHeight = Math.max(6, (entry.endMin - entry.startMin) * pxPerMin - 3);
+    const swatch = entry.colorIndex === null ? channelSwatch(code) : personSwatch(entry.colorIndex);
+    context.save();
+    if (entry.blank) {
+      context.fillStyle = "#fef2f2";
+      context.fillRect(left, top, boxWidth, boxHeight);
+      context.strokeStyle = "rgba(220,38,38,0.75)";
+      context.setLineDash([4, 3]);
+      context.strokeRect(left + 0.5, top + 0.5, boxWidth - 1, boxHeight - 1);
+      context.setLineDash([]);
     } else {
-      context.fillStyle = "#b91c1c";
-      context.font = "700 13px system-ui, sans-serif";
-      context.fillText(BLANK_LABEL, tableLeft + 10, rowTop + 22);
-      context.fillStyle = "#64748b";
-      context.font = "10.5px system-ui, sans-serif";
-      fitText(context, "nobody on these", tableLeft + 10, rowTop + 36, nameWidth - 20);
-    }
-
-    // The times, one box each, stacked in the position's column.
-    cells.forEach((cell, column) => {
-      let y = rowTop + cellPadding;
-      for (const time of cell) {
-        drawEntry(time, columnLeft(column) + cellPadding, y, grid.columns[column].code);
-        y += entryHeight(time) + pillGap;
+      context.fillStyle = swatch.fill;
+      context.fillRect(left, top, boxWidth, boxHeight);
+      context.fillStyle = swatch.edge;
+      context.fillRect(left, top, 3, boxHeight);
+      // A DB slot is outlined dashed, as on the board: fixed, not planned.
+      if (entry.tag) {
+        context.strokeStyle = swatch.edge;
+        context.setLineDash([4, 3]);
+        context.strokeRect(left + 0.5, top + 0.5, boxWidth - 1, boxHeight - 1);
+        context.setLineDash([]);
       }
-    });
-
-    rowTop += entry.height;
-    context.strokeStyle = "#e2e8f0";
+    }
     context.beginPath();
-    context.moveTo(tableLeft, rowTop);
-    context.lineTo(tableLeft + tableWidth, rowTop);
-    context.stroke();
+    context.rect(left, top, boxWidth, boxHeight);
+    context.clip();
+
+    const colour = entry.blank ? "#b91c1c" : swatch.text;
+    const extra = [entry.tag, entry.absorbs].filter(Boolean).join(" ");
+    const textLeft = left + 9;
+    const room = boxWidth - 14;
+    context.fillStyle = colour;
+    if (boxHeight < 34) {
+      // Too short for two lines: who and when on one.
+      context.font = "700 11px system-ui, sans-serif";
+      fitText(context, `${entry.name}  ${entry.range}`, textLeft, top + Math.min(boxHeight / 2 + 4, 15), room);
+    } else {
+      // A long name steps down a size before it is cut short.
+      context.font = "700 12.5px system-ui, sans-serif";
+      if (context.measureText(entry.name).width > room) context.font = "700 11px system-ui, sans-serif";
+      fitText(context, entry.name, textLeft, top + 17, room);
+      context.font = "600 10.5px ui-monospace, SFMono-Regular, Menlo, monospace";
+      fitText(context, entry.range, textLeft, top + 31, room);
+      if (extra && boxHeight >= 46) {
+        context.font = "700 9.5px system-ui, sans-serif";
+        fitText(context, extra, textLeft, top + 44, room);
+      }
+    }
+    context.restore();
+  };
+
+  columns.forEach((column, index) => {
+    const x = columnLeft(index);
+    for (const [from, to] of column.closed) drawShaded(x, from, to, "closed");
+    if (column.merged) drawShaded(x, column.merged.from, column.merged.to, `with ${column.merged.into}`);
+    for (const entry of column.entries) drawEntry(entry, x, column.code);
   });
 
-  if (!rows.length) {
+  if (!columns.length) {
     context.fillStyle = "#64748b";
     context.font = "13px system-ui, sans-serif";
-    context.fillText("Nobody is on a position yet.", tableLeft + 10, bodyTop + 27);
+    context.fillText("No position is in use tonight.", bodyLeft + 10, bodyTop + 27);
   }
 
-  // Column rules and the outline, drawn last so the rows' shading can't cover them.
-  const tableBottom = bodyTop + bodyHeight + emptyHeight;
+  // Column rules and the outline, drawn last so nothing drawn inside covers them.
   context.strokeStyle = "#e2e8f0";
-  for (const x of [tableLeft + nameWidth, ...grid.columns.map((_, index) => columnLeft(index + 1))]) {
+  for (const x of [bodyLeft, ...columns.slice(1).map((_, index) => columnLeft(index + 1))]) {
     context.beginPath();
     context.moveTo(x + 0.5, tableTop);
-    context.lineTo(x + 0.5, tableBottom);
+    context.lineTo(x + 0.5, bodyBottom);
     context.stroke();
   }
   context.strokeStyle = "#cbd5e1";
-  context.strokeRect(tableLeft + 0.5, tableTop + 0.5, tableWidth - 1, tableBottom - tableTop - 1);
+  context.strokeRect(tableLeft + 0.5, tableTop + 0.5, tableWidth - 1, bodyBottom - tableTop - 1);
 
   context.fillStyle = "#64748b";
   context.font = "11px system-ui, sans-serif";
-  context.fillText("Prepared by Atcora", gutter, height - 12);
+  context.fillText("Prepared by Atcora", gutter, height - 14);
 
   const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/png"));
   if (!blob) throw new Error("The roster image could not be created.");
@@ -559,7 +608,15 @@ export async function buildBoardImage(
 }
 
 /** Text cut to `maxWidth` with an ellipsis, rather than clipped mid-letter. */
-function fitText(context: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number) {
+function fitText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  align: CanvasTextAlign = "left",
+) {
+  context.textAlign = align;
   let shown = text;
   if (context.measureText(shown).width > maxWidth) {
     while (shown.length > 1 && context.measureText(`${shown}…`).width > maxWidth) shown = shown.slice(0, -1);

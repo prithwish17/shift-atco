@@ -17,6 +17,8 @@ import {
   EVENING_REST_MIN,
   EVENING_REST_WINDOW,
   FIRST_HALF,
+  HOURS_EXEMPT_CHANNELS,
+  HOURS_TOLERANCE_MIN,
   MAX_DUTY_MIN,
   MERGE_SOURCE_CHANNEL,
   MERGE_TARGET_CHANNELS,
@@ -34,7 +36,7 @@ import {
   UNCAPPED_DUTY_CHANNELS,
 } from "./constants.js";
 import { formatDuration, formatMinutes, formatRange } from "./time.js";
-import { awayDuring, isAvailableAt, isPartNight, minutesAvailable } from "./availability.js";
+import { awayDuring, isAvailableAt, isFreeDuring, isPartNight, minutesAvailable } from "./availability.js";
 import type {
   HalfKey,
   NightAllocationState,
@@ -232,6 +234,28 @@ export function isFixedDuty(duty: Pick<NightDuty, "kind">): boolean {
 }
 
 /**
+ * A duty put on the board by hand. It is an ordinary duty in every rule, edit
+ * and export; a generate keeps it and plans the rest of the night around it.
+ */
+export function isPinnedDuty(duty: Pick<NightDuty, "kind">): boolean {
+  return duty.kind === "pinned";
+}
+
+/**
+ * What a generate keeps where it is and plans around: DB slots, and duties put
+ * on the board by hand. Everything else on the board — the duties the last
+ * generate made, and blanks — is replaced by the next one.
+ */
+export function isKeptDuty(duty: Pick<NightDuty, "kind">): boolean {
+  return isFixedDuty(duty) || isPinnedDuty(duty);
+}
+
+/** Would a generate replace anything on the board — a generated duty or a blank? */
+export function hasReplaceableDuties(state: NightAllocationState): boolean {
+  return state.duties.some(duty => !isKeptDuty(duty));
+}
+
+/**
  * Has anything been planned yet? DB slots are entered before a plan is made,
  * so a board holding only those is still an unplanned night, not one with
  * every other stretch uncovered. A blank counts: it is part of a plan.
@@ -344,11 +368,14 @@ export function describeEveningBreak(longest: { from: number; to: number }): str
     : "no break at all";
 }
 
-/** The DB slot that holds a position's opening minute, if one does. */
+/**
+ * The DB slot, or duty put on by hand, that holds a position's opening minute,
+ * if one does. It opens the position, and the starter setting gives way to it.
+ */
 export function fixedOpeningDuty(state: NightAllocationState, channel: NightChannel): NightDuty | undefined {
   return state.duties.find(
     duty =>
-      isFixedDuty(duty) &&
+      isKeptDuty(duty) &&
       duty.channelCode === channel.code &&
       duty.startMin <= channel.openAt &&
       duty.endMin > channel.openAt,
@@ -356,9 +383,10 @@ export function fixedOpeningDuty(state: NightAllocationState, channel: NightChan
 }
 
 /**
- * The stretches of an open position that ordinary duties have to cover: its
- * open window, less any time it is merged away and less its DB slots. This is
- * what the generator plans, one stretch at a time.
+ * The stretches of an open position that the generator has to cover: its open
+ * window, less any time it is merged away and less what a generate keeps — its
+ * DB slots and the duties put on it by hand. This is what the generator plans,
+ * one stretch at a time.
  */
 export function stretchesToPlan(state: NightAllocationState, channel: NightChannel): Array<[number, number]> {
   if (channel.openAt >= channel.closeAt) return [];
@@ -366,7 +394,7 @@ export function stretchesToPlan(state: NightAllocationState, channel: NightChann
   const merged = mergedAwayWindow(state, channel.code);
   if (merged) blocked.push([merged[0], merged[1]]);
   for (const duty of state.duties) {
-    if (isFixedDuty(duty) && duty.channelCode === channel.code && duty.startMin < duty.endMin) {
+    if (isKeptDuty(duty) && duty.channelCode === channel.code && duty.startMin < duty.endMin) {
       blocked.push([duty.startMin, duty.endMin]);
     }
   }
@@ -382,32 +410,33 @@ export function stretchesToPlan(state: NightAllocationState, channel: NightChann
 }
 
 /**
- * Stretches too short to be anybody's duty. A DB slot, or the merge, can leave
- * one — a position opening at 17:15 with a DB from 17:30 leaves fifteen minutes
- * nothing can legally cover — and the night is then impossible however many
- * people there are, so it is named rather than left for the generator to fail
- * on.
+ * Stretches too short to be anybody's duty. A DB slot, a duty put on by hand,
+ * or the merge can leave one — a position opening at 17:15 with a DB from
+ * 17:30 leaves fifteen minutes nothing can legally cover — and the night is
+ * then impossible however many people there are, so it is named rather than
+ * left for the generator to fail on.
  */
 export function shortStretchNotices(state: NightAllocationState): string[] {
   const notices: string[] = [];
   const merge = activeMerge(state);
   for (const channel of openChannels(state)) {
-    const fixed = state.duties.filter(duty => isFixedDuty(duty) && duty.channelCode === channel.code);
+    const kept = state.duties.filter(duty => isKeptDuty(duty) && duty.channelCode === channel.code);
     const merged = mergedAwayWindow(state, channel.code);
     for (const [start, end] of stretchesToPlan(state, channel)) {
       if (end - start >= MIN_DUTY_MIN) continue;
       // A whole position open under 30 minutes is already a hard error.
       if (start === channel.openAt && end === channel.closeAt) continue;
-      const leftDb = fixed.some(duty => duty.endMin === start);
-      const rightDb = fixed.some(duty => duty.startMin === end);
-      const left = start === channel.openAt ? "its opening" : leftDb ? "a DB slot" : "the merge";
-      const right = end === channel.closeAt ? "its closing" : rightDb ? "a DB slot" : "the merge";
-      const fix =
-        leftDb || rightDb
-          ? `Move the DB slot, or change when ${channel.code} opens or closes.`
-          : merged && merge
-            ? `Change when ${channel.code} opens or closes, or turn the merge off.`
-            : `Change when ${channel.code} opens or closes.`;
+      const leftKept = kept.find(duty => duty.endMin === start);
+      const rightKept = kept.find(duty => duty.startMin === end);
+      const what = (duty: NightDuty) => (isFixedDuty(duty) ? "a DB slot" : "a duty put on by hand");
+      const left = start === channel.openAt ? "its opening" : leftKept ? what(leftKept) : "the merge";
+      const right = end === channel.closeAt ? "its closing" : rightKept ? what(rightKept) : "the merge";
+      const moving = [leftKept, rightKept].filter((duty): duty is NightDuty => !!duty);
+      const fix = moving.length
+        ? `Move ${moving.some(isFixedDuty) && moving.every(isFixedDuty) ? "the DB slot" : moving.some(isFixedDuty) ? "the DB slot or the duty" : "the duty"}, or change when ${channel.code} opens or closes.`
+        : merged && merge
+          ? `Change when ${channel.code} opens or closes, or turn the merge off.`
+          : `Change when ${channel.code} opens or closes.`;
       notices.push(
         `${channel.code} ${formatRange(start, end)} is only ${end - start} min, between ${left} and ${right} — ` +
           `too short for a duty. ${fix}`,
@@ -484,9 +513,241 @@ export function uncoveredMinutes(state: NightAllocationState): number {
   return total;
 }
 
-/** Minutes a person is on duty across the night. */
+/** Minutes a person is on duty across the night, TSO included. */
 export function minutesOnDuty(state: NightAllocationState, personKey: string): number {
   return dutiesOf(state, personKey).reduce((sum, duty) => sum + Math.max(0, dutyLength(duty)), 0);
+}
+
+// ── Duty hours ──────────────────────────────────────────────────────────────
+
+/** Does time on this position count towards someone's duty hours? Every position but TSO. */
+export function countsTowardsHours(channelCode: string): boolean {
+  return !HOURS_EXEMPT_CHANNELS.includes(channelCode);
+}
+
+/**
+ * A person's duty hours, in minutes: their time on every position but TSO, DB
+ * slots included. What the generator evens out and what every total shows.
+ */
+export function countedMinutesOnDuty(state: NightAllocationState, personKey: string): number {
+  return dutiesOf(state, personKey)
+    .filter(duty => countsTowardsHours(duty.channelCode))
+    .reduce((sum, duty) => sum + Math.max(0, dutyLength(duty)), 0);
+}
+
+/** A person's time on TSO — shown beside their duty hours, never added to them. */
+export function exemptMinutesOnDuty(state: NightAllocationState, personKey: string): number {
+  return minutesOnDuty(state, personKey) - countedMinutesOnDuty(state, personKey);
+}
+
+/** "4h 30m", or "4h 30m + TSO 2h" for someone who was on TSO too. */
+export function dutyHoursLabel(state: NightAllocationState, personKey: string): string {
+  const counted = formatDuration(countedMinutesOnDuty(state, personKey));
+  const exempt = exemptMinutesOnDuty(state, personKey);
+  return exempt > 0 ? `${counted} + ${HOURS_EXEMPT_CHANNELS.join("/")} ${formatDuration(exempt)}` : counted;
+}
+
+/** One person's share of the night's duty hours — see `fairShares`. */
+export interface FairShare {
+  /** Their even share, in minutes. */
+  share: number;
+  /** How much of the share falls before each quarter-hour: `due[i]` is the part of it in `[0, i × 15)`. */
+  due: number[];
+  /** Minutes from each quarter-hour on that they could still be on a position that counts. */
+  left: number[];
+}
+
+/**
+ * The part of a quarter-hour one person can hold on average: two hours of
+ * every two and a half, as each duty needs a break after it.
+ */
+const SHARE_PER_SLOT = (SLOT_MIN * MAX_DUTY_MIN) / (MAX_DUTY_MIN + MIN_BREAK_MIN);
+
+/**
+ * Everyone's fair share of the night's duty hours: the minutes of every open
+ * position but TSO, shared out as evenly as the night allows.
+ *
+ * Not simply the total over the headcount, because the halves, part-night
+ * times and TSO decide who can be on a position when. TSO is held first, by
+ * the people cleared for it who are around, and whoever holds it can't be on
+ * another position then — the one person cleared for it in the 1st Half has
+ * no share of the 1st Half's control. Then the minutes are shared out one
+ * quarter-hour at a time, the scarcest quarter-hours first — where the fewest
+ * people are free for the positions open, whoever is there has to take them
+ * — and each quarter-hour to whoever has least so far. So everyone free for
+ * the same part of the night gets the same share, and someone free for less
+ * of it gets less. DB slots and duties put on by hand are their holder's
+ * already.
+ *
+ * `rests`, the evening rests the generator places, change when the share
+ * falls due and what is left of the night, but never the share itself: the
+ * rest is a preference about when someone works, not how much.
+ */
+export function fairShares(
+  state: NightAllocationState,
+  rests?: Readonly<Record<string, readonly [number, number]>>,
+): Map<string, FairShare> {
+  const plain = shareOut(state);
+  if (!rests || !Object.keys(rests).length) return plain;
+  const rested = shareOut(state, rests);
+  const out = new Map<string, FairShare>();
+  for (const [key, share] of plain) {
+    const timing = rested.get(key);
+    if (!timing || timing.share <= 0) {
+      out.set(key, share);
+      continue;
+    }
+    const scale = share.share / timing.share;
+    out.set(key, { share: share.share, due: timing.due.map(minutes => minutes * scale), left: timing.left });
+  }
+  return out;
+}
+
+/** `fairShares`, with the rests taken as time off. */
+function shareOut(
+  state: NightAllocationState,
+  rests?: Readonly<Record<string, readonly [number, number]>>,
+): Map<string, FairShare> {
+  const slots = Math.ceil(NIGHT_SPAN_MIN / SLOT_MIN);
+  const people = availablePeople(state);
+  const open = openChannels(state);
+  const kept = state.duties.filter(duty => isKeptDuty(duty) && !isBlank(duty));
+  const overlap = (from: number, to: number, start: number, end: number) =>
+    Math.max(0, Math.min(to, end) - Math.max(from, start));
+  const inHalf = (person: NightPerson, minute: number) =>
+    minute < FIRST_HALF[0] || (minute < SECOND_HALF[0] ? person.half !== "2nd" : person.half !== "1st");
+
+  const load = people.map(() => new Array<number>(slots).fill(0));
+  const demand = new Array<number>(slots).fill(0);
+  /** Who is free for a position that counts in each quarter-hour, and for how much of it. */
+  const here: Array<Array<{ index: number; cap: number }>> = [];
+  for (let slot = 0; slot < slots; slot++) {
+    const from = slot * SLOT_MIN;
+    const to = Math.min(NIGHT_SPAN_MIN, from + SLOT_MIN);
+    const busy = people.map(() => 0);
+    let exempt = 0;
+    for (const channel of open) {
+      const merged = mergedAwayWindow(state, channel.code);
+      const away = merged
+        ? overlap(merged[0], merged[1], Math.max(from, channel.openAt), Math.min(to, channel.closeAt))
+        : 0;
+      let minutes = Math.max(0, overlap(channel.openAt, channel.closeAt, from, to) - away);
+      // A kept duty is its holder's already, and keeps them busy while it runs.
+      for (const duty of kept) {
+        if (duty.channelCode !== channel.code) continue;
+        const own = Math.min(minutes, overlap(duty.startMin, duty.endMin, from, to));
+        if (!own) continue;
+        minutes -= own;
+        const index = people.findIndex(person => person.key === duty.personKey);
+        if (index < 0) continue;
+        busy[index] += own;
+        if (countsTowardsHours(channel.code)) load[index][slot] += own;
+      }
+      if (countsTowardsHours(channel.code)) demand[slot] += minutes;
+      else exempt += minutes;
+    }
+
+    const free = people
+      .map((person, index) => ({ person, index }))
+      .filter(({ person, index }) => {
+        if (busy[index] >= to - from) return false;
+        const rest = rests?.[person.key];
+        if (rest && overlap(rest[0], rest[1], from, to) > 0) return false;
+        return inHalf(person, from) && isFreeDuring(person, from, to);
+      });
+    // TSO first, shared between the people cleared for it who are free; what
+    // it takes of them they can't spend on anything else.
+    const cleared = free.filter(({ person }) => canTakeChannel(person, TSO_CHANNEL));
+    const onExempt = cleared.length ? Math.min(SLOT_MIN, exempt / cleared.length) : 0;
+    here.push(
+      free
+        .map(({ person, index }) => {
+          const room = SLOT_MIN - busy[index] - (canTakeChannel(person, TSO_CHANNEL) ? onExempt : 0);
+          return { index, cap: Math.max(0, Math.min(SHARE_PER_SLOT, room)) };
+        })
+        .filter(entry => entry.cap > 0),
+    );
+  }
+
+  // Scarcest quarter-hours first, so whoever has to take them does, and the
+  // rest of the night evens it out.
+  const total = people.map((_, index) => load[index].reduce((sum, minutes) => sum + minutes, 0));
+  const room = (slot: number) => here[slot].reduce((sum, entry) => sum + entry.cap, 0);
+  const order = demand
+    .map((minutes, slot) => ({ slot, minutes }))
+    .filter(entry => entry.minutes > 0 && here[entry.slot].length > 0)
+    .sort((a, b) => room(a.slot) / a.minutes - room(b.slot) / b.minutes || a.slot - b.slot);
+  for (const { slot, minutes } of order) {
+    const pool = here[slot];
+    // More than a fair part of the quarter-hour each only when there is no
+    // other way, and never more than all of it.
+    const stretch = minutes > room(slot);
+    const capOf = (entry: { cap: number }) => (stretch ? SLOT_MIN : entry.cap);
+    const give = Math.min(minutes, pool.reduce((sum, entry) => sum + capOf(entry), 0));
+    // Level everyone in the pool up to the same total, as far as `give` goes.
+    let low = Math.min(...pool.map(entry => total[entry.index]));
+    let high = Math.max(...pool.map(entry => total[entry.index])) + SLOT_MIN;
+    const poured = (level: number) =>
+      pool.reduce((sum, entry) => sum + Math.min(capOf(entry), Math.max(0, level - total[entry.index])), 0);
+    for (let step = 0; step < 40; step++) {
+      const middle = (low + high) / 2;
+      if (poured(middle) < give) low = middle;
+      else high = middle;
+    }
+    for (const entry of pool) {
+      const part = Math.min(capOf(entry), Math.max(0, high - total[entry.index]));
+      load[entry.index][slot] += part;
+      total[entry.index] += part;
+    }
+  }
+
+  const shares = new Map<string, FairShare>();
+  people.forEach((person, index) => {
+    const due = [0];
+    for (let slot = 0; slot < slots; slot++) due.push(due[slot] + load[index][slot]);
+    const left = new Array<number>(slots + 1).fill(0);
+    for (let slot = slots - 1; slot >= 0; slot--) {
+      const free = demand[slot] > 0 && here[slot].some(entry => entry.index === index);
+      left[slot] = left[slot + 1] + (free ? SLOT_MIN : 0);
+    }
+    shares.set(person.key, { share: due[slots], due, left });
+  });
+  return shares;
+}
+
+/**
+ * Everyone whose duty hours stray from their fair share, and everyone on TSO
+ * and nothing else though they could have held another position. The generator
+ * keeps clear of both wherever the night allows; what is left is reported.
+ */
+export function hoursImbalance(state: NightAllocationState): {
+  heaviest: { person: NightPerson; minutes: number; share: number } | null;
+  lightest: { person: NightPerson; minutes: number; share: number } | null;
+  exemptOnly: NightPerson[];
+} {
+  const shares = fairShares(state);
+  const rows = availablePeople(state).map(person => ({
+    person,
+    minutes: countedMinutesOnDuty(state, person.key),
+    share: shares.get(person.key)?.share ?? 0,
+  }));
+  const exemptOnly = rows
+    .filter(
+      row =>
+        row.minutes === 0 &&
+        row.share >= MIN_DUTY_MIN &&
+        dutiesOf(state, row.person.key).some(duty => !countsTowardsHours(duty.channelCode)),
+    )
+    .map(row => row.person);
+  if (rows.length < 2) return { heaviest: null, lightest: null, exemptOnly };
+  const off = (row: (typeof rows)[number]) => row.minutes - row.share;
+  const sorted = [...rows].sort((a, b) => off(a) - off(b));
+  const lightest = sorted[0];
+  const heaviest = sorted[sorted.length - 1];
+  if (off(heaviest) - off(lightest) <= 2 * HOURS_TOLERANCE_MIN) {
+    return { heaviest: null, lightest: null, exemptOnly };
+  }
+  return { heaviest, lightest, exemptOnly };
 }
 
 // ── Staffing feasibility ────────────────────────────────────────────────────
@@ -1303,27 +1564,34 @@ function secondHalfChannelPreferences(state: NightAllocationState): RuleIssue[] 
   return warnings;
 }
 
-/** Workload is compared inside a group, because the groups work different hours. */
+/**
+ * Duty hours — TSO not counted — should come out much the same for everyone
+ * around for the same part of the night, and nobody should be on TSO alone.
+ * Each is one line, naming who.
+ */
 function workloadWarnings(state: NightAllocationState): RuleIssue[] {
-  const groups: Array<[string, NightPerson[]]> = [
-    ["1st Half", peopleInHalf(state, "1st")],
-    ["2nd Half", peopleInHalf(state, "2nd")],
-    ["No half", availablePeople(state).filter(person => !person.half)],
-  ];
+  const { heaviest, lightest, exemptOnly } = hoursImbalance(state);
+  const exempt = HOURS_EXEMPT_CHANNELS.join("/");
   const warnings: RuleIssue[] = [];
-  for (const [label, members] of groups) {
-    if (members.length < 2) continue;
-    const load = members
-      .map(person => ({ person, minutes: minutesOnDuty(state, person.key) }))
-      .sort((a, b) => a.minutes - b.minutes);
-    const lightest = load[0];
-    const heaviest = load[load.length - 1];
-    if (heaviest.minutes - lightest.minutes <= MAX_DUTY_MIN) continue;
+  if (heaviest && lightest) {
+    const describe = (row: { person: NightPerson; minutes: number; share: number }) =>
+      `${row.person.name} has ${formatDuration(row.minutes)}` +
+      (Math.abs(heaviest.share - lightest.share) >= SLOT_MIN ? ` (fair share ${formatDuration(Math.round(row.share))})` : "");
+    warnings.push({
+      message: `Uneven duty hours (${exempt} not counted): ${describe(heaviest)}, ${describe(lightest)}.`,
+      dutyIds: [],
+      personKeys: [heaviest.person.key, lightest.person.key],
+    });
+  }
+  if (exemptOnly.length) {
     warnings.push({
       message:
-        `Uneven load in ${label}: ${heaviest.person.name} has ${formatDuration(heaviest.minutes)}, ` +
-        `${lightest.person.name} has ${formatDuration(lightest.minutes)}.`,
-      dutyIds: [],
+        `Preferred: everyone holds a position other than ${exempt}. Only on ${exempt}: ` +
+        `${exemptOnly.map(person => person.name).join(", ")}.`,
+      dutyIds: state.duties
+        .filter(duty => exemptOnly.some(person => person.key === duty.personKey))
+        .map(duty => duty.id),
+      personKeys: exemptOnly.map(person => person.key),
     });
   }
   return warnings;
@@ -1338,6 +1606,11 @@ function workloadWarnings(state: NightAllocationState): RuleIssue[] {
  * so the rules hold regardless of what the client believes.
  */
 export function validateAllocation(state: NightAllocationState): ValidationResult {
+  return { errors: hardRuleErrors(state), warnings: collectWarnings(state) };
+}
+
+/** Every hard rule, and nothing else — the preferences take as long again to work out. */
+export function hardRuleErrors(state: NightAllocationState): RuleIssue[] {
   const errors: RuleIssue[] = [];
   validateUniqueness(state, errors);
   validateChannels(state, errors);
@@ -1347,12 +1620,12 @@ export function validateAllocation(state: NightAllocationState): ValidationResul
   validateChannelTimeline(state, errors);
   validateHalfDuties(state, errors);
   validateContinuity(state, errors);
-  return { errors, warnings: collectWarnings(state) };
+  return errors;
 }
 
 /** Convenience for callers that only need the yes/no. */
 export function hasHardErrors(state: NightAllocationState): boolean {
-  return validateAllocation(state).errors.length > 0;
+  return hardRuleErrors(state).length > 0;
 }
 
 /**
@@ -1364,8 +1637,11 @@ export function hasHardErrors(state: NightAllocationState): boolean {
  * to give way — the next generate plans around the slot — whereas a slot that
  * breaks a rule on its own makes every plan impossible.
  */
-export function fixedDutyErrors(state: NightAllocationState): RuleIssue[] {
-  const fixed = state.duties.filter(isFixedDuty);
+export function fixedDutyErrors(
+  state: NightAllocationState,
+  which: (duty: NightDuty) => boolean = isFixedDuty,
+): RuleIssue[] {
+  const fixed = state.duties.filter(which);
   if (!fixed.length) return [];
   const ids = new Set(fixed.map(duty => duty.id));
   return validateAllocation({ ...state, duties: fixed }).errors.filter(issue =>

@@ -12,9 +12,10 @@ import {
   activeMerge,
   blanksInBoardOrder,
   dutiesOf,
+  dutyHoursLabel,
   dutyLength,
   isBlank,
-  minutesOnDuty,
+  mergedAwayWindow,
   personName,
 } from "./rules.js";
 import { dbTag } from "./db-slots.js";
@@ -133,7 +134,7 @@ export function buildRosterSummary(
           code: duty.channelCode,
           ...(dbTag(duty) ? { tag: dbTag(duty) as string } : {}),
         })),
-      totalLabel: formatDuration(minutesOnDuty(state, person.key)),
+      totalLabel: dutyHoursLabel(state, person.key),
     }));
 
   return {
@@ -279,7 +280,7 @@ export interface RosterGridRow {
   name: string;
   /** "1st Half", "2nd Half", or "". */
   half: string;
-  /** Their time on duty, "6h 30m". */
+  /** Their duty hours, "6h 30m", with any TSO beside them: "6h 30m + TSO 2h". */
   total: string;
   /** One list of times per column, in column order. */
   cells: RosterGridEntry[][];
@@ -335,7 +336,7 @@ export function buildRosterGrid(state: NightAllocationState): RosterGrid {
         key: person.key,
         name: person.name,
         half: person.half === "1st" ? "1st Half" : person.half === "2nd" ? "2nd Half" : "",
-        total: formatDuration(minutesOnDuty(state, person.key)),
+        total: dutyHoursLabel(state, person.key),
         cells: channels.map(channel =>
           mine
             .filter(duty => duty.channelCode === channel.code)
@@ -354,6 +355,92 @@ export function buildRosterGrid(state: NightAllocationState): RosterGrid {
   );
 
   return { columns, rows, blanks: blankCells.some(cell => cell.length > 0) ? blankCells : null };
+}
+
+/** One stretch of one position on the channel-wise timeline: a duty, a DB slot or a blank. */
+export interface TimelineEntry {
+  startMin: number;
+  endMin: number;
+  /** Who holds it — or BLANK, when nobody does. */
+  name: string;
+  /** "13:30–15:00". */
+  range: string;
+  /** The holder's board colour, so one person reads the same down every column. Null on a blank. */
+  colorIndex: number | null;
+  /** "DB", or "DB · trainee", on a DB slot — the instructor holds it. */
+  tag?: string;
+  /** "+CLD" on the SMC duty that holds CLD too while it is merged. */
+  absorbs?: string;
+  /** Set on a stretch left with nobody on it. */
+  blank?: boolean;
+}
+
+/** One position on the channel-wise timeline, its stretches in time order from 13:30. */
+export interface TimelineColumn {
+  code: string;
+  /** "13:30–21:30" when the position is open for only part of the night. */
+  window?: string;
+  /** The merge, said on both positions it joins. */
+  mergedNote?: string;
+  /** The parts of the night the position is shut: before it opens and after it closes. */
+  closed: Array<[number, number]>;
+  /** The merge window, on the position folded away during it, and where it went. */
+  merged: { from: number; to: number; into: string } | null;
+  entries: TimelineEntry[];
+}
+
+/**
+ * The roster channel by channel: one column per position in use, and in each
+ * its duties from 13:30 downwards, each at its own start and end. What the
+ * shared image draws — the way the positions are actually handed over through
+ * the night, read down the column.
+ */
+export function buildChannelTimeline(state: NightAllocationState): TimelineColumn[] {
+  const merge = activeMerge(state);
+  const mergeRange = formatRange(MERGE_WINDOW[0], MERGE_WINDOW[1]);
+  return activeChannels(state).map(channel => {
+    const closed: Array<[number, number]> = [];
+    if (channel.openAt > 0) closed.push([0, Math.min(channel.openAt, NIGHT_SPAN_MIN)]);
+    if (channel.closeAt < NIGHT_SPAN_MIN) closed.push([Math.max(channel.closeAt, 0), NIGHT_SPAN_MIN]);
+    const window = mergedAwayWindow(state, channel.code);
+    return {
+      code: channel.code,
+      ...(channel.openAt > 0 || channel.closeAt < NIGHT_SPAN_MIN
+        ? { window: formatRange(channel.openAt, channel.closeAt) }
+        : {}),
+      // Short, to fit a column heading: "in SMC-S 19:00–21:30", "+CLD 19:00–21:30".
+      ...(merge && channel.code === merge.source.code
+        ? { mergedNote: `in ${merge.targetCode} ${mergeRange}` }
+        : merge && channel.code === merge.targetCode
+          ? { mergedNote: `+${merge.source.code} ${mergeRange}` }
+          : {}),
+      closed,
+      merged: window && merge ? { from: window[0], to: window[1], into: merge.targetCode } : null,
+      entries: state.duties
+        .filter(duty => duty.channelCode === channel.code && duty.startMin < duty.endMin)
+        .sort(byStart)
+        .map(duty => {
+          const tag = dbTag(duty);
+          const absorbs =
+            merge &&
+            duty.channelCode === merge.targetCode &&
+            duty.startMin < MERGE_WINDOW[1] &&
+            duty.endMin > MERGE_WINDOW[0]
+              ? `+${merge.source.code}`
+              : null;
+          return {
+            startMin: duty.startMin,
+            endMin: duty.endMin,
+            name: holderName(state, duty),
+            range: formatRange(duty.startMin, duty.endMin),
+            colorIndex: isBlank(duty) ? null : (state.people.find(person => person.key === duty.personKey)?.colorIndex ?? 0),
+            ...(tag ? { tag } : {}),
+            ...(absorbs ? { absorbs } : {}),
+            ...(isBlank(duty) ? { blank: true } : {}),
+          };
+        }),
+    };
+  });
 }
 
 /** Rows for the PDF and the HTML email body: one line per duty, in board order. */

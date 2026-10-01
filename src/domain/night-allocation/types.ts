@@ -70,11 +70,12 @@ export interface NightChannel {
 }
 
 /**
- * What a duty is. An ordinary duty is placed by the generator or by hand; a DB
- * slot is training time fixed in advance; a blank is a stretch of a position
- * left with nobody on it — see `NightDuty.kind`.
+ * What a duty is. An ordinary duty is placed by the generator; a pinned duty
+ * is one put on the board by hand, which the generator keeps; a DB slot is
+ * training time fixed in advance; a blank is a stretch of a position left with
+ * nobody on it — see `NightDuty.kind`.
  */
-export type DutyKind = "duty" | "db" | "blank";
+export type DutyKind = "duty" | "pinned" | "db" | "blank";
 
 /** One stretch of one position held by one person. */
 export interface NightDuty {
@@ -94,6 +95,11 @@ export interface NightDuty {
    * it: `personKey` is `""`. A blank is not a gap — it saves and shares as
    * BLANK and is listed under suggestions until someone fills it — and no
    * rule about people applies to it.
+   *
+   * `"pinned"` for an ordinary duty put on the board by hand. It is a duty
+   * like any other in every rule, edit and export; the one difference is that
+   * a generate keeps it where it is and plans the rest of the night around
+   * it, as it does a DB slot, instead of replacing it.
    */
   kind?: DutyKind;
   /** Who is being trained, shown beside a DB slot. Free text; null otherwise. */

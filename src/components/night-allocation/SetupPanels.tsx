@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Clock, GraduationCap, Loader2, Plus, Sparkles } from "lucide-react";
+import { Clock, GraduationCap, Loader2, Pin, Plus, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   DB_LABEL,
@@ -32,9 +32,11 @@ import {
   availablePeople,
   canTakeChannel,
   dbSlots,
+  dutyHoursLabel,
   fixedOpeningDuty,
   formatDuration,
   isAvailableAt,
+  isFixedDuty,
   formatPickerLabel,
   formatRange,
   minutesOnDuty,
@@ -209,8 +211,11 @@ function PersonRow({
               </span>
             ) : null}
             {minutes ? (
-              <span className="font-mono text-[0.65rem] tabular-nums text-corp-text-soft">
-                {formatDuration(minutes)}
+              <span
+                className="font-mono text-[0.65rem] tabular-nums text-corp-text-soft"
+                title="Duty hours — TSO shown apart, not counted"
+              >
+                {dutyHoursLabel(state, person.key)}
               </span>
             ) : null}
             {starts.length ? (
@@ -591,9 +596,13 @@ export function ChannelsPanel({
 
                     <span className="text-[0.7rem] uppercase tracking-wide text-corp-text-soft">Starts</span>
                     {openingSlot ? (
-                      // A DB slot at the opening opens the position itself.
+                      // A DB slot, or a duty put on by hand, at the opening opens the position itself.
                       <span className="flex h-9 min-w-0 items-center gap-1.5 rounded-md border border-dashed border-corp-border-soft px-3 text-[0.8rem] text-corp-text-muted">
-                        <span className="shrink-0 rounded bg-elevated px-1 text-[0.66rem] font-bold">{DB_LABEL}</span>
+                        {isFixedDuty(openingSlot) ? (
+                          <span className="shrink-0 rounded bg-elevated px-1 text-[0.66rem] font-bold">{DB_LABEL}</span>
+                        ) : (
+                          <Pin className="h-3.5 w-3.5 shrink-0" aria-label="Put on by hand" />
+                        )}
                         <span className="truncate">{personName(state, openingSlot.personKey)}</span>
                       </span>
                     ) : (
@@ -670,8 +679,9 @@ export function ChannelsPanel({
           </Select>
           <p className="text-[0.72rem] leading-snug text-corp-text-soft">
             Duties run 30 min to 2 h — except TSO, which has no maximum. The generator aims for 1 h, 1 h 30 m or
-            2 h, and uses 30 or 45 min only when nothing longer keeps every position covered. DB slots and
-            everyone's times are kept as they are.
+            2 h, and uses 30 or 45 min only when nothing longer keeps every position covered. It shares the duty
+            hours out evenly — TSO not counted — and gives everyone a position other than TSO. DB slots, duties
+            you put on by hand and everyone's times are kept as they are; it plans the rest around them.
           </p>
 
           <Button className="mt-1 w-full" onClick={onGenerate} disabled={generating}>

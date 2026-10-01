@@ -411,7 +411,7 @@ describe("preferences", () => {
     });
     const result = validateAllocation(state);
     expect(result.errors).toEqual([]);
-    expect(messages(result.warnings).some(message => message.startsWith("Uneven load in No half"))).toBe(true);
+    expect(messages(result.warnings).some(message => message.startsWith("Uneven duty hours (TSO not counted)"))).toBe(true);
   });
 });
 

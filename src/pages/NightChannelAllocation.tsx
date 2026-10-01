@@ -42,6 +42,7 @@ import {
   findChannel,
   formatDuration,
   formatNightDate,
+  hasReplaceableDuties,
   isBlank,
   isFixedDuty,
   isGenerateFailure,
@@ -70,7 +71,8 @@ type Role = "admin" | "supervisor" | "wso" | "employee";
 /** How long a two-step confirm stays armed before it quietly stands down. */
 const CONFIRM_WINDOW_MS = 5000;
 const GENERATE_ARMED_TEXT =
-  "This replaces the duties and blanks on the board — DB slots stay. Tap again to confirm.";
+  "This replaces the generated duties and blanks on the board — duties put on by hand and DB slots stay, " +
+  "and the rest is planned around them. Tap again to confirm.";
 const RESET_ARMED_TEXT =
   "Reset clears halves, everyone's times, channel settings, starters, DB slots and all duties for this night. " +
   "Tap again to confirm.";
@@ -292,9 +294,10 @@ export default function NightChannelAllocation() {
 
   const handleGenerate = () => {
     if (!state) return;
-    // DB slots survive a generate, so a board holding only those has nothing
-    // to lose and needs no second tap.
-    if (isPlanned(state) && !generateArmed) {
+    // DB slots and duties put on by hand survive a generate — it plans the
+    // rest around them — so a board holding only those has nothing to lose
+    // and needs no second tap.
+    if (hasReplaceableDuties(state) && !generateArmed) {
       setGenerateArmed(true);
       setGenerateNote({ text: GENERATE_ARMED_TEXT, reasons: [], tone: "neutral" });
       return;
@@ -376,6 +379,7 @@ export default function NightChannelAllocation() {
     const channel = findChannel(state, channelCode);
     const start = Math.max(startMin, channel?.openAt ?? 0);
     const end = Math.min(channel?.closeAt ?? 720, endMin ?? start + 90);
+    // Put on by hand, so the next generate keeps it and plans around it.
     setDraft({
       isNew: true,
       duty: {
@@ -384,6 +388,7 @@ export default function NightChannelAllocation() {
         personKey: personKey ?? "",
         startMin: start,
         endMin: end,
+        kind: "pinned",
       },
     });
   };

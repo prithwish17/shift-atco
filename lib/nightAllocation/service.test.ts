@@ -288,3 +288,41 @@ describe("blanks over the wire", () => {
     ]);
   });
 });
+
+describe("duties put on by hand", () => {
+  const people = [
+    { key: "p1", name: "Person One", available: true },
+    { key: "p2", name: "Person Two", available: true },
+  ];
+  const channels = [{ code: "TWR", inUse: true, openAt: 0, closeAt: 180 }];
+  const body = {
+    state: {
+      people,
+      channels,
+      duties: [
+        { id: "d1", channelCode: "TWR", personKey: "p1", startMin: 0, endMin: 90, kind: "pinned", note: "x" },
+        { id: "d2", channelCode: "TWR", personKey: "p2", startMin: 90, endMin: 180 },
+      ],
+    },
+  };
+
+  it("arrive still marked, so the next generate keeps them, and carry no note", () => {
+    const state = parseIncomingState("2026-09-17", body);
+    expect(state.duties[0]).toEqual({ id: "d1", channelCode: "TWR", personKey: "p1", startMin: 0, endMin: 90, kind: "pinned" });
+    expect(state.duties[1].kind).toBeUndefined();
+    expect(validate(state).errors).toEqual([]);
+  });
+
+  it("are written with their kind", async () => {
+    const rpc = vi.fn(async () => ({ data: { ok: true, version: 1 }, error: null }));
+    await saveState({ rpc } as unknown as SupabaseClient, parseIncomingState("2026-09-17", body), {
+      id: "user-1",
+      name: "Asha Rao",
+    });
+    const payload = (rpc.mock.calls[0] as unknown as [string, { p_duties: unknown[] }])[1];
+    expect(payload.p_duties).toEqual([
+      { channel_code: "TWR", person_key: "p1", start_min: 0, end_min: 90, kind: "pinned", note: null },
+      { channel_code: "TWR", person_key: "p2", start_min: 90, end_min: 180, kind: "duty", note: null },
+    ]);
+  });
+});

@@ -318,8 +318,15 @@ describe("the TSO half crossover", () => {
     // A fake clock that moves 100 ms per read. Spent from one pool, the plain
     // night (which cannot work) used the whole 3 s before the crossover was
     // tried at all; now it stops at its half and the crossover gets the rest.
+    // The time spent evening out the plan once found comes on top of the
+    // budget, so it is left out here.
     let clock = 0;
-    const result = generateAllocation(crossoverNight(), { budgetMs: 3000, seed: 7, now: () => (clock += 100) });
+    const result = generateAllocation(crossoverNight(), {
+      budgetMs: 3000,
+      polishMs: 0,
+      seed: 7,
+      now: () => (clock += 100),
+    });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -702,7 +709,13 @@ describe("no break needed around TSO", () => {
   }, 30_000);
 
   it("still gives a real break after every duty when there are enough people for one", () => {
-    const state = night({ people: team(5, { tso: [1, 2, 3] }), channels: ["TWR", "SMC-S", "CLD", "TSO"].map(code => channel(code)) });
+    // Enough for a real break and even duty hours both. With only some of the
+    // crew cleared for TSO, even hours can need TSO as their break instead:
+    // they hold as many control hours as everyone else and TSO besides.
+    const state = night({
+      people: team(6, { tso: [1, 2, 3, 4, 5, 6] }),
+      channels: ["TWR", "SMC-S", "CLD", "TSO"].map(code => channel(code)),
+    });
     const result = generateAllocation(state, { budgetMs: 2000, seed: 3 });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
