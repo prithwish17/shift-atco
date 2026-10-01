@@ -250,6 +250,43 @@ describe("random nights", () => {
     expect(refusals).toBeGreaterThan(0);
   }, 120_000);
 
+  it("keeps the duties put on by hand and plans the rest around them", () => {
+    // A plan, some of its duties marked as put on by hand and the rest left
+    // as generated, then generated again: whatever comes back keeps every
+    // marked duty exactly as it was, with no gap and no broken rule.
+    let replanned = 0;
+    let refusals = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const first = generateAllocation(randomNight(seed), { budgetMs: 60, polishMs: 30, seed });
+      if (!first.ok) continue;
+      const random = mulberry32(seed * 131 + 3);
+      const planned = (first as Extract<typeof first, { ok: true }>).state;
+      const state = {
+        ...planned,
+        duties: planned.duties.map(entry =>
+          !isFixedDuty(entry) && !isBlank(entry) && random() < 0.3 ? { ...entry, kind: "pinned" as const } : entry,
+        ),
+      };
+      const kept = state.duties.filter(entry => entry.kind === "pinned");
+      const result = generateAllocation(state, { budgetMs: 80, polishMs: 40, seed: seed + 1 });
+      if (!result.ok) {
+        refusals++;
+        expect(refused(result).error.length, `seed ${seed} refused without an explanation`).toBeGreaterThan(0);
+        continue;
+      }
+      replanned++;
+      const next = (result as Extract<typeof result, { ok: true }>).state;
+      for (const entry of kept) expect(next.duties, `seed ${seed} moved a duty put on by hand`).toContainEqual(entry);
+      expect(uncoveredMinutes(next), `seed ${seed} left a channel uncovered`).toBe(0);
+      expect(
+        validateAllocation(next).errors.map(issue => issue.message),
+        `seed ${seed} broke a hard rule`,
+      ).toEqual([]);
+    }
+    expect(replanned).toBeGreaterThan(0);
+    expect(replanned + refusals).toBeGreaterThan(10);
+  }, 120_000);
+
   it("stays inside its time budget on an impossible night", () => {
     const state = night({
       people: team(4, { tso: [1] }),

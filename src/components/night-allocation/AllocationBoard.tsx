@@ -29,16 +29,16 @@ import {
   findPerson,
   formatMinutes,
   formatRange,
-  formatDuration,
   activeMerge,
   breakBetween,
   gapsForChannel,
   isBlank,
   isFixedDuty,
+  isPinnedDuty,
   isPlanned,
   maxDutyFor,
   mergedAwayWindow,
-  minutesOnDuty,
+  dutyHoursLabel,
   personShortLabel,
   snapToSlot,
   unavailableSpans,
@@ -46,6 +46,7 @@ import {
   type NightChannel,
   type NightDuty,
 } from "@/domain/night-allocation";
+import { Pin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { HALF_COLORS, channelSwatch, personSwatch, swatchVars, type HalfColors } from "./palette";
 
@@ -163,8 +164,10 @@ export function AllocationBoard({
       .map(person => ({
         key: person.key,
         title: personShortLabel(person),
-        subtitle: `${person.half === "1st" ? "1st · " : person.half === "2nd" ? "2nd · " : ""}${formatDuration(
-          minutesOnDuty(state, person.key),
+        // Duty hours, with TSO shown apart: it is not counted.
+        subtitle: `${person.half === "1st" ? "1st · " : person.half === "2nd" ? "2nd · " : ""}${dutyHoursLabel(
+          state,
+          person.key,
         )}`,
         duties: state.duties.filter(duty => duty.personKey === person.key),
         gaps: [],
@@ -631,6 +634,8 @@ const DutyStrip = forwardRef<HTMLButtonElement, DutyStripProps>(function DutyStr
   // reservation rather than as one more duty the generator chose.
   const slot = isFixedDuty(duty);
   const tag = dbTag(duty);
+  // Put on by hand: the next generate keeps it and plans around it.
+  const pinned = isPinnedDuty(duty);
   // A duty on the absorbing position covers both for the merge window.
   const merge = activeMerge(state);
   const absorbs =
@@ -647,7 +652,13 @@ const DutyStrip = forwardRef<HTMLButtonElement, DutyStripProps>(function DutyStr
       ref={ref}
       type="button"
       onClick={onOpen}
-      title={slot ? `${tag} — ${person?.name ?? "removed person"} instructing, ${range}` : undefined}
+      title={
+        slot
+          ? `${tag} — ${person?.name ?? "removed person"} instructing, ${range}`
+          : pinned
+            ? `Put on by hand — Generate keeps it and plans around it. ${range}`
+            : undefined
+      }
       style={{ ...swatchVars(swatch), left, width }}
       className={cn(
         "group absolute inset-y-1.5 z-10 flex flex-col items-start justify-center gap-px overflow-hidden rounded-md px-2 text-left",
@@ -668,7 +679,7 @@ const DutyStrip = forwardRef<HTMLButtonElement, DutyStripProps>(function DutyStr
             `${duty.note ? `, trainee ${duty.note}` : ""}, ${range}${hasProblem ? ", has a problem" : ""}. ` +
             `Change this DB slot.`
           : `${duty.channelCode}${absorbs ? ` with ${absorbs}` : ""}, ${person?.name ?? "removed person"}, ${range}` +
-            `${hasProblem ? ", has a problem" : ""}. Change this duty.`
+            `${pinned ? ", kept when generating" : ""}${hasProblem ? ", has a problem" : ""}. Change this duty.`
       }
     >
       <span
@@ -692,6 +703,7 @@ const DutyStrip = forwardRef<HTMLButtonElement, DutyStripProps>(function DutyStr
             {DB_LABEL}
           </span>
         ) : null}
+        {pinned && width >= 44 ? <Pin aria-hidden className="h-2.5 w-2.5 shrink-0 self-center opacity-80" /> : null}
         {absorbs && width >= 76 ? (
           <span className="shrink-0 rounded-sm bg-black/[0.08] px-1 text-[0.6rem] font-bold leading-[1.4] dark:bg-white/[0.12]">
             +{absorbs}

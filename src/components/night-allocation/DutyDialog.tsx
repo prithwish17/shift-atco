@@ -11,6 +11,9 @@
  * Leave the duty — or part of it — blank: the person comes off and the stretch
  * stays on the board with nobody on it, rather than being handed to a
  * neighbour. Or delete it and let the neighbour take the time, as before.
+ *
+ * A duty added here is kept when the night is generated: the generator plans
+ * the rest around it. Any duty can be set to be kept, or not, with the switch.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -30,7 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowLeftRight, CheckCircle2, ChevronDown } from "lucide-react";
+import { ArrowLeftRight, CheckCircle2, ChevronDown, Pin } from "lucide-react";
 import {
   MIN_DUTY_MIN,
   NIGHT_SPAN_MIN,
@@ -47,6 +51,7 @@ import {
   isBlank,
   isFixedDuty,
   isMove,
+  isPinnedDuty,
   findChannel,
   findPerson,
   formatDuration,
@@ -375,6 +380,29 @@ export function DutyDialog({ state, draft, onClose, onApply }: DutyDialogProps) 
             </p>
           ) : null}
         </div>
+
+        <label className="flex items-start justify-between gap-3 rounded-lg border border-corp-border-soft px-3 py-2.5">
+          <span className="min-w-0">
+            <span className="flex items-center gap-1.5 text-[0.82rem] font-medium text-corp-text-main">
+              <Pin className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Keep when generating
+            </span>
+            <span className="mt-0.5 block text-[0.74rem] leading-snug text-corp-text-soft">
+              {isPinnedDuty(working)
+                ? "Generate keeps this duty where it is and plans the rest of the night around it."
+                : "Generate replaces this duty with the rest of the plan."}
+            </span>
+          </span>
+          <Switch
+            checked={isPinnedDuty(working)}
+            onCheckedChange={checked => {
+              setRefusal([]);
+              const { kind: _kind, ...rest } = working;
+              setWorking(checked ? { ...rest, kind: "pinned" } : rest);
+            }}
+            aria-label="Keep this duty when generating"
+          />
+        </label>
 
         <ul aria-live="polite" className="space-y-1 text-sm">
           {shown.map(problem => (

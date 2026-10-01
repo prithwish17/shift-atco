@@ -116,6 +116,25 @@ export const EVENING_REST_MIN = 240;
 export const EVENING_REST_EXEMPT_CHANNELS: readonly string[] = [TSO_CHANNEL];
 
 /**
+ * Positions left out of anyone's duty hours: TSO.
+ *
+ * The generator shares the night out so everyone has much the same duty hours,
+ * and the totals shown against each person are those hours. Time on TSO is in
+ * neither — it is held alongside the control positions, not instead of them —
+ * so someone on TSO for three hours still owes the night their share of the
+ * others. Callers use `countsTowardsHours()` rather than reading this.
+ */
+export const HOURS_EXEMPT_CHANNELS: readonly string[] = [TSO_CHANNEL];
+
+/**
+ * How far one person's duty hours may stray from their fair share in a
+ * generated plan, either way, before the generator looks for a more even one.
+ * Duties come in whole quarter-hours of an hour or more, so exactly even is
+ * rarely possible; within this, everyone's night is the same length.
+ */
+export const HOURS_TOLERANCE_MIN = 45;
+
+/**
  * A blank: a stretch of a position left with nobody on it, on purpose.
  *
  * It is kept on the board as an entry of its own, so it reads, saves and

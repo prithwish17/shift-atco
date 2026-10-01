@@ -8,10 +8,11 @@ import {
   previewDutyChange,
   refitChannel,
   reviewChange,
+  splitDuty,
   swapCandidates,
   swapPeople,
 } from "../editing";
-import { blankMinutes, isBlank, uncoveredMinutes, validateAllocation } from "../rules";
+import { blankMinutes, isBlank, isPinnedDuty, uncoveredMinutes, validateAllocation } from "../rules";
 import { accepted, blank, channel, dbSlot, duty, messages, night, refused, team } from "./fixtures";
 import type { NightAllocationState, NightDuty } from "../types";
 
@@ -354,5 +355,47 @@ describe("the evening rest, while editing", () => {
         "Preferred, not required.",
     ]);
     expect(applyDutyChange(state, draft, last.id).ok).toBe(true);
+  });
+});
+
+describe("duties put on by hand", () => {
+  it("is what filling a blank makes, so the next generate keeps it", () => {
+    const state = twoPositions();
+    state.duties[1] = blank("TWR", 90, 180);
+    const result = accepted(fillBlank(state, state.duties[1].id, "p2", 90, 150));
+    expect(isPinnedDuty(find(result.state, "TWR", 90))).toBe(true);
+  });
+
+  it("is what moving someone onto a blank by a swap makes", () => {
+    const state = twoPositions();
+    state.duties[4] = blank("SMC-S", 90, 180);
+    const result = accepted(swapPeople(state, find(state, "TWR", 90).id, state.duties[4].id));
+    expect(isPinnedDuty(find(result.state, "SMC-S", 90))).toBe(true);
+  });
+
+  it("stays one through a swap, and a generated duty stays generated", () => {
+    const state = twoPositions();
+    state.duties[1] = { ...state.duties[1], kind: "pinned" };
+    const result = accepted(swapPeople(state, find(state, "TWR", 90).id, find(state, "SMC-S", 90).id));
+    expect(find(result.state, "TWR", 90)).toMatchObject({ personKey: "p5", kind: "pinned" });
+    expect(isPinnedDuty(find(result.state, "SMC-S", 90))).toBe(false);
+  });
+
+  it("hands its mark on to the part split off it", () => {
+    const state = twoPositions();
+    state.duties[2] = { ...state.duties[2], kind: "pinned" };
+    const result = accepted(splitDuty(state, state.duties[2].id, 240, "p1"));
+    expect(isPinnedDuty(find(result.state, "TWR", 180))).toBe(true);
+    expect(find(result.state, "TWR", 240)).toMatchObject({ personKey: "p1", kind: "pinned" });
+  });
+
+  it("can be set, or cleared, in the editor like any other change", () => {
+    const state = twoPositions();
+    const target = find(state, "TWR", 90);
+    const kept = accepted(applyDutyChange(state, { ...target, kind: "pinned" }, target.id));
+    expect(isPinnedDuty(find(kept.state, "TWR", 90))).toBe(true);
+    const { kind: _kind, ...plain } = find(kept.state, "TWR", 90);
+    const cleared = accepted(applyDutyChange(kept.state, plain, target.id));
+    expect(isPinnedDuty(find(cleared.state, "TWR", 90))).toBe(false);
   });
 });

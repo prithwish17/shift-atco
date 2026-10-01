@@ -36,6 +36,7 @@ import {
   inBoardOrder,
   isBlank,
   isFixedDuty,
+  isPinnedDuty,
   isPlanned,
   mergedAwayWindow,
   openChannels,
@@ -567,12 +568,14 @@ function buildFilledDuties(
   from: number,
   to: number,
 ): { duties: NightDuty[]; dutyId: string } {
+  // Someone put on by hand: the next generate keeps them there.
   const duty: NightDuty = {
     id: makeDutyId(),
     channelCode: blank.channelCode,
     personKey,
     startMin: from,
     endMin: to,
+    kind: "pinned",
   };
   const { duties } = cutBack(state.duties, duty, entry => entry.id === blank.id);
   duties.push(duty);
@@ -655,7 +658,11 @@ export function swapCandidates(state: NightAllocationState, duty: NightDuty): Ni
     .sort((a, b) => rank(a.channelCode) - rank(b.channelCode) || a.startMin - b.startMin);
 }
 
-/** The duty list with the people on two duties exchanged; a blank's nobody moves like anyone. */
+/**
+ * The duty list with the people on two duties exchanged; a blank's nobody
+ * moves like anyone. A duty put on by hand stays one, and so does anyone moved
+ * onto a blank — that is a fill by hand.
+ */
 function buildSwappedDuties(state: NightAllocationState, first: NightDuty, second: NightDuty): NightDuty[] {
   const holderFrom = (place: NightDuty, from: NightDuty): NightDuty =>
     isBlank(from)
@@ -666,6 +673,7 @@ function buildSwappedDuties(state: NightAllocationState, first: NightDuty, secon
           personKey: from.personKey,
           startMin: place.startMin,
           endMin: place.endMin,
+          ...(isBlank(place) || isPinnedDuty(place) ? { kind: "pinned" as const } : {}),
         };
   return tidyBlanks(
     state.duties.map(entry =>
@@ -744,6 +752,7 @@ export function splitDuty(
     personKey,
     startMin: atMin,
     endMin: original.endMin,
+    ...(isPinnedDuty(original) ? { kind: "pinned" as const } : {}),
   };
   duties.push(remainder);
 

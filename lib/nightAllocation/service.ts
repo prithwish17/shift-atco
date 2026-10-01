@@ -500,14 +500,18 @@ interface SavedDutyRow {
   person_key: string;
   start_min: number | string;
   end_min: number | string;
-  /** 'duty', 'db' for a DB slot, or 'blank' for a stretch left with nobody on it. */
+  /**
+   * 'duty'; 'pinned' for a duty put on by hand, which a generate keeps; 'db'
+   * for a DB slot; or 'blank' for a stretch left with nobody on it.
+   */
   kind: string | null;
   note: string | null;
 }
 
 /**
  * A stored duty row as the module's own shape — a DB slot keeps its kind and
- * note, and a blank its kind, with nobody on it whatever the row says.
+ * note, a duty put on by hand its kind, and a blank its kind, with nobody on
+ * it whatever the row says.
  */
 function dutyFromRow(entry: SavedDutyRow): NightDuty {
   const duty: NightDuty = {
@@ -523,6 +527,8 @@ function dutyFromRow(entry: SavedDutyRow): NightDuty {
   } else if (entry.kind === "blank") {
     duty.kind = "blank";
     duty.personKey = BLANK_PERSON_KEY;
+  } else if (entry.kind === "pinned") {
+    duty.kind = "pinned";
   }
   return duty;
 }
@@ -722,13 +728,16 @@ export function parseIncomingState(nightDate: string, body: unknown): NightAlloc
             endMin: clampMinute(duty.endMin),
           };
           // Only a DB slot carries a note. A blank holds nobody, whatever key
-          // arrived with it. Any other kind is an ordinary duty.
+          // arrived with it. A duty put on by hand stays one, so the next
+          // generate keeps it. Any other kind is an ordinary duty.
           if (duty.kind === "db") {
             parsed.kind = "db";
             parsed.note = cleanDbNote(duty.note);
           } else if (duty.kind === "blank") {
             parsed.kind = "blank";
             parsed.personKey = BLANK_PERSON_KEY;
+          } else if (duty.kind === "pinned") {
+            parsed.kind = "pinned";
           }
           return parsed;
         });
@@ -797,7 +806,7 @@ export async function saveState(
       person_key: duty.personKey,
       start_min: duty.startMin,
       end_min: duty.endMin,
-      kind: duty.kind === "db" || duty.kind === "blank" ? duty.kind : "duty",
+      kind: duty.kind === "db" || duty.kind === "blank" || duty.kind === "pinned" ? duty.kind : "duty",
       note: duty.kind === "db" ? duty.note ?? null : null,
     })),
     p_actor: actor.id,

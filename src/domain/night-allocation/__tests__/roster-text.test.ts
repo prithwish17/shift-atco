@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildChannelTimeline,
   buildRosterGrid,
   buildRosterSummary,
   buildRosterText,
@@ -180,7 +181,8 @@ describe("the image's grid", () => {
       [{ range: "17:30-19:30" }, { range: "23:30-01:30" }],
       [{ range: "13:30-15:30" }, { range: "17:30-19:30" }],
     ]);
-    expect(p4.total).toBe("8h");
+    // Duty hours leave TSO out; it is shown beside them.
+    expect(p4.total).toBe("4h + TSO 4h");
     expect(grid.rows.find(row => row.key === "p1")?.half).toBe("1st Half");
     expect(grid.blanks).toBeNull();
   });
@@ -212,5 +214,37 @@ describe("the image's grid", () => {
     ]);
     expect(grid.rows.find(row => row.key === "p1")?.cells[0]).toEqual([{ range: "15:30-17:30", tag: "DB · Sulagna" }]);
     expect(grid.rows.find(row => row.key === "p2")?.cells[0]).toEqual([{ range: "19:30-21:30", absorbs: "+CLD" }]);
+  });
+});
+
+describe("the image's channel timeline", () => {
+  it("gives each position in use a column, its stretches in time order from 13:30", () => {
+    const state = sharedNight();
+    state.duties = [...state.duties].reverse();
+    const columns = buildChannelTimeline(state);
+
+    // CLD isn't in use; TSO closes at 21:30 and is shut from then on.
+    expect(columns.map(column => column.code)).toEqual(["TWR", "TSO"]);
+    const [twr, tso] = columns;
+    expect(twr.entries.map(entry => entry.startMin)).toEqual([0, 120, 240, 360, 480, 600]);
+    expect(twr.entries[0]).toEqual({ startMin: 0, endMin: 120, name: "Person 3", range: "13:30–15:30", colorIndex: 2 });
+    expect(twr.closed).toEqual([]);
+    expect(tso).toMatchObject({ window: "13:30–21:30", closed: [[480, 720]], merged: null });
+  });
+
+  it("marks a DB slot, a blank and the merge where they are", () => {
+    const state = night({
+      people: team(3),
+      channels: [channel("TWR"), channel("SMC-S"), channel("CLD", { mergedInto: "SMC-S" })],
+      duties: [dbSlot("TWR", "p1", 240, 360, "Neha"), blank("TWR", 360, 480), duty("SMC-S", "p2", 300, 420)],
+    });
+    const [twr, smc, cld] = buildChannelTimeline(state);
+    expect(twr.entries).toEqual([
+      { startMin: 240, endMin: 360, name: "Person 1", range: "17:30–19:30", colorIndex: 0, tag: "DB · Neha" },
+      { startMin: 360, endMin: 480, name: "BLANK", range: "19:30–21:30", colorIndex: null, blank: true },
+    ]);
+    expect(smc.mergedNote).toBe("+CLD 19:00–21:30");
+    expect(smc.entries[0].absorbs).toBe("+CLD");
+    expect(cld).toMatchObject({ mergedNote: "in SMC-S 19:00–21:30", merged: { from: 330, to: 480, into: "SMC-S" } });
   });
 });
