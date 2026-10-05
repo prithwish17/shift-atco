@@ -339,6 +339,9 @@ async function deductLeaveBalance(request: LeaveRequest) {
 async function restoreLeaveBalance(request: LeaveRequest) {
     const bucket = getBalanceBucketForDeduction(request.leave_type);
     if (!bucket) return;
+    // Backfilled and amended requests never deducted (see backfill_leave_entry),
+    // so restoring would hand the employee days they never spent.
+    if ((request.origin ?? 'employee') !== 'employee') return;
 
     const year = new Date(request.start_date).getFullYear();
     try {

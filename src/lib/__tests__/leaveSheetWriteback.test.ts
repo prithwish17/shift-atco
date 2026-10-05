@@ -66,10 +66,17 @@ type LayoutMap = {
 
 type Change = { cell: string; section: string; from: string; to: string };
 
+type Conflict = { cell: string; section: string; sheet: string; app: string };
+
 type WriteResult = {
   ok: boolean;
   dryRun: boolean;
   cellsChanged: number;
+  conflicts: number;
+  concurrentEdits: number;
+  writeLogError: string | null;
+  spreadsheet: string;
+  requestId: string | null;
   employees: { received: number; matched: number; changed: number; unmatched: number };
   results: {
     empId: string;
@@ -77,6 +84,8 @@ type WriteResult = {
     row: number;
     cellsChanged: number;
     changes?: Change[];
+    conflicts: Conflict[];
+    concurrentEdit?: boolean;
     warnings: string[];
   }[];
   unmatched: { empId: string; name: string; reason: string }[];
@@ -105,6 +114,9 @@ type Fixture = {
   formulas: string[][];
   formats: string[][];
   sheet: FakeSheet;
+  book: { name: string; logRows: Cell[][] | null };
+  /** Called on every getValues(); lets a test play a clerk typing mid-write. */
+  hooks: { onRead?: (range: { row: number; col: number; rows: number; cols: number }) => void };
   date: (iso: string) => Date;
   show: (v: Cell) => string;
 };
@@ -170,6 +182,9 @@ function buildFixture() {
   const formats = rows.map(() => blank<string>());
   formulas[3][COL.totals] = "=COUNTA(F4:Q4)";
 
+  const hooks: Fixture["hooks"] = {};
+  const book: Fixture["book"] = { name: "ATTENDANCE-2026", logRows: null };
+
   const sheet = {
     getName: () => "LEAVE_DATA",
     getLastRow: () => rows.length,
@@ -179,7 +194,10 @@ function buildFixture() {
         Array.from({ length: nr }, (_, i) =>
           Array.from({ length: nc }, (_, j) => src[r - 1 + i]?.[c - 1 + j] ?? ("" as T)));
       return {
-        getValues: () => slice(rows),
+        getValues: () => {
+          hooks.onRead?.({ row: r, col: c, rows: nr, cols: nc });
+          return slice(rows);
+        },
         getDisplayValues: () => slice(rows).map((row) => row.map((v) => String(v))),
         getFormulas: () => slice(formulas),
         getNumberFormats: () => slice(formats),
@@ -193,8 +211,30 @@ function buildFixture() {
     },
   };
 
+  // The APP_WRITE_LOG tab: appended to with getRange(lastRow + 1, …).setValues.
+  const logSheet = () => ({
+    getLastRow: () => book.logRows!.length,
+    getRange: (r: number, _c: number, nr = 1) => ({
+      setValues(v: Cell[][]) {
+        for (let i = 0; i < nr; i++) book.logRows![r - 1 + i] = v[i];
+      },
+    }),
+  });
+
   Object.assign(g, {
-    SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheets: () => [sheet] }), flush() {} },
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => ({
+        getName: () => book.name,
+        getSheets: () => [sheet],
+        getSheetByName: (name: string) => (name === "APP_WRITE_LOG" && book.logRows ? logSheet() : null),
+        insertSheet: (name: string) => {
+          if (name !== "APP_WRITE_LOG") throw new Error(`unexpected insertSheet(${name})`);
+          book.logRows = [];
+          return logSheet();
+        },
+      }),
+      flush() {},
+    },
     ContentService: { createTextOutput: (t: string) => ({ setMimeType: () => t }), MimeType: { JSON: "json" } },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
     Logger: { log() {} },
@@ -208,6 +248,8 @@ function buildFixture() {
     formulas,
     formats,
     sheet,
+    book,
+    hooks,
     date,
     show: (v: Cell) => (g as unknown as ScriptGlobals).display_(v),
   };
@@ -481,6 +523,130 @@ describe("leave sheet write-back", () => {
       expect(post("wrong").error).toBe("Unauthorized");
       expect(post("s3cret").ok).toBe(true);
       expect(JSON.parse(f.g.doGet({ parameter: { action: "layout" } })).error).toBe("Unauthorized");
+    });
+  });
+
+  describe("merge is additive", () => {
+    it("never blanks a cell the app has no value for", () => {
+      // The clerk recorded the comp-off date; the app has not seen it yet.
+      f.rows[3][COL.ch] = "N";
+      f.rows[3][COL.ch + 1] = f.date("2026-04-01");
+
+      const res = write({ employees: [{
+        employee: { empId: "10000001" },
+        closedHolidays: [{ date: "2026-01-23", dutyPerformed: "N", leaveApplied: "" }],
+        opeDuty: [{ opeDutyDate: "2025-12-03", leaveApplied: "" }],
+      }] });
+
+      expect(at(4, COL.ch + 1)).toBe("2026-04-01");
+      expect(res.results[0].conflicts).toEqual([]);
+      expect(res.results[0].changes?.map((c) => c.cell)).toEqual(["AK4"]);
+    });
+
+    it("reports a different value as a conflict and keeps the sheet's", () => {
+      f.rows[3][COL.ch] = "L";
+      f.rows[3][COL.ch + 1] = f.date("2026-04-01");
+
+      const res = write({ employees: [{
+        employee: { empId: "10000001" },
+        closedHolidays: [{ date: "2026-01-23", dutyPerformed: "N", leaveApplied: "2026-04-09" }],
+      }] });
+
+      expect(at(4, COL.ch)).toBe("L");
+      expect(at(4, COL.ch + 1)).toBe("2026-04-01");
+      expect(res.cellsChanged).toBe(0);
+      expect(res.conflicts).toBe(2);
+      expect(res.results[0].conflicts).toEqual([
+        { cell: "AA4", section: "closedHolidays", sheet: "L", app: "N" },
+        { cell: "AB4", section: "closedHolidays", sheet: "2026-04-01", app: "2026-04-09" },
+      ]);
+    });
+
+    it("fills the NA a holiday carries until it happens", () => {
+      f.rows[3][COL.ch + 2] = "NA";
+
+      write({ employees: [{
+        employee: { empId: "10000001" },
+        closedHolidays: [{ date: "2026-03-04", dutyPerformed: "M" }],
+      }] });
+
+      expect(at(4, COL.ch + 2)).toBe("M");
+    });
+
+    it("finds a spare last-year pair by the date in its duty cell instead of reporting no column", () => {
+      // The spare pair has no header date; its duty cell holds the date.
+      f.rows[3][COL.lastYear + 2] = f.date("2025-11-15");
+
+      const res = write({ employees: [{
+        employee: { empId: "10000001" },
+        lastYearCompOff: [{ date: "2025-11-15", dutyPerformed: "A", leaveApplied: "2026-01-10" }],
+      }] });
+
+      expect(res.results[0].warnings).toEqual([]);
+      expect(at(4, COL.lastYear + 2)).toBe("2025-11-15");
+      expect(at(4, COL.lastYear + 3)).toBe("2026-01-10");
+    });
+
+    it("still lets replace clear a section it is given", () => {
+      f.rows[3][COL.cl[0]] = f.date("2026-02-10");
+      write({ mode: "replace", employees: [{ employee: { empId: "10000001" }, casualLeave: [] }] });
+      expect(at(4, COL.cl[0])).toBe("");
+    });
+  });
+
+  describe("a commit", () => {
+    it("skips a row someone edited while it was being prepared, and writes the rest", () => {
+      // The writer reads the writable block once to plan and once more just
+      // before writing. A clerk types into row 4 in between.
+      let blockReads = 0;
+      f.hooks.onRead = ({ cols }) => {
+        if (cols !== 41) return;                 // the F:AT writable block
+        blockReads += 1;
+        if (blockReads === 2) f.rows[3][COL.nh] = "NH";
+      };
+
+      const res = write({ dryRun: false, employees: [
+        { employee: { empId: "10000001" }, casualLeave: ["2026-02-10"] },
+        { employee: { empId: "10000002" }, casualLeave: ["2026-02-11"] },
+      ] });
+
+      expect(res.concurrentEdits).toBe(1);
+      expect(res.results[0].concurrentEdit).toBe(true);
+      expect(at(4, COL.cl[0])).toBe("");        // not written over the clerk
+      expect(at(4, COL.nh)).toBe("NH");         // the clerk's edit stands
+      expect(at(5, COL.cl[0])).toBe("2026-02-11");
+      expect(res.cellsChanged).toBe(1);
+    });
+
+    it("logs every written cell to APP_WRITE_LOG", () => {
+      write({ dryRun: false, requestId: "req-1", actor: "sup@test", employees: [
+        { employee: { empId: "10000001" }, casualLeave: ["2026-02-10", "2026-02-11"] },
+      ] });
+
+      const [header, ...entries] = f.book.logRows!;
+      expect(header).toEqual(["Written at", "Request", "By", "Tab", "Cell", "Section", "Before", "After"]);
+      expect(entries.map((r) => r.slice(1))).toEqual([
+        ["req-1", "sup@test", "LEAVE_DATA", "F4", "casualLeave", "", "2026-02-10"],
+        ["req-1", "sup@test", "LEAVE_DATA", "G4", "casualLeave", "", "2026-02-11"],
+      ]);
+    });
+
+    it("logs nothing for a dry run", () => {
+      write({ dryRun: true, employees: [{ employee: { empId: "10000001" }, casualLeave: ["2026-02-10"] }] });
+      expect(f.book.logRows).toBeNull();
+    });
+
+    it("refuses a workbook named for another year before touching it", () => {
+      const post = (expectedYear: number) => JSON.parse(f.g.doPost({ postData: { contents: JSON.stringify({
+        token: "s3cret", dryRun: false, expectedYear,
+        employees: [{ employee: { empId: "10000001" }, casualLeave: ["2026-02-10"] }],
+      }) } }));
+      f.g.ACCESS_TOKEN = "s3cret";
+
+      expect(post(2027).error).toMatch(/not the 2027 workbook/);
+      expect(at(4, COL.cl[0])).toBe("");
+      expect(post(2026).ok).toBe(true);
+      expect(at(4, COL.cl[0])).toBe("2026-02-10");
     });
   });
 

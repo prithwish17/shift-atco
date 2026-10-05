@@ -521,19 +521,29 @@ export default function SupervisorLeaveDashboard() {
 
   // COMP_OFF: leave_date = duty date (when earned); leave_used_on = the actual day taken off.
   const CL_RH_CATEGORIES = ["CL", "CL_1ST", "CL_2ND", "CL_CON", "CL_1ST_CON", "CL_2ND_CON", "RH"];
-  const COMP_OFF_CATEGORIES = ["COMP_OFF", "COMP_OFF_USED", "OPE_COMP_OFF", "LAST_YEAR_COMP_OFF", "LAST_YEAR_CH_DUTY", "OPE"];
+  const COMP_OFF_CATEGORIES = [
+    "COMP_OFF", "COMP_OFF_EARNED", "COMP_OFF_USED", "OPE_COMP_OFF", "LAST_YEAR_COMP_OFF", "LAST_YEAR_CH_DUTY", "OPE",
+  ];
+
+  // A register row that belongs to an app leave request is already on the
+  // calendar through that request (below). The two key employees differently —
+  // employee code vs auth id — so counting both would show the leave twice.
+  const isRequestLinked = (metadata: Record<string, unknown> | null) =>
+    !!metadata && ("leave_request_id" in metadata || "register_link_request_id" in metadata);
 
   const { data: calendarLeaveRecords = [] } = useQuery({
     queryKey: ["leave-records-calendar", calendarMonthStart, calendarMonthEnd],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("employee_leave_records" as any)
-        .select("leave_date, leave_category, emp_id")
+        .select("leave_date, leave_category, emp_id, metadata")
         .in("leave_category", CL_RH_CATEGORIES)
         .gte("leave_date", calendarMonthStart)
         .lte("leave_date", calendarMonthEnd);
       if (error) throw error;
-      return (data || []) as Array<{ leave_date: string; leave_category: string; emp_id: string }>;
+      return ((data || []) as unknown as Array<{
+        leave_date: string; leave_category: string; emp_id: string; metadata: Record<string, unknown> | null;
+      }>).filter((row) => !isRequestLinked(row.metadata));
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
@@ -544,13 +554,15 @@ export default function SupervisorLeaveDashboard() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("employee_leave_records" as any)
-        .select("leave_used_on, leave_category, emp_id")
+        .select("leave_used_on, leave_category, emp_id, metadata")
         .in("leave_category", COMP_OFF_CATEGORIES)
         .gte("leave_used_on", calendarMonthStart)
         .lte("leave_used_on", calendarMonthEnd)
         .not("leave_used_on", "is", null);
       if (error) throw error;
-      return (data || []) as Array<{ leave_used_on: string; leave_category: string; emp_id: string }>;
+      return ((data || []) as unknown as Array<{
+        leave_used_on: string; leave_category: string; emp_id: string; metadata: Record<string, unknown> | null;
+      }>).filter((row) => !isRequestLinked(row.metadata));
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 15 * 60 * 1000,

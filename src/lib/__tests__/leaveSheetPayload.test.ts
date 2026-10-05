@@ -108,6 +108,107 @@ describe("buildSheetPayload", () => {
         expect(employees[0].restrictedHolidays[0].leaveApplied).toBe("2026-02-25");
     });
 
+    it("omits values the app does not have instead of sending blanks", () => {
+        // A blank reaches the writer as "put nothing here"; omitting it leaves
+        // whatever the clerk entered alone.
+        const { employees } = build([
+            { leave_category: "COMP_OFF_EARNED", leave_date: "2026-05-28", duty_code: "N" },
+            { leave_category: "COMP_OFF_EARNED", leave_date: "2026-06-26", duty_code: "" },
+            { leave_category: "OPE", leave_date: "2026-04-29" },
+            { leave_category: "RH", leave_date: "2026-01-01" },
+        ]);
+
+        expect(employees[0].closedHolidays).toEqual([
+            { date: "2026-05-28", dutyPerformed: "N" },
+            { date: "2026-06-26" },
+        ]);
+        expect(employees[0].opeDuty).toEqual([{ opeDutyDate: "2026-04-29" }]);
+        expect(employees[0].restrictedHolidays).toEqual([{ date: "2026-01-01" }]);
+    });
+
+    it("sends half-day CLs, and only when there are some", () => {
+        const withHalf = build([
+            { leave_category: "CL_1ST", leave_date: "2026-04-08" },
+            { leave_category: "CL_2ND", leave_date: "2026-05-11" },
+            { leave_category: "CL_1ST", leave_date: "2025-12-01" },
+        ]);
+        expect(withHalf.employees[0].halfCasualLeave).toEqual(["2026-04-08", "2026-05-11"]);
+
+        const without = build([{ leave_category: "CL", leave_date: "2026-04-08" }]);
+        expect(without.employees[0]).not.toHaveProperty("halfCasualLeave");
+    });
+
+    it("keys an RH by the holiday it was declared against", () => {
+        // Rows written before the register convention held the day taken in
+        // leave_date and the holiday in metadata.
+        const { employees } = build([
+            { leave_category: "RH", leave_date: "2026-06-10", metadata: { rh_date: "2026-01-01", leave_applied: "2026-06-10" } },
+        ]);
+        expect(employees[0].restrictedHolidays).toEqual([{ date: "2026-01-01", leaveApplied: "2026-06-10" }]);
+    });
+
+    it("carries last year's open closed-holiday comp-offs into the last-year block", () => {
+        const { employees, skipped } = build([
+            // earned last December, taken this January → carried over
+            { leave_category: "COMP_OFF_EARNED", leave_date: "2025-12-25", duty_code: "M", leave_used_on: "2026-01-19" },
+            // earned last November, not yet taken → carried over
+            { leave_category: "COMP_OFF_EARNED", leave_date: "2025-11-05", duty_code: "A" },
+            // earned and taken last year → belongs to last year's sheet only
+            { leave_category: "COMP_OFF_EARNED", leave_date: "2025-10-20", duty_code: "N", leave_used_on: "2025-11-01" },
+            // two years back → nowhere on this sheet
+            { leave_category: "COMP_OFF_EARNED", leave_date: "2024-12-25", duty_code: "N" },
+        ]);
+
+        expect(employees[0].closedHolidays).toEqual([]);
+        expect(employees[0].lastYearCompOff).toEqual([
+            { date: "2025-12-25", dutyPerformed: "M", leaveApplied: "2026-01-19" },
+            { date: "2025-11-05", dutyPerformed: "A" },
+        ]);
+        expect(skipped).toEqual([
+            { category: "COMP_OFF_EARNED (2025)", count: 1 },
+            { category: "COMP_OFF_EARNED (2024)", count: 1 },
+        ]);
+    });
+
+    it("puts a date-carrying last-year entry back in the last-year block, not the OPE block", () => {
+        // fetch-leave-data files a last-year pair whose duty cell holds a date
+        // under OPE; its raw_event still has the last-year shape.
+        const { employees } = build([
+            {
+                leave_category: "OPE",
+                leave_date: "2025-11-15",
+                leave_used_on: "2026-01-10",
+                raw_event: { dutyPerformed: "15-Nov-2025", leaveApplied: "10-Jan-2026" },
+            },
+            {
+                leave_category: "OPE",
+                leave_date: "2026-04-29",
+                raw_event: { opeDutyDate: "29-Apr-2026", leaveApplied: "" },
+                metadata: { ope_duty_date: "2026-04-29" },
+            },
+        ]);
+
+        expect(employees[0].lastYearCompOff).toEqual([
+            { date: "2025-11-15", dutyPerformed: "2025-11-15", leaveApplied: "2026-01-10" },
+        ]);
+        expect(employees[0].opeDuty).toEqual([{ opeDutyDate: "2026-04-29" }]);
+    });
+
+    it("skips legacy last-year entries that lost their holiday date", () => {
+        const { employees, skipped } = build([
+            {
+                leave_category: "COMP_OFF",
+                leave_date: "2026-01-19",
+                duty_code: "A",
+                leave_used_on: "2026-01-19",
+                raw_event: { dutyPerformed: "A", leaveApplied: "19-Jan-2026" },
+            },
+        ]);
+
+        expect(employees[0].closedHolidays).toEqual([]);
+        expect(skipped).toEqual([{ category: "COMP_OFF (last-year entry, holiday date unknown)", count: 1 }]);
+    });
+
     it("groups by employee and keeps them separate", () => {
         const { employees } = build([
             { emp_id: "10014941", employee_name: "ALPHA", leave_category: "CL", leave_date: "2026-03-02" },

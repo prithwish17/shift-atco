@@ -193,6 +193,7 @@ export function useBackfillLeaveEntry() {
             qc.invalidateQueries({ queryKey: ['leave-discrepancy-page'] });
             qc.invalidateQueries({ queryKey: ['leave-requests'] });
             qc.invalidateQueries({ queryKey: ['leave-records'] });
+            qc.invalidateQueries({ queryKey: ['leave-sheet-push-queue'] });
         },
     });
 }
@@ -232,12 +233,15 @@ export interface BalanceRecomputeResult {
     user_id: string;
     year: number;
     dry_run: boolean;
+    /** 'register' normally; 'leave_requests' for an employee with no employee code. */
+    basis?: 'register' | 'leave_requests';
     cl: { before: number | null; after: number; used: number };
     rh: { before: number | null; after: number; used: number };
 }
 
 /**
- * Derive CL/RH balances from approved history.
+ * Derive CL/RH balances from the leave register — the same rows the apply form
+ * and the leave page count, sheet history and app approvals alike.
  *
  * Backfill deliberately does not deduct as it goes — deduct_leave_balance() raises
  * on insufficient balance, so a thousand historical entries would abort constantly
@@ -346,7 +350,7 @@ export function monthsForItems(items: Array<Pick<BacklogItem, 'startDate' | 'end
  * a balance. deduct_leave_balance() raises on insufficient balance, so a
  * thousand historical entries would abort constantly and leave balances
  * half-applied — recompute_leave_balance() derives them afterwards instead, as
- * `12 - approved CL days` for the year.
+ * `12 − CL taken` in the register for the year (a half day counts ½).
  *
  * Nothing therefore stops a supervisor recording a 13th CL day. This puts the
  * number in front of them at the moment it matters. It calls the same RPC with
@@ -392,13 +396,36 @@ export interface SheetPushChange {
     to: string;
 }
 
+/** A cell the sheet already holds a different value in — left as it is. */
+export interface SheetPushConflict {
+    cell: string;
+    section: string;
+    sheet: string;
+    app: string;
+}
+
+/** Leave cancelled in the app that the clerk has to remove from the sheet. */
+export interface SheetManualRemoval {
+    empId: string;
+    category: string;
+    date: string;
+    reason: string;
+}
+
 export interface SheetPushResult {
     ok: boolean;
     dryRun: boolean;
     mode: string;
+    spreadsheet?: string;
     sheet?: string;
+    source?: string;
+    year?: number;
+    requestId?: string | null;
     cellsChanged: number;
     rowsWritten?: number;
+    conflicts?: number;
+    concurrentEdits?: number;
+    writeLogError?: string | null;
     employees: { received: number; matched: number; changed: number; unmatched: number };
     results: Array<{
         empId: string;
@@ -406,29 +433,40 @@ export interface SheetPushResult {
         row: number;
         cellsChanged: number;
         changes?: SheetPushChange[];
+        conflicts?: SheetPushConflict[];
+        concurrentEdit?: boolean;
         warnings: string[];
     }>;
     unmatched: Array<{ empId: string; name: string; reason: string }>;
     registerRows?: number;
     skippedCategories?: Array<{ category: string; count: number }>;
+    /** Fingerprint of the previewed payload; a commit must send it back. */
+    payloadHash?: string;
+    manualRemovals?: SheetManualRemoval[];
+    /** Employees with app changes the sheet has not been sent. */
+    pendingCount?: number;
     note?: string;
 }
 
 /**
- * Push the register into the ATTENDANCE-2026 sheet.
+ * Push the register into the live ATTENDANCE sheet.
  *
  * Goes through lib/leave/sheetPush.ts rather than calling the Apps Script
  * directly: the write token must not reach the browser, and Apps Script /exec
  * redirects in a way browsers cannot follow for a cross-origin POST anyway.
  *
- * Defaults to a dry run. The caller has to ask for `dryRun: false`.
+ * Defaults to a dry run. A write takes `dryRun: false` plus the `expectedHash`
+ * the preview returned, and is refused if the register changed in between.
+ * The year is always the live sheet's; merge is the only mode.
  */
 export function usePushLeaveToSheet() {
+    const qc = useQueryClient();
     return useMutation({
         mutationFn: async (input: {
             dryRun?: boolean;
-            mode?: 'merge' | 'replace';
-            year?: number;
+            /** Only employees with app changes queued for the sheet. */
+            pendingOnly?: boolean;
+            expectedHash?: string;
             empIds?: string[];
         }): Promise<SheetPushResult> => {
             const { data: { session } } = await supabase.auth.getSession();
@@ -442,8 +480,8 @@ export function usePushLeaveToSheet() {
                 },
                 body: JSON.stringify({
                     dryRun: input.dryRun !== false,
-                    mode: input.mode ?? 'merge',
-                    year: input.year,
+                    pendingOnly: input.pendingOnly ?? false,
+                    expectedHash: input.expectedHash,
                     empIds: input.empIds,
                 }),
             });
@@ -453,6 +491,24 @@ export function usePushLeaveToSheet() {
                 throw new Error(payload?.error || `Push failed (${res.status})`);
             }
             return payload as SheetPushResult;
+        },
+        onSuccess: (result) => {
+            if (!result.dryRun) qc.invalidateQueries({ queryKey: ['leave-sheet-push-queue'] });
+        },
+    });
+}
+
+/** How many employees have app changes the sheet has not been sent. */
+export function useLeaveSheetPushQueueCount() {
+    return useQuery({
+        queryKey: ['leave-sheet-push-queue', 'count'],
+        staleTime: 60 * 1000,
+        queryFn: async () => {
+            const { count, error } = await supabase
+                .from('leave_sheet_push_queue')
+                .select('emp_id', { count: 'exact', head: true });
+            if (error) throw error;
+            return count ?? 0;
         },
     });
 }

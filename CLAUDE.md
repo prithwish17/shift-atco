@@ -52,4 +52,10 @@ npx tsc --noEmit     # type-check (do this before every build/deploy)
 
 ## Reference docs in this folder
 `README.md`, `ENTERPRISE_RULE_ENGINE_PLAN.md`, `ROSTER_RULES_COMPILED.md`, `LEAVE_RULES_AND_SCHEMA_SUMMARY.txt`, `REDIS_CACHING.md`, `SECURITY.md`, and the various `*_IMPLEMENTATION_*` / `PHASE*` notes. Check these before changing roster, leave, or caching logic.
+`docs/leave/` covers the leave register and its Google Sheet. It has three files:
+- `ARCHITECTURE.md`: the as-is map and risk register.
+- `SHEET_INDEPENDENCE.md`: the register is the system of record, how the sync and write-back work, and the sheet lifecycle.
+- `RUNBOOK.md`: procedures.
+
+Read `SHEET_INDEPENDENCE.md` before touching `employee_leave_records`, `fetch-leave-data`, the sheet push or `docs/leave-apps-script/Code.gs`. The DB scenarios run with `scripts/db-tests/leave-ledger/run.sh`.
 `docs/night-channel-allocation.md` covers the Night Channel Allocation module — the rule set, the solver, the API and how to add a channel. Read it before touching anything under `src/domain/night-allocation`.

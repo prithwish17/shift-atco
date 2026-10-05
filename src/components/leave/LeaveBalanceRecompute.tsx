@@ -81,7 +81,7 @@ export function LeaveBalanceRecompute({
                 <div>
                     <div className="font-semibold text-slate-900">{label}</div>
                     <div className="text-xs text-muted-foreground">
-                        {bucket.used} day{Number(bucket.used) === 1 ? "" : "s"} approved this year
+                        {bucket.used} day{Number(bucket.used) === 1 ? "" : "s"} taken this year
                     </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm">
@@ -134,13 +134,14 @@ export function LeaveBalanceRecompute({
                     ) : (
                         <RefreshCw className="mr-2 h-4 w-4" />
                     )}
-                    Preview from approved leave
+                    Preview from the leave register
                 </Button>
             </div>
 
             {preview === null ? (
                 <p className="text-[11px] text-muted-foreground sm:text-sm">
-                    Balances are derived from opening allocation (12 CL, 2 RH) minus approved leave.
+                    Balances are derived from opening allocation (12 CL, 2 RH) minus leave taken in the register —
+                    the sheet's history and every approval in the app, a half day counting ½.
                     Preview the computed figures before applying them.
                 </p>
             ) : (

@@ -94,23 +94,52 @@ Deno.serve(async (req) => {
             triggeredBy = "cron_job";
         }
 
-        // Read the webapp URL from app_settings
-        let appsScriptUrl = "";
-        try {
-            const { data: setting } = await adminClient
-                .from("app_settings")
-                .select("value")
-                .eq("key", "leave_data_webapp_url")
-                .single();
-            if (setting?.value) {
-                appsScriptUrl = setting.value;
+        // The workbook currently feeding the register. When the last one has been
+        // closed and no successor registered, there is nothing to read — the
+        // register keeps everything it has, so this is a quiet no-op, not an error.
+        // See docs/leave/RUNBOOK.md.
+        const { data: source, error: sourceError } = await adminClient
+            .from("leave_sheet_sources")
+            .select("source_key, leave_year, read_url")
+            .eq("status", "active")
+            .maybeSingle();
+
+        if (sourceError) {
+            const errMsg = `Could not read leave_sheet_sources: ${sourceError.message}`;
+            await logApiCall("error", errMsg, Date.now() - startTime, triggeredBy);
+            return new Response(JSON.stringify({ error: errMsg }), {
+                status: 500,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+        }
+
+        if (!source) {
+            const msg = "Skipped: no active leave sheet source (the sheet has been closed). The register is unchanged.";
+            await logApiCall("success", msg, Date.now() - startTime, triggeredBy);
+            return new Response(JSON.stringify({ success: true, skipped: true, message: msg }), {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+        }
+
+        // The source's own read URL, else the app-wide setting.
+        let appsScriptUrl = typeof source.read_url === "string" ? source.read_url.trim() : "";
+        if (!appsScriptUrl) {
+            try {
+                const { data: setting } = await adminClient
+                    .from("app_settings")
+                    .select("value")
+                    .eq("key", "leave_data_webapp_url")
+                    .single();
+                if (setting?.value) {
+                    appsScriptUrl = setting.value;
+                }
+            } catch {
+                // Table or key may not exist yet
             }
-        } catch {
-            // Table or key may not exist yet
         }
 
         if (!appsScriptUrl) {
-            const errMsg = "leave_data_webapp_url not configured in app_settings";
+            const errMsg = `No read URL for ${source.source_key}: set leave_sheet_sources.read_url or app_settings.leave_data_webapp_url`;
             await logApiCall("error", errMsg, Date.now() - startTime, triggeredBy);
             return new Response(JSON.stringify({ error: errMsg }), {
                 status: 400,
@@ -151,8 +180,6 @@ Deno.serve(async (req) => {
             await logApiCall("error", errMsg, Date.now() - startTime, triggeredBy);
             throw new Error(errMsg);
         }
-
-        const batchId = `leave-sync-${Date.now()}`;
 
         function formatUtcDate(date: Date): string {
             const y = date.getUTCFullYear();
@@ -263,8 +290,6 @@ Deno.serve(async (req) => {
             raw_leave_used_value: string | null;
             raw_event: Record<string, any>;
             metadata: Record<string, any>;
-            source: string;
-            sync_batch_id: string;
         };
 
         function createLeaveRow(
@@ -304,8 +329,6 @@ Deno.serve(async (req) => {
                 raw_leave_used_value: overrides.rawLeaveUsedValue ?? null,
                 raw_event: overrides.rawEvent || {},
                 metadata: overrides.metadata || {},
-                source: "google_sheets",
-                sync_batch_id: batchId,
             };
         }
 
@@ -527,7 +550,9 @@ Deno.serve(async (req) => {
             const empName = String(employeeInfo?.name || employeeInfo?.employee_name || "").trim();
             if (!empId) continue;
 
-            const slNo = employeeInfo?.slNo ?? null;
+            // sl_no is an integer column; a stray "12A" must not fail the whole run.
+            const rawSlNo = Number.parseInt(String(employeeInfo?.slNo ?? ""), 10);
+            const slNo = Number.isFinite(rawSlNo) ? rawSlNo : null;
             const empStatus = employeeInfo?.status || emp.status || null;
             const rowBase = { empId, empName, slNo, empStatus };
 
@@ -709,55 +734,86 @@ Deno.serve(async (req) => {
             console.log(`Dropped ${duplicateCount} duplicate leave rows before upsert (canonical: ${rows.length - afterCanonical.length}, db-key: ${afterCanonical.length - dedupedRows.length})`);
         }
 
-        // Batch upsert into employee_leave_records
-        let upserted = 0;
-        if (dedupedRows.length > 0) {
-            const BATCH_SIZE = 500;
-            for (let i = 0; i < dedupedRows.length; i += BATCH_SIZE) {
-                const batch = dedupedRows.slice(i, i + BATCH_SIZE);
-                const { error: upsertError } = await adminClient
-                    .from("employee_leave_records")
-                    .upsert(batch, {
-                        onConflict: "emp_id,leave_category,source_event_type,leave_date,duty_code",
-                    });
+        // Stage the feed, then let commit_leave_sheet_sync() apply it in one
+        // transaction. Nothing here writes the register or deletes anything:
+        // what a sync may change on each row, and which rows the sheet no longer
+        // carries may be retired (archived, behind circuit breakers), is decided
+        // in SQL — see supabase/migrations/20261005100000_leave_sheet_sources_and_safe_sync.sql.
+        const { data: run, error: runError } = await adminClient
+            .from("leave_sheet_sync_runs")
+            .insert({
+                source_key: source.source_key,
+                triggered_by: triggeredBy,
+                employees_count: employees.length,
+                rows_parsed: rows.length,
+                stats: { duplicates_dropped: duplicateCount, read_url_from: source.read_url ? "source" : "app_settings" },
+            })
+            .select("id")
+            .single();
 
-                if (upsertError) {
-                    console.error("Upsert error:", upsertError);
-                    throw new Error(
-                        `Upsert failed for batch ${Math.floor(i / BATCH_SIZE) + 1}: ${upsertError.message}`
-                    );
-                }
-                upserted += batch.length;
-            }
-
-            // Remove sync-owned rows that were not refreshed in this batch.
-            // This keeps the sync authoritative without deleting data before a successful import.
-            const { error: staleCleanupError } = await adminClient
-                .from("employee_leave_records")
-                .delete()
-                .eq("source", "google_sheets")
-                .neq("sync_batch_id", batchId);
-
-            if (staleCleanupError) {
-                console.error("Stale cleanup error:", staleCleanupError);
-                throw new Error(`Failed to prune stale synced rows: ${staleCleanupError.message}`);
-            }
-
-            console.log(`Upserted ${upserted} leave records`);
+        if (runError || !run) {
+            throw new Error(`Could not open a sync run: ${runError?.message ?? "no row returned"}`);
         }
 
+        const BATCH_SIZE = 500;
+        for (let i = 0; i < dedupedRows.length; i += BATCH_SIZE) {
+            const batch = dedupedRows.slice(i, i + BATCH_SIZE).map((row) => ({ run_id: run.id, ...row }));
+            const { error: stageError } = await adminClient.from("leave_sheet_sync_staging").insert(batch);
+
+            if (stageError) {
+                await adminClient
+                    .from("leave_sheet_sync_runs")
+                    .update({ status: "failed", finished_at: new Date().toISOString(), error: `Staging failed: ${stageError.message}` })
+                    .eq("id", run.id);
+                throw new Error(
+                    `Staging failed for batch ${Math.floor(i / BATCH_SIZE) + 1}: ${stageError.message} — the register is unchanged`,
+                );
+            }
+        }
+
+        const { data: commit, error: commitError } = await adminClient.rpc("commit_leave_sheet_sync", {
+            p_run_id: run.id,
+        });
+
+        if (commitError) {
+            throw new Error(`Commit failed: ${commitError.message} — the register is unchanged`);
+        }
+
+        const result = (commit ?? {}) as Record<string, any>;
         const durationMs = Date.now() - startTime;
-        const successMsg = `Fetched ${employees.length} employees, ${rows.length} records, deduped ${dedupedRows.length}, upserted ${upserted}`;
-        await logApiCall("success", successMsg, durationMs, triggeredBy, upserted);
+
+        if (!result.ok) {
+            // Rejected (closed source, wrong-year workbook) or an empty feed:
+            // nothing was written. Logged as an error so cron health shows it.
+            const errMsg = `Sync ${result.status ?? "failed"}: ${result.error ?? "unknown"}`;
+            await logApiCall("error", errMsg, durationMs, triggeredBy);
+            return new Response(JSON.stringify({ success: false, runId: run.id, ...result }), {
+                status: 409,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+        }
+
+        const changed = Number(result.inserted ?? 0) + Number(result.updated ?? 0);
+        const retirement = result.retire_status === "blocked"
+            ? ` ATTENTION: ${result.retire_candidates} row(s) missing from the sheet were NOT retired — ${result.blocked_reason} An admin must review this run.`
+            : result.retired
+                ? `, retired ${result.retired} to the archive`
+                : "";
+        const successMsg =
+            `${source.source_key}: ${employees.length} employees, ${dedupedRows.length} rows staged, ` +
+            `${result.inserted} inserted, ${result.updated} updated${retirement}`;
+        await logApiCall("success", successMsg, durationMs, triggeredBy, changed);
 
         return new Response(
             JSON.stringify({
+                ...result,
                 success: true,
+                runId: run.id,
+                source: source.source_key,
                 employees: employees.length,
                 records: rows.length,
                 uniqueRecords: dedupedRows.length,
                 droppedDuplicates: duplicateCount,
-                upserted,
             }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );

@@ -7,6 +7,8 @@ export type NormalizedLeaveRecord = {
   name: string;
   status: "Active" | "Inactive";
   casualLeave: unknown[];
+  /** Half-day CL dates; each counts ½ in casualCount. */
+  halfCasualLeave: unknown[];
   restrictedHolidays: unknown[];
   nationalHolidays: unknown[];
   closedHolidays: unknown[];
@@ -253,17 +255,23 @@ export function normalizeCompOffEntries(items: unknown[]): CompOffHistoryEntry[]
 
 export function calculateCasualLeaveCount(record: RawLeaveRecord): number {
   const items = normalizeArray(record.casualLeave);
-  if (items.length === 0) return 0;
   const first = items[0];
   let used = 0;
-  if (typeof first === "string") {
+  if (items.length === 0) {
+    used = 0;
+  } else if (typeof first === "string") {
     used = countNonEmptyStrings(items);
   } else if (typeof first === "object") {
     used = countByFields(items, ["date", "leaveApplied"]);
   } else {
     used = items.length;
   }
-  return Math.min(used, 12);
+  return Math.min(used + 0.5 * countHalfCasualLeave(record), 12);
+}
+
+/** Half-day CL entries — register CL_1ST / CL_2ND rows. */
+export function countHalfCasualLeave(record: RawLeaveRecord): number {
+  return countNonEmptyStrings(normalizeArray(record.halfCasualLeave));
 }
 
 export function calculateRestrictedHolidayUsage(record: RawLeaveRecord): number {
@@ -303,6 +311,7 @@ export function normalizeLeaveRecord(record: RawLeaveRecord): NormalizedLeaveRec
   const status = normalizeStatus(record.status);
 
   const casualLeave = normalizeArray(record.casualLeave);
+  const halfCasualLeave = normalizeArray(record.halfCasualLeave);
   const restrictedHolidays = normalizeArray(record.restrictedHolidays);
   const nationalHolidays = normalizeArray(record.nationalHolidays);
   const closedHolidays = normalizeArray(record.closedHolidays);
@@ -323,6 +332,7 @@ export function normalizeLeaveRecord(record: RawLeaveRecord): NormalizedLeaveRec
     name,
     status,
     casualLeave,
+    halfCasualLeave,
     restrictedHolidays,
     nationalHolidays,
     closedHolidays,

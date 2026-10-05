@@ -10,6 +10,7 @@ import { useState, useEffect } from "react";
 import { Settings, Save, Loader2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { NIGHT_ALLOCATION_SETTING_KEY } from "@/hooks/useNightAllocationEnabled";
+import { LeaveSheetSourcePanel } from "@/components/leave/LeaveSheetSourcePanel";
 
 const DEFAULT_TRAINING_DATA_URL = "https://script.google.com/macros/s/AKfycbzkGpqGjRkvOPAOOsDsjnjPz1FIU0ceRLAv2xsogsKkozKClZTL1WsPnRPvdduaIouS/exec";
 
@@ -451,7 +452,10 @@ export default function AdminSettings() {
                                 disabled={isLoading}
                             />
                             <p className="text-xs text-muted-foreground">
-                                The full URL of the deployed Google Apps Script web app (ends with /exec)
+                                The full URL of the deployed Google Apps Script web app (ends with /exec). Used for
+                                the live leave sheet unless it has its own URL. To move to next year's workbook,
+                                close the current sheet below and start the new one — a feed from another year on
+                                this year's sheet is rejected, not synced.
                             </p>
                         </div>
                         <Button
@@ -467,6 +471,8 @@ export default function AdminSettings() {
                         </Button>
                     </CardContent>
                 </Card>
+
+                <LeaveSheetSourcePanel />
 
                 <Card>
                     <CardHeader>

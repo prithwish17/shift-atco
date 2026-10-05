@@ -52,6 +52,7 @@ import {
     useLeaveBacklog,
     useOpenBackfillBatch,
     useCloseBackfillBatch,
+    useLeaveSheetPushQueueCount,
     usePushLeaveToSheet,
     type BackfillConflict,
     type SheetPushResult,
@@ -78,8 +79,9 @@ const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => ({
 /**
  * Leave types that draw on the CL bucket.
  *
- * Mirrors the filter in recompute_leave_balance() — keep the two in step, or the
- * balance shown here stops matching the one a recompute writes.
+ * Mirrors register_category_for_leave_type(), which files these as CL / CL_1ST /
+ * CL_2ND register rows — the rows recompute_leave_balance() counts. Keep the two
+ * in step, or the balance shown here stops matching the one a recompute writes.
  */
 const CL_FAMILY = new Set([
     "CL", "CL_CON", "CL_1ST", "CL_1ST_CON", "CL_2ND", "CL_2ND_CON",
@@ -150,6 +152,8 @@ export default function LeaveBacklogPage() {
     const [clearedKeys, setClearedKeys] = useState<Set<string>>(new Set());
     const [sheetOpen, setSheetOpen] = useState(false);
     const [sheetPreview, setSheetPreview] = useState<SheetPushResult | null>(null);
+    /** Only employees with app changes the sheet has not been sent, or everyone. */
+    const [sheetScope, setSheetScope] = useState<"pending" | "all">("pending");
 
     const typeRef = useRef<HTMLButtonElement>(null);
 
@@ -244,6 +248,7 @@ export default function LeaveBacklogPage() {
 
     const balance = useEmployeeLeaveBalance(active?.employeeCode, selectedYear);
     const pushToSheet = usePushLeaveToSheet();
+    const { data: pendingSheetCount = 0 } = useLeaveSheetPushQueueCount();
 
     const isClosedHoliday = useMemo(() => {
         const chSet = new Set(
@@ -288,7 +293,7 @@ export default function LeaveBacklogPage() {
      * CL days this run would add.
      *
      * Backfill never deducts — recompute_leave_balance() derives the balance
-     * afterwards from approved history — so nothing stops a 13th CL day being
+     * afterwards from the leave register — so nothing stops a 13th CL day being
      * recorded. Showing what the run costs is the only guard the supervisor gets.
      */
     const clDaysInRun = useMemo(
@@ -340,12 +345,17 @@ export default function LeaveBacklogPage() {
         }
     };
 
-    /** Always preview first — this writes to a shared workbook, not just our DB. */
-    const previewSheetPush = async () => {
+    /**
+     * Always preview first — this writes to a shared workbook, not just our DB.
+     * The write then sends back the preview's fingerprint, so it writes exactly
+     * the cells shown or nothing.
+     */
+    const previewSheetPush = async (scope: "pending" | "all" = sheetScope) => {
+        setSheetScope(scope);
         setSheetPreview(null);
         setSheetOpen(true);
         try {
-            setSheetPreview(await pushToSheet.mutateAsync({ dryRun: true, year: selectedYear }));
+            setSheetPreview(await pushToSheet.mutateAsync({ dryRun: true, pendingOnly: scope === "pending" }));
         } catch (err) {
             setSheetOpen(false);
             toast({
@@ -358,13 +368,21 @@ export default function LeaveBacklogPage() {
 
     const commitSheetPush = async () => {
         try {
-            const result = await pushToSheet.mutateAsync({ dryRun: false, year: selectedYear });
+            const result = await pushToSheet.mutateAsync({
+                dryRun: false,
+                pendingOnly: sheetScope === "pending",
+                expectedHash: sheetPreview?.payloadHash,
+            });
             setSheetPreview(result);
+            const held = (result.conflicts ?? 0) + (result.concurrentEdits ?? 0);
             toast({
-                title: "Sheet updated",
-                description: `${result.cellsChanged} cell${result.cellsChanged === 1 ? "" : "s"} across ${
-                    result.employees.changed
-                } row${result.employees.changed === 1 ? "" : "s"}.`,
+                title: result.cellsChanged ? "Sheet updated" : "Queue cleared",
+                description: result.cellsChanged
+                    ? `${result.cellsChanged} cell${result.cellsChanged === 1 ? "" : "s"} across ${
+                          result.employees.changed
+                      } row${result.employees.changed === 1 ? "" : "s"}.` +
+                      (held ? ` ${held} left as they were on the sheet — see the list.` : "")
+                    : result.note ?? "Nothing was written to the sheet.",
             });
         } catch (err) {
             toast({
@@ -660,7 +678,7 @@ export default function LeaveBacklogPage() {
                                 type="button"
                                 variant="outline"
                                 className="h-10 gap-2"
-                                onClick={previewSheetPush}
+                                onClick={() => previewSheetPush(pendingSheetCount > 0 ? "pending" : "all")}
                                 disabled={pushToSheet.isPending}
                             >
                                 {pushToSheet.isPending ? (
@@ -669,6 +687,11 @@ export default function LeaveBacklogPage() {
                                     <SheetIcon className="h-4 w-4" />
                                 )}
                                 Send to Google Sheets
+                                {pendingSheetCount > 0 && (
+                                    <Badge variant="secondary" className="ml-0.5">
+                                        {pendingSheetCount} pending
+                                    </Badge>
+                                )}
                             </Button>
                         </div>
                     </div>
@@ -1131,7 +1154,7 @@ export default function LeaveBacklogPage() {
                                             </div>
                                             <div className="mt-1 text-xs text-muted-foreground">
                                                 {DEFAULT_CL_BALANCE} allowed ·{" "}
-                                                {balance.data.cl.used} approved ·{" "}
+                                                {balance.data.cl.used} taken ·{" "}
                                                 <span className="font-semibold text-slate-900">
                                                     {balance.data.cl.after} left
                                                 </span>
@@ -1265,10 +1288,36 @@ export default function LeaveBacklogPage() {
                         </DialogTitle>
                         <DialogDescription>
                             {sheetPreview?.dryRun === false
-                                ? "Written to the sheet."
-                                : `Preview of what would change in the ${selectedYear} register. Nothing is written yet.`}
+                                ? `Written to ${sheetPreview.spreadsheet || "the sheet"}.`
+                                : `Preview of what would change in ${
+                                      sheetPreview?.spreadsheet || sheetPreview?.source || "the live sheet"
+                                  }. Nothing is written yet. Empty cells are filled; nothing on the sheet is ` +
+                                  "overwritten or cleared."}
                         </DialogDescription>
                     </DialogHeader>
+
+                    {sheetPreview?.dryRun !== false && (
+                        <div className="flex gap-1 rounded-lg border p-1 text-xs">
+                            {(
+                                [
+                                    ["pending", `Changed in the app (${pendingSheetCount})`],
+                                    ["all", "Every employee"],
+                                ] as const
+                            ).map(([scope, label]) => (
+                                <Button
+                                    key={scope}
+                                    type="button"
+                                    size="sm"
+                                    variant={sheetScope === scope ? "secondary" : "ghost"}
+                                    className="h-7 flex-1 text-xs"
+                                    disabled={pushToSheet.isPending}
+                                    onClick={() => previewSheetPush(scope)}
+                                >
+                                    {label}
+                                </Button>
+                            ))}
+                        </div>
+                    )}
 
                     {pushToSheet.isPending && !sheetPreview ? (
                         <p className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
@@ -1277,11 +1326,12 @@ export default function LeaveBacklogPage() {
                         </p>
                     ) : sheetPreview ? (
                         <div className="space-y-3">
-                            <div className="grid grid-cols-3 gap-2 text-center">
+                            <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
                                 {[
                                     ["Employees matched", `${sheetPreview.employees.matched}/${sheetPreview.employees.received}`],
                                     ["Rows affected", String(sheetPreview.employees.changed)],
-                                    ["Cells", String(sheetPreview.cellsChanged)],
+                                    ["Cells to fill", String(sheetPreview.cellsChanged)],
+                                    ["Sheet differs", String(sheetPreview.conflicts ?? 0)],
                                 ].map(([label, value]) => (
                                     <div key={label} className="rounded-lg border p-2.5">
                                         <div className="text-lg font-black text-slate-900">{value}</div>
@@ -1290,10 +1340,70 @@ export default function LeaveBacklogPage() {
                                 ))}
                             </div>
 
-                            {sheetPreview.cellsChanged === 0 && (
+                            {sheetPreview.cellsChanged === 0 && !sheetPreview.conflicts && (
                                 <p className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2.5 text-xs text-emerald-900">
                                     <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                                    <span>The sheet already matches the register — nothing to write.</span>
+                                    <span>{sheetPreview.note ?? "The sheet already matches the register — nothing to write."}</span>
+                                </p>
+                            )}
+
+                            {!!sheetPreview.conflicts && (
+                                <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
+                                    <p className="flex items-start gap-2 font-semibold">
+                                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                        {sheetPreview.conflicts} cell
+                                        {sheetPreview.conflicts === 1 ? " already holds" : "s already hold"} something
+                                        different on the sheet. They are left as they are — check them and correct
+                                        whichever side is wrong.
+                                    </p>
+                                    <ul className="mt-1.5 max-h-32 space-y-0.5 overflow-y-auto pl-5">
+                                        {sheetPreview.results
+                                            .flatMap((r) => (r.conflicts ?? []).map((c) => ({ ...c, name: r.name })))
+                                            .slice(0, 40)
+                                            .map((c) => (
+                                                <li key={c.cell}>
+                                                    {c.name} · <span className="font-mono">{c.cell}</span> {c.section}:
+                                                    sheet “{c.sheet}”, app “{c.app}”
+                                                </li>
+                                            ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {!!sheetPreview.concurrentEdits && (
+                                <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
+                                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                    <span>
+                                        {sheetPreview.concurrentEdits} row
+                                        {sheetPreview.concurrentEdits === 1 ? " was" : "s were"} being edited on the
+                                        sheet and {sheetPreview.concurrentEdits === 1 ? "was" : "were"} left alone.
+                                        They stay queued — send again in a moment.
+                                    </span>
+                                </p>
+                            )}
+
+                            {!!sheetPreview.manualRemovals?.length && (
+                                <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-700">
+                                    <p className="font-semibold">
+                                        Cancelled in the app — remove from the sheet by hand
+                                    </p>
+                                    <p className="mt-0.5 text-muted-foreground">
+                                        Sending never deletes anything from the sheet.
+                                    </p>
+                                    <ul className="mt-1.5 max-h-28 space-y-0.5 overflow-y-auto pl-5">
+                                        {sheetPreview.manualRemovals.slice(0, 40).map((r) => (
+                                            <li key={`${r.empId}:${r.category}:${r.date}`}>
+                                                {r.empId} · {r.category} {r.date}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {sheetPreview.writeLogError && (
+                                <p className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
+                                    Written, but the sheet's APP_WRITE_LOG tab could not be updated:{" "}
+                                    {sheetPreview.writeLogError}. The app's own push log has the full record.
                                 </p>
                             )}
 
@@ -1359,7 +1469,7 @@ export default function LeaveBacklogPage() {
                                 pushToSheet.isPending ||
                                 !sheetPreview ||
                                 sheetPreview.dryRun === false ||
-                                sheetPreview.cellsChanged === 0
+                                (sheetPreview.cellsChanged === 0 && !sheetPreview.manualRemovals?.length)
                             }
                         >
                             {pushToSheet.isPending && sheetPreview ? (
@@ -1367,10 +1477,11 @@ export default function LeaveBacklogPage() {
                                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                     Writing…
                                 </>
+                            ) : sheetPreview?.cellsChanged ? (
+                                `Write ${sheetPreview.cellsChanged} cell${sheetPreview.cellsChanged === 1 ? "" : "s"}`
                             ) : (
-                                `Write ${sheetPreview?.cellsChanged ?? 0} cell${
-                                    sheetPreview?.cellsChanged === 1 ? "" : "s"
-                                }`
+                                // Only removals left: they are done by hand, this clears them from the queue.
+                                "Removals done by hand"
                             )}
                         </Button>
                     </DialogFooter>
