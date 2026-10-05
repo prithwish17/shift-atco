@@ -849,6 +849,7 @@ export type Database = {
           raw_event: Json
           raw_leave_used_value: string | null
           raw_shift_value: string | null
+          sheet_source: string | null
           sl_no: number | null
           source: string
           source_event_type: string
@@ -871,6 +872,7 @@ export type Database = {
           raw_event?: Json
           raw_leave_used_value?: string | null
           raw_shift_value?: string | null
+          sheet_source?: string | null
           sl_no?: number | null
           source?: string
           source_event_type?: string
@@ -893,12 +895,72 @@ export type Database = {
           raw_event?: Json
           raw_leave_used_value?: string | null
           raw_shift_value?: string | null
+          sheet_source?: string | null
           sl_no?: number | null
           source?: string
           source_event_type?: string
           status?: string | null
           sync_batch_id?: string | null
           updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_leave_records_sheet_source_fkey"
+            columns: ["sheet_source"]
+            isOneToOne: false
+            referencedRelation: "leave_sheet_sources"
+            referencedColumns: ["source_key"]
+          },
+        ]
+      }
+      employee_leave_records_archive: {
+        Row: {
+          archive_id: string
+          archived_at: string
+          archived_by: string | null
+          emp_id: string
+          leave_category: string
+          leave_date: string
+          reason: string
+          record_id: string
+          restored_at: string | null
+          restored_by: string | null
+          row_data: Json
+          run_id: string | null
+          sheet_source: string | null
+          source: string | null
+        }
+        Insert: {
+          archive_id?: string
+          archived_at?: string
+          archived_by?: string | null
+          emp_id: string
+          leave_category: string
+          leave_date: string
+          reason: string
+          record_id: string
+          restored_at?: string | null
+          restored_by?: string | null
+          row_data: Json
+          run_id?: string | null
+          sheet_source?: string | null
+          source?: string | null
+        }
+        Update: {
+          archive_id?: string
+          archived_at?: string
+          archived_by?: string | null
+          emp_id?: string
+          leave_category?: string
+          leave_date?: string
+          reason?: string
+          record_id?: string
+          restored_at?: string | null
+          restored_by?: string | null
+          row_data?: Json
+          run_id?: string | null
+          sheet_source?: string | null
+          source?: string | null
         }
         Relationships: []
       }
@@ -1607,6 +1669,307 @@ export type Database = {
             columns: ["leave_request_id"]
             isOneToOne: false
             referencedRelation: "leave_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leave_sheet_push_log: {
+        Row: {
+          actor_email: string | null
+          actor_id: string | null
+          cells_changed: number | null
+          conflicts: number | null
+          dry_run: boolean
+          emp_ids: string[] | null
+          employees_sent: number | null
+          error: string | null
+          id: string
+          leave_year: number | null
+          mode: string | null
+          payload_hash: string | null
+          pushed_at: string
+          result: Json | null
+          rows_written: number | null
+          sheet_tab: string | null
+          source_key: string | null
+          unmatched: number | null
+        }
+        Insert: {
+          actor_email?: string | null
+          actor_id?: string | null
+          cells_changed?: number | null
+          conflicts?: number | null
+          dry_run: boolean
+          emp_ids?: string[] | null
+          employees_sent?: number | null
+          error?: string | null
+          id?: string
+          leave_year?: number | null
+          mode?: string | null
+          payload_hash?: string | null
+          pushed_at?: string
+          result?: Json | null
+          rows_written?: number | null
+          sheet_tab?: string | null
+          source_key?: string | null
+          unmatched?: number | null
+        }
+        Update: {
+          actor_email?: string | null
+          actor_id?: string | null
+          cells_changed?: number | null
+          conflicts?: number | null
+          dry_run?: boolean
+          emp_ids?: string[] | null
+          employees_sent?: number | null
+          error?: string | null
+          id?: string
+          leave_year?: number | null
+          mode?: string | null
+          payload_hash?: string | null
+          pushed_at?: string
+          result?: Json | null
+          rows_written?: number | null
+          sheet_tab?: string | null
+          source_key?: string | null
+          unmatched?: number | null
+        }
+        Relationships: []
+      }
+      leave_sheet_push_queue: {
+        Row: {
+          attempts: number
+          emp_id: string
+          first_queued_at: string
+          last_attempt_at: string | null
+          last_error: string | null
+          last_queued_at: string
+          last_reason: string | null
+          removals: Json
+        }
+        Insert: {
+          attempts?: number
+          emp_id: string
+          first_queued_at?: string
+          last_attempt_at?: string | null
+          last_error?: string | null
+          last_queued_at?: string
+          last_reason?: string | null
+          removals?: Json
+        }
+        Update: {
+          attempts?: number
+          emp_id?: string
+          first_queued_at?: string
+          last_attempt_at?: string | null
+          last_error?: string | null
+          last_queued_at?: string
+          last_reason?: string | null
+          removals?: Json
+        }
+        Relationships: []
+      }
+      leave_sheet_sources: {
+        Row: {
+          activated_at: string
+          activated_by: string | null
+          close_reason: string | null
+          closed_at: string | null
+          closed_by: string | null
+          created_at: string
+          final_run_id: string | null
+          label: string
+          last_run_id: string | null
+          last_synced_at: string | null
+          leave_year: number
+          min_employee_ratio: number
+          read_url: string | null
+          retire_max_pct: number
+          retire_max_rows: number
+          source_key: string
+          status: string
+        }
+        Insert: {
+          activated_at?: string
+          activated_by?: string | null
+          close_reason?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
+          created_at?: string
+          final_run_id?: string | null
+          label: string
+          last_run_id?: string | null
+          last_synced_at?: string | null
+          leave_year: number
+          min_employee_ratio?: number
+          read_url?: string | null
+          retire_max_pct?: number
+          retire_max_rows?: number
+          source_key: string
+          status?: string
+        }
+        Update: {
+          activated_at?: string
+          activated_by?: string | null
+          close_reason?: string | null
+          closed_at?: string | null
+          closed_by?: string | null
+          created_at?: string
+          final_run_id?: string | null
+          label?: string
+          last_run_id?: string | null
+          last_synced_at?: string | null
+          leave_year?: number
+          min_employee_ratio?: number
+          read_url?: string | null
+          retire_max_pct?: number
+          retire_max_rows?: number
+          source_key?: string
+          status?: string
+        }
+        Relationships: []
+      }
+      leave_sheet_sync_runs: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          blocked_reason: string | null
+          employees_count: number | null
+          error: string | null
+          finished_at: string | null
+          id: string
+          inserted: number | null
+          protected_missing: number | null
+          retire_candidates: number | null
+          retire_status: string | null
+          retired: number | null
+          rows_parsed: number | null
+          rows_staged: number | null
+          source_key: string
+          started_at: string
+          stats: Json
+          status: string
+          triggered_by: string | null
+          unchanged: number | null
+          updated: number | null
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          blocked_reason?: string | null
+          employees_count?: number | null
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          inserted?: number | null
+          protected_missing?: number | null
+          retire_candidates?: number | null
+          retire_status?: string | null
+          retired?: number | null
+          rows_parsed?: number | null
+          rows_staged?: number | null
+          source_key: string
+          started_at?: string
+          stats?: Json
+          status?: string
+          triggered_by?: string | null
+          unchanged?: number | null
+          updated?: number | null
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          blocked_reason?: string | null
+          employees_count?: number | null
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          inserted?: number | null
+          protected_missing?: number | null
+          retire_candidates?: number | null
+          retire_status?: string | null
+          retired?: number | null
+          rows_parsed?: number | null
+          rows_staged?: number | null
+          source_key?: string
+          started_at?: string
+          stats?: Json
+          status?: string
+          triggered_by?: string | null
+          unchanged?: number | null
+          updated?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_sheet_sync_runs_source_key_fkey"
+            columns: ["source_key"]
+            isOneToOne: false
+            referencedRelation: "leave_sheet_sources"
+            referencedColumns: ["source_key"]
+          },
+        ]
+      }
+      leave_sheet_sync_staging: {
+        Row: {
+          duty_code: string
+          emp_id: string
+          employee_name: string
+          event_kind: string
+          leave_category: string
+          leave_date: string
+          leave_used_on: string | null
+          metadata: Json
+          raw_date_value: string | null
+          raw_event: Json
+          raw_leave_used_value: string | null
+          raw_shift_value: string | null
+          run_id: string
+          sl_no: number | null
+          source_event_type: string
+          status: string | null
+        }
+        Insert: {
+          duty_code?: string
+          emp_id: string
+          employee_name?: string
+          event_kind?: string
+          leave_category: string
+          leave_date: string
+          leave_used_on?: string | null
+          metadata?: Json
+          raw_date_value?: string | null
+          raw_event?: Json
+          raw_leave_used_value?: string | null
+          raw_shift_value?: string | null
+          run_id: string
+          sl_no?: number | null
+          source_event_type?: string
+          status?: string | null
+        }
+        Update: {
+          duty_code?: string
+          emp_id?: string
+          employee_name?: string
+          event_kind?: string
+          leave_category?: string
+          leave_date?: string
+          leave_used_on?: string | null
+          metadata?: Json
+          raw_date_value?: string | null
+          raw_event?: Json
+          raw_leave_used_value?: string | null
+          raw_shift_value?: string | null
+          run_id?: string
+          sl_no?: number | null
+          source_event_type?: string
+          status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_sheet_sync_staging_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "leave_sheet_sync_runs"
             referencedColumns: ["id"]
           },
         ]
@@ -2441,6 +2804,15 @@ export type Database = {
       }
     }
     Functions: {
+      activate_leave_sheet_source: {
+        Args: {
+          p_label: string
+          p_leave_year: number
+          p_read_url?: string
+          p_source_key: string
+        }
+        Returns: Json
+      }
       allocate_comp_off_for_leave: {
         Args: {
           p_employee_name: string
@@ -2488,6 +2860,10 @@ export type Database = {
         }
         Returns: Json
       }
+      approve_leave_sheet_retirement: {
+        Args: { p_reason?: string; p_run_id: string }
+        Returns: Json
+      }
       backfill_leave_entry: {
         Args: {
           p_actual_rh_date?: string
@@ -2507,6 +2883,10 @@ export type Database = {
         Returns: Json
       }
       can_manage_leave_backfill: { Args: never; Returns: boolean }
+      can_manage_leave_sheet_sources: {
+        Args: never
+        Returns: boolean
+      }
       claim_next_queue_job: {
         Args: never
         Returns: {
@@ -2540,6 +2920,14 @@ export type Database = {
       }
       clear_comp_off_for_leave: {
         Args: { p_employee_code: string; p_leave_request_id: string }
+        Returns: Json
+      }
+      close_leave_sheet_source: {
+        Args: { p_reason: string; p_source_key: string }
+        Returns: Json
+      }
+      commit_leave_sheet_sync: {
+        Args: { p_run_id: string }
         Returns: Json
       }
       create_duty_exchange_request: {
@@ -2723,8 +3111,24 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_comp_off_leave_category: {
+        Args: { p_category: string }
+        Returns: boolean
+      }
       is_leave_duty_code: { Args: { p_duty_code: string }; Returns: boolean }
+      is_sheet_leave_category: {
+        Args: { p_category: string }
+        Returns: boolean
+      }
       is_staff: { Args: never; Returns: boolean }
+      leave_caller_is_staff: {
+        Args: never
+        Returns: boolean
+      }
+      leave_caller_is_trusted_backend: {
+        Args: never
+        Returns: boolean
+      }
       log_audit_event: {
         Args: {
           p_action: string
@@ -2758,6 +3162,10 @@ export type Database = {
         }
         Returns: Json
       }
+      prune_leave_sheet_staging: {
+        Args: { p_keep_runs?: number }
+        Returns: number
+      }
       purge_old_data: {
         Args: {
           p_api_log_days?: number
@@ -2776,6 +3184,10 @@ export type Database = {
       recover_stale_notification_jobs: { Args: never; Returns: number }
       refresh_roster_summary: { Args: never; Returns: undefined }
       refresh_working_hours_cache: { Args: { p_month: string }; Returns: Json }
+      register_category_for_leave_type: {
+        Args: { p_leave_type: string }
+        Returns: string
+      }
       reject_automation_suggestion: {
         Args: {
           p_notes?: string
@@ -2786,6 +3198,10 @@ export type Database = {
       }
       resolve_leave_sheet_conflict: {
         Args: { p_reason?: string; p_record_id: string; p_resolution: string }
+        Returns: Json
+      }
+      restore_archived_leave_record: {
+        Args: { p_archive_id: string; p_reason?: string }
         Returns: Json
       }
       restore_leave_balance: {
@@ -2804,6 +3220,25 @@ export type Database = {
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       try_parse_date: { Args: { p_value: string }; Returns: string }
+      unlink_register_rows_for_request: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      upsert_app_register_row: {
+        Args: {
+          p_category: string
+          p_date: string
+          p_emp_id: string
+          p_metadata: Json
+          p_name: string
+          p_request_id: string
+        }
+        Returns: undefined
+      }
+      write_register_rows_for_request: {
+        Args: { p_request_id: string }
+        Returns: number
+      }
     }
     Enums: {
       app_role: "admin" | "supervisor" | "wso" | "employee"

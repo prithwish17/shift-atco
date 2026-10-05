@@ -150,6 +150,8 @@ export interface RawLeaveRecord {
   name?: string | null;
   status?: string | null;
   casualLeave?: unknown[] | null;
+  /** Half-day CL dates (register CL_1ST / CL_2ND rows); each counts ½. */
+  halfCasualLeave?: unknown[] | null;
   restrictedHolidays?: unknown[] | null;
   nationalHolidays?: unknown[] | null;
   closedHolidays?: unknown[] | null;

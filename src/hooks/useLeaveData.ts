@@ -211,6 +211,7 @@ function reconstructRawRecords(flatRows: any[], year?: number): RawLeaveRecord[]
         name: row.employee_name || "",
         status: row.status || "Active",
         casualLeave: [],
+        halfCasualLeave: [],
         restrictedHolidays: [],
         nationalHolidays: [],
         closedHolidays: [],
@@ -230,6 +231,10 @@ function reconstructRawRecords(flatRows: any[], year?: number): RawLeaveRecord[]
     switch (row.leave_category) {
       case "CL":
         rec.casualLeave!.push(row.leave_date);
+        break;
+      case "CL_1ST":
+      case "CL_2ND":
+        rec.halfCasualLeave!.push(row.leave_date);
         break;
       case "RH":
         rec.restrictedHolidays!.push({

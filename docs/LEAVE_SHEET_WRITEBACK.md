@@ -6,17 +6,27 @@ and `supabase/functions/fetch-leave-data` flattens that into
 leave data from the app back into the tab, at the exact cell each value belongs
 in, matched by EMP NO.
 
-Two pieces:
+The pieces:
 
 | File | What it is |
 | --- | --- |
 | [`docs/leave-apps-script/Code.gs`](leave-apps-script/Code.gs) | The receiver. Deploy on the workbook as a web app. |
 | [`lib/leaveSheetPayload.ts`](../lib/leaveSheetPayload.ts) | `employee_leave_records` → sheet payload. The inverse of `fetch-leave-data`. |
-| [`api/leave-sheet-push.ts`](../api/leave-sheet-push.ts) | The endpoint behind the **Send to Google Sheets** button on the Leave Backlog page. |
+| [`lib/leave/sheetPush.ts`](../lib/leave/sheetPush.ts) | The endpoint behind the **Send to Google Sheets** button on the Leave Backlog page, served as `/api/leave/sheet-push`. |
 | [`scripts/leave-sheet-push.ts`](../scripts/leave-sheet-push.ts) | CLI sender, for the CSV round-trip and for pushing without the UI. |
 
 Both senders build their payload with the same module, so the button and the CLI
 cannot disagree about where a row belongs.
+
+> **Since migrations 20261005\*:**
+>
+> - Merge is **additive**: it fills empty cells and reports every other
+>   difference as a conflict; it never clears or overwrites anything (§4).
+> - The app sends only what changed in the app, writes exactly what it
+>   previewed, and records every write (§5b).
+> - The architecture behind this is in
+>   [leave/SHEET_INDEPENDENCE.md](leave/SHEET_INDEPENDENCE.md), and the
+>   procedures in [leave/RUNBOOK.md](leave/RUNBOOK.md).
 
 ---
 
@@ -167,10 +177,19 @@ consumes, plus snake_case aliases.
 }
 ```
 
+Optional request fields:
+
+| Field | Effect |
+| --- | --- |
+| `expectedYear` | Refuse, before reading or writing anything, if the workbook's name carries a different year. The app always sends the live source's year. |
+| `requestId`, `actor` | Recorded against every written cell in the `APP_WRITE_LOG` tab. |
+
 Notes:
 
 - **Only the sections you send are touched.** Omit `closedHolidays` and the whole
   CH block is left exactly as it is.
+- **A missing or blank value is left alone in merge mode.** The app's payload
+  omits values it does not have rather than sending `""`.
 - Dates are written as real dates, in `d-mmm-yyyy` format, so the read feed and
   the sheet's own formulas keep working. ISO, `2-Mar-2026` and `02/03/2026` are
   all accepted on the way in.
@@ -184,12 +203,14 @@ Notes:
 
 ```json
 {
-  "ok": true, "dryRun": true, "mode": "merge", "sheet": "LEAVE_DATA",
+  "ok": true, "dryRun": true, "mode": "merge",
+  "spreadsheet": "ATTENDANCE-2026", "sheet": "LEAVE_DATA", "requestId": "…",
   "employees": { "received": 391, "matched": 391, "changed": 2, "unmatched": 0 },
-  "cellsChanged": 3,
+  "cellsChanged": 3, "conflicts": 1, "concurrentEdits": 0, "writeLogError": null,
   "results": [
     { "empId": "10012524", "name": "SANDIP BASU", "row": 6, "cellsChanged": 1,
       "changes": [{ "cell": "H6", "section": "casualLeave", "from": "", "to": "2026-07-01" }],
+      "conflicts": [{ "cell": "AB6", "section": "closedHolidays", "sheet": "2026-04-01", "app": "2026-04-09" }],
       "warnings": [] }
   ],
   "unmatched": []
@@ -197,19 +218,34 @@ Notes:
 ```
 
 `changes` is the row's **net** before/after, so a `replace` that clears a section
-and writes it straight back reports nothing.
+and writes it straight back reports nothing. `conflicts` are cells merge left
+alone because the sheet already holds something different.
+
+A result with `"concurrentEdit": true` was not written: someone changed that row
+between the writer reading it and writing it.
 
 ---
 
 ## 4. Modes
 
-**`merge`** (default, and what you want almost always)
+**`merge`** (default, and the only mode the app uses). **Additive**:
+
+- It fills a cell that is empty, or that holds the `NA` placeholder of a holiday
+  that has not happened yet.
+- It never clears a cell.
+- It never overwrites a cell holding a different value. That cell is listed
+  under `conflicts` and left as the sheet has it.
+
+How each section is filled:
 
 - List sections (CL, half-CL): dates already present are recognised and skipped;
   new ones go into the first free column.
-- Keyed sections (NH, CH, last year): the slots you send are set. Everything else
-  is untouched.
-- OPE: a duty date already somewhere in the block updates that pair's comp-off;
+- Keyed sections (NH, CH, last year): the slots you send are filled. Everything
+  else is untouched.
+  - A last-year entry with no dated column goes to the **spare pair already
+    holding its duty date**, otherwise to a free spare.
+  - A spare pair's duty cell always carries the duty date.
+- OPE: a duty date already somewhere in the block fills that pair's comp-off;
   otherwise it takes the next free generic column.
 
 **`replace`** — same, but a section you *do* send is first emptied:
@@ -235,15 +271,32 @@ deliberately rebuilding the block.
 | Capacity | 13th CL, 3rd RH, 46th comp-off pair → warning, not an overflow into the next column |
 | `LockService` | One writer at a time |
 | `ACCESS_TOKEN` | POST is refused outright when it is unset |
+| Merge is additive | Never clears, never overwrites a different value — reports `conflicts` |
+| Concurrent edits | Each changed row is re-read just before the write; a row edited in between is skipped and reported |
+| `expectedYear` | A workbook named for another year is refused before anything is touched |
+| `APP_WRITE_LOG` tab | Every committed cell, with time, request, actor, before and after |
 
 ---
 
 ## 5b. Sending from the app
 
 **Leave Backlog → Send to Google Sheets.** It previews first: the dialog shows
-employees matched, rows affected, cells changed and every individual cell diff,
-and writes nothing until you press the write button. The same preview-then-commit
-shape as the balance recompute on Employee Management.
+employees matched, rows affected, cells to fill, cells where the sheet differs,
+leave cancelled in the app that the clerk must remove by hand, and every
+individual cell diff. It writes nothing until you press the write button. The
+same preview-then-commit shape as the balance recompute on Employee Management.
+
+- **What is sent.** By default, only employees with app changes the sheet has
+  not been sent (`leave_sheet_push_queue`, fed by triggers on the register).
+  *Every employee* re-checks the whole register.
+- **What is written.** Exactly what was previewed. The preview returns a
+  fingerprint of the payload, and the write is refused if the register changed
+  since.
+- **Which workbook.** The year is always the live leave sheet source's
+  (`leave_sheet_sources`). A closed sheet is never written to, and `replace` is
+  refused.
+- **Record.** Every write lands in `leave_sheet_push_log`. An employee leaves
+  the queue only once written with no conflicts.
 
 It goes through `api/leave-sheet-push.ts` rather than calling Apps Script from
 the browser, for two reasons. The write token must never reach the client — an
@@ -347,19 +400,23 @@ Two things worth doing before the first real write:
 
 ## 9. Known gaps
 
-- **Half-day CLs cannot be rebuilt from `employee_leave_records`.** That table
-  stores a CL row with no half-day marker; the distinction lives in
-  `leave_requests.leave_type` (`CL_1ST` / `CL_2ND`). The Supabase sender leaves
-  columns R–U alone. Send `halfCasualLeave` explicitly if you need them.
-- **`leave_category = 'CH'` rows carry no holiday date** — the legacy importer
-  keyed them on the comp-off date only — so they cannot be placed in a CH column.
-  The sender uses `COMP_OFF_EARNED` rows instead, which do keep the duty date.
-- The `mark` written into a National Holiday column is `NH` by default; the sheet
-  only has seven of these and the convention behind them is not documented
-  anywhere in the app.
+- **Half-day CLs typed only into the sheet are invisible to the app.** Approvals
+  and backfill write `CL_1ST` / `CL_2ND` register rows, and those are sent to
+  columns R–U. But the read feed never reads R–U back, so a half day that exists
+  only on the sheet is not in the register.
+- **`leave_category = 'CH'` rows carry no holiday date.** The legacy importer
+  keyed them on the comp-off date only, so they cannot be placed in a CH column.
+  - The sender uses `COMP_OFF_EARNED` rows instead, which do keep the duty date.
+  - Legacy last-year `COMP_OFF` entries lost their holiday date the same way.
+    They are skipped and reported, never guessed.
+- The `mark` written into a National Holiday column is `NH` by default. The
+  sheet only has seven of these, and the convention behind them is not
+  documented anywhere in the app.
 - **Backfill does not check leave balance.** `backfill_leave_entry` never calls
-  `deduct_leave_balance()` — that raises on insufficient balance, and a thousand
-  historical entries would abort constantly and leave balances half-applied.
-  Balances are derived afterwards by `recompute_leave_balance()` as
-  `12 - approved CL days` for the year. The Leave Backlog page shows that figure
-  and what the pending run would take it to, but nothing blocks going past 12.
+  `deduct_leave_balance()`. That function raises on insufficient balance, so a
+  thousand historical entries would abort constantly and leave balances
+  half-applied.
+  - Balances are derived afterwards by `recompute_leave_balance()` as `12 − CL
+    taken in the register` for the year, a half day counting ½.
+  - The Leave Backlog page shows that figure and what the pending run would take
+    it to, but nothing blocks going past 12.

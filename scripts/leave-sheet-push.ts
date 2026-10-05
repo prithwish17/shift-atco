@@ -28,6 +28,13 @@
  */
 import fs from "node:fs";
 
+import {
+  buildSheetPayload,
+  LEAVE_RECORD_COLUMNS,
+  type LeaveRecordRow,
+  type SheetEmployeePayload,
+} from "../lib/leaveSheetPayload";
+
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 
 const args = parseArgs(process.argv.slice(2));
@@ -49,6 +56,9 @@ const payload = {
   dryRun: !args.commit,
   sheet: args.sheet,
   allowNameMismatch: !!args.allowNameMismatch,
+  // Recorded in the sheet's APP_WRITE_LOG tab against every cell written.
+  requestId: `cli-${new Date().toISOString()}`,
+  actor: `cli:${process.env.USER || "unknown"}`,
   employees: only ? employees.filter((e) => only.has(e.employee.empId)) : employees,
 };
 
@@ -86,9 +96,13 @@ console.log(`matched ${out.employees.matched}/${out.employees.received}` +
             `, ${out.employees.changed} rows, ${out.cellsChanged} cells` +
             (out.dryRun ? " (nothing written)" : ` written to ${out.rowsWritten} rows`));
 
-for (const r of out.results.filter((r) => r.cellsChanged || r.warnings.length)) {
+if (out.conflicts) console.log(`${out.conflicts} cell(s) hold a different value on the sheet — left as they are`);
+if (out.concurrentEdits) console.log(`${out.concurrentEdits} row(s) were edited during the write — skipped, send again`);
+
+for (const r of out.results.filter((r) => r.cellsChanged || r.warnings.length || r.conflicts?.length)) {
   console.log(`\n  ${r.empId} ${r.name} (row ${r.row})`);
   for (const c of r.changes || []) console.log(`    ${c.cell.padEnd(7)} ${c.section.padEnd(20)} ${JSON.stringify(c.from)} → ${JSON.stringify(c.to)}`);
+  for (const c of r.conflicts || []) console.log(`    ≠ ${c.cell.padEnd(7)} ${c.section.padEnd(20)} sheet ${JSON.stringify(c.sheet)}, app ${JSON.stringify(c.app)}`);
   for (const w of r.warnings) console.log(`    ! ${w}`);
 }
 for (const u of out.unmatched) console.log(`  ! ${u.empId} ${u.name}: ${u.reason}`);
@@ -190,9 +204,10 @@ function fromCsv(path: string): SheetEmployeePayload[] {
 /**
  * Reads the register and hands it to the shared builder.
  *
- * Known gap: employee_leave_records does not mark a CL row as a half day, so
- * the four "1/2 CL" columns cannot be rebuilt from it. They come from
- * leave_requests.leave_type (CL_1ST / CL_2ND) and are left alone by this path.
+ * Half-day CLs reach the sheet when the register holds them as CL_1ST / CL_2ND
+ * rows (approvals and backfill write them). The feed never reads the four
+ * "1/2 CL" columns back, so half days the clerk typed in are not in the
+ * register and are left alone.
  */
 async function fromSupabase(args: Args): Promise<SheetEmployeePayload[]> {
     const url = args.supabaseUrl || process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;

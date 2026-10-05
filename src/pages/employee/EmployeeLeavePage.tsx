@@ -173,12 +173,18 @@ export default function EmployeeLeavePage() {
     const emptyYear = () => Array.from({ length: 12 }, () => [] as string[]);
 
     if (!employeeRecord) {
-      return { casual: emptyYear(), restricted: emptyYear(), compOff: emptyYear(), earned: emptyYear() };
+      return {
+        casual: emptyYear(), halfCasual: emptyYear(), restricted: emptyYear(), compOff: emptyYear(), earned: emptyYear(),
+      };
     }
 
     return {
       casual: bucketIsoDaysByMonth(
         extractIsoLeaveDays(employeeRecord.casualLeave, ["date", "leaveApplied"]),
+        selectedYear,
+      ),
+      halfCasual: bucketIsoDaysByMonth(
+        extractIsoLeaveDays(employeeRecord.halfCasualLeave, ["date"]),
         selectedYear,
       ),
       restricted: bucketIsoDaysByMonth(
@@ -208,7 +214,8 @@ export default function EmployeeLeavePage() {
 
     const countDays = (months: string[][]) => months.reduce((sum, days) => sum + days.length, 0);
 
-    const casualUsed = countDays(monthlyLeaveDays.casual);
+    // A half-day CL (1st or 2nd half) takes ½ from the balance.
+    const casualUsed = countDays(monthlyLeaveDays.casual) + 0.5 * countDays(monthlyLeaveDays.halfCasual);
     const casualLeft = Math.max(DEFAULT_CL_BALANCE - casualUsed, 0);
     const restrictedUsed = countDays(monthlyLeaveDays.restricted);
     const restrictedLeft = Math.max(DEFAULT_RH_BALANCE - restrictedUsed, 0);

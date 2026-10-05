@@ -1,6 +1,12 @@
 LEAVE RULES AND SCHEMA SUMMARY
 Workspace: shift-atco
 
+NOTE: this summary predates the leave backfill work and the 20261005 migrations.
+The current architecture — the register as system of record, approvals writing
+register rows, the staged sheet sync, and the additive write-back — is documented
+in docs/leave/ARCHITECTURE.md, docs/leave/SHEET_INDEPENDENCE.md and
+docs/leave/RUNBOOK.md. Where the two disagree, those win.
+
 This file consolidates the current leave-related rules, schema, workflows, and supporting modules found in the app code and Supabase migrations.
 
 ============================================================

@@ -21,6 +21,18 @@
  *      pending-comp-off helper block to their right are computed, never sent.
  *   2. Any cell holding a formula, wherever it is. Checked per cell, per run.
  *   3. Anything at all when dryRun is set — you get the full diff and no write.
+ *   4. In merge mode, anything already written. A merge only fills empty cells
+ *      (and the "NA" placeholder a holiday carries until it happens). It never
+ *      blanks a cell, and a cell holding a different value is reported under
+ *      `conflicts` for a person to settle — the sheet's value stays.
+ *   5. A row someone edited while the write was being prepared. Rows are read,
+ *      changed in memory, then written back whole; each one is re-read just
+ *      before the write and skipped (reported under `concurrentEdits`) if it
+ *      moved in the meantime.
+ *   6. A workbook named for another year than the payload's `expectedYear`.
+ *
+ * Every committed cell is appended to the APP_WRITE_LOG tab (created on first
+ * use) with its before and after, so any write can be traced and undone by hand.
  *
  * ── Endpoints ───────────────────────────────────────────────────────────────
  *   GET  ?action=layout                → the resolved column map (audit this first)
@@ -58,6 +70,12 @@ var GENERIC_OPE_LABEL = "ope";
 
 /** Changes listed individually in the response before it switches to counts. */
 var MAX_REPORTED_CHANGES = 2000;
+
+/** Tab every committed cell change is appended to. */
+var WRITE_LOG_SHEET = "APP_WRITE_LOG";
+
+/** Cell text a merge may overwrite: a closed holiday that has not happened yet. */
+var PLACEHOLDERS = ["na"];
 
 /* ─── Entry points ─────────────────────────────────────────────────────────── */
 
@@ -419,7 +437,20 @@ function empKey_(value) {
 /* ─── Write ────────────────────────────────────────────────────────────────── */
 
 function writePayload_(body) {
-  var sheet = mustFindSheet_(SpreadsheetApp.getActiveSpreadsheet(), body.sheet || SHEET_NAME);
+  var book = SpreadsheetApp.getActiveSpreadsheet();
+  var bookName = String(book.getName() || "");
+
+  // The app sends the year of the live leave source. A workbook whose name
+  // carries a different year is the wrong sheet: the app has moved on to next
+  // year's workbook and this deployment was left behind, or the reverse.
+  var expectedYear = Number(body.expectedYear) || 0;
+  var nameYear = bookName.match(/\b(20\d{2})\b/);
+  if (expectedYear && nameYear && Number(nameYear[1]) !== expectedYear) {
+    throw new Error("This is '" + bookName + "', not the " + expectedYear + " workbook. Point the app at the " +
+                    expectedYear + " sheet's script; nothing was written.");
+  }
+
+  var sheet = mustFindSheet_(book, body.sheet || SHEET_NAME);
   var layout = resolveLayout_(sheet);
   var index = readEmployees_(sheet, layout);
 
@@ -476,9 +507,13 @@ function writePayload_(body) {
       ok: true,
       dryRun: dryRun,
       mode: mode,
+      spreadsheet: bookName,
       sheet: sheet.getName(),
+      requestId: body.requestId || null,
       employees: { received: incoming.length, matched: 0, changed: 0, unmatched: unmatched.length },
       cellsChanged: 0,
+      conflicts: 0,
+      concurrentEdits: 0,
       results: [],
       unmatched: unmatched
     };
@@ -499,12 +534,16 @@ function writePayload_(body) {
 
   var results = [];
   var changed = {};
+  var original = {};       // rowIdx → the row as read, for the concurrent-edit check
+  var diffs = {};          // rowIdx → { result, diff }
   var totalChanges = 0;
+  var totalConflicts = 0;
   var reported = 0;
 
   for (var t = 0; t < targets.length; t++) {
     var rowIdx = targets[t].entry.row - minRow;
     var before = values[rowIdx].slice();
+    if (!original[rowIdx]) original[rowIdx] = before;
 
     var ctx = {
       layout: layout,
@@ -514,8 +553,10 @@ function writePayload_(body) {
       firstCol: firstCol,
       rowIdx: rowIdx,
       row: targets[t].entry.row,
+      mode: mode,
       sections: {},
-      warnings: []
+      warnings: [],
+      conflicts: []
     };
 
     applyEmployee_(ctx, targets[t].item, mode);
@@ -526,12 +567,14 @@ function writePayload_(body) {
     var diff = rowDiff_(ctx, before);
     if (diff.length) changed[rowIdx] = true;
     totalChanges += diff.length;
+    totalConflicts += ctx.conflicts.length;
 
     var result = {
       empId: targets[t].empId,
       name: targets[t].entry.name,
       row: ctx.row,
       cellsChanged: diff.length,
+      conflicts: ctx.conflicts,
       warnings: ctx.warnings
     };
     if (reported < MAX_REPORTED_CHANGES) {
@@ -539,19 +582,56 @@ function writePayload_(body) {
       reported += result.changes.length;
     }
     results.push(result);
+    diffs[rowIdx] = (diffs[rowIdx] || []).concat([{ result: result, diff: diff }]);
   }
 
   var rowsWritten = 0;
+  var concurrentEdits = 0;
+  var written = [];
+  var writeLogError = null;
+
   if (!dryRun && totalChanges) {
-    rowsWritten = flush_(sheet, minRow, firstCol, width, values, formulas, formats, changed);
-    SpreadsheetApp.flush();
+    // Someone may have typed into one of these rows since they were read. Any
+    // row that moved is left exactly as they left it, and reported.
+    var current = region.getValues();
+    Object.keys(changed).forEach(function (key) {
+      var r = Number(key);
+      if (!sameRow_(original[r], current[r])) {
+        delete changed[r];
+        diffs[r].forEach(function (d) {
+          d.result.concurrentEdit = true;
+          d.result.warnings.push("Row " + d.result.row + " was edited on the sheet while this write " +
+                                 "was being prepared — left as it is. Send again to apply.");
+          totalChanges -= d.diff.length;
+          concurrentEdits++;
+        });
+      }
+    });
+
+    if (Object.keys(changed).length) {
+      rowsWritten = flush_(sheet, minRow, firstCol, width, values, formulas, formats, changed);
+      SpreadsheetApp.flush();
+
+      Object.keys(changed).forEach(function (key) {
+        diffs[Number(key)].forEach(function (d) { written = written.concat(d.diff); });
+      });
+      try {
+        appendWriteLog_(book, sheet.getName(), written, body);
+      } catch (err) {
+        // The cells are written; the response and the app's push log still
+        // record them. Say so rather than fail a write that happened.
+        writeLogError = errorText_(err);
+      }
+    }
   }
 
   return {
     ok: true,
     dryRun: dryRun,
     mode: mode,
+    spreadsheet: bookName,
     sheet: sheet.getName(),
+    requestId: body.requestId || null,
     employees: {
       received: incoming.length,
       matched: targets.length,
@@ -560,10 +640,42 @@ function writePayload_(body) {
     },
     cellsChanged: totalChanges,
     rowsWritten: rowsWritten,
+    conflicts: totalConflicts,
+    concurrentEdits: concurrentEdits,
+    writeLogError: writeLogError,
     changesTruncated: totalChanges > reported,
     results: results,
     unmatched: unmatched
   };
+}
+
+/** True when two reads of the same row hold the same values. */
+function sameRow_(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (!sameCell_(a[i], b[i])) return false;
+  }
+  return true;
+}
+
+/** Appends one line per written cell to the APP_WRITE_LOG tab. */
+function appendWriteLog_(book, tabName, changes, body) {
+  if (!changes.length) return;
+
+  var log = book.getSheetByName(WRITE_LOG_SHEET);
+  if (!log) {
+    log = book.insertSheet(WRITE_LOG_SHEET);
+    log.getRange(1, 1, 1, 8).setValues([[
+      "Written at", "Request", "By", "Tab", "Cell", "Section", "Before", "After"
+    ]]);
+  }
+
+  var at = new Date();
+  var rows = changes.map(function (c) {
+    return [at, String(body.requestId || ""), String(body.actor || ""), tabName,
+            c.cell, c.section, c.from, c.to];
+  });
+  log.getRange(log.getLastRow() + 1, 1, rows.length, 8).setValues(rows);
 }
 
 /**
@@ -789,15 +901,23 @@ function writeDatedSlots_(ctx, slots, incoming, section, mode) {
     }
 
     // Undated spare slots exist in the last-year block for carry-overs that do
-    // not line up with one of its three named holidays.
+    // not line up with one of its three named holidays. Their duty cell holds
+    // the duty date itself — the header cannot — so a spare already carrying
+    // this date is this entry, and only otherwise is a free one taken.
     if (!slot && d) {
+      for (var e = 0; e < slots.length && !slot; e++) {
+        if (!slots[e].date && !touched[slots[e].index] &&
+            sameDate_(readCell_(ctx, slots[e].dutyCol), d)) {
+          slot = slots[e];
+        }
+      }
       for (var f = 0; f < slots.length && !slot; f++) {
         if (!slots[f].date && freeCell_(ctx, slots[f].dutyCol) &&
             freeCell_(ctx, slots[f].appliedCol)) {
           slot = slots[f];
-          if (duty === null) duty = d;   // spare slots carry the duty date itself
         }
       }
+      if (slot) duty = d;
     }
 
     if (!slot) {
@@ -940,7 +1060,24 @@ function setCell_(ctx, col, value, section) {
     return;
   }
 
-  if (sameCell_(ctx.values[ctx.rowIdx][idx], value)) return;
+  var current = ctx.values[ctx.rowIdx][idx];
+  if (sameCell_(current, value)) return;
+
+  // Merge is additive. A blank from the payload means "the app has nothing
+  // here", never "clear it"; and a cell that already says something else is
+  // the sheet's to keep until a person decides.
+  if (ctx.mode === "merge") {
+    if (isBlank_(value)) return;
+    if (!isBlank_(current) && !isPlaceholder_(current)) {
+      ctx.conflicts.push({
+        cell: a1_(col) + ctx.row,
+        section: section,
+        sheet: display_(current),
+        app: display_(value)
+      });
+      return;
+    }
+  }
 
   ctx.values[ctx.rowIdx][idx] = value;
   ctx.sections[col] = section;
@@ -1009,6 +1146,11 @@ function key_(value) {
 
 function isBlank_(value) {
   return value == null || (!(value instanceof Date) && String(value).trim() === "");
+}
+
+/** Text a merge may replace — "NA" on a closed holiday that has not happened yet. */
+function isPlaceholder_(value) {
+  return !(value instanceof Date) && PLACEHOLDERS.indexOf(key_(value)) !== -1;
 }
 
 var MONTHS_ = {
