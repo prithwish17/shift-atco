@@ -2,10 +2,11 @@ import { useState, useMemo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { MobileZoomFrame } from "@/components/MobileZoomFrame";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar as CalendarIcon, Clock, ChevronLeft, ChevronRight, TrendingUp } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, ChevronLeft, ChevronRight, TrendingUp, PartyPopper } from "lucide-react";
 import { format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, isToday, isBefore, addMonths, subMonths, parseISO } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
+import { useHolidays } from "@/hooks/useHolidays";
 import {
   useMySchedule,
   DUTY_CODES,
@@ -59,6 +60,14 @@ const barTextColor = (code: string): string => {
   if (c === "N") return "text-blue-700";
   if (c === "NO") return "text-indigo-700";
   return "text-slate-700";
+};
+
+/* ── Holiday type colors, same as the Holidays page ── */
+const holidayColor = (type: string): string => {
+  if (type === "NH") return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+  if (type === "CH") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400";
+  if (type === "RH") return "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400";
+  return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
 };
 
 /* ── Shift time display (IST) ── */
@@ -147,22 +156,21 @@ export default function EmployeeSchedule() {
 
   const maxStatValue = dutyStats.length > 0 ? Math.max(...dutyStats.map(([, v]) => v)) : 1;
 
+  /* ── Holidays falling in the month on screen ── */
+  const { data: holidays = [], isLoading: holidaysLoading } = useHolidays();
+  const monthHolidays = useMemo(
+    () => holidays.filter((h) => h.holiday_date >= monthStart && h.holiday_date <= monthEnd),
+    [holidays, monthStart, monthEnd]
+  );
+  const redDates = useMemo(
+    () => new Set(monthHolidays.filter((h) => h.type === "NH" || h.type === "CH").map((h) => h.holiday_date)),
+    [monthHolidays]
+  );
+
   return (
-    <DashboardLayout role="employee">
+    <DashboardLayout role="employee" title="My Schedule">
       <MobileZoomFrame mobileScale={0.88}>
         <div className="mx-auto max-w-[1380px] space-y-6">
-
-        {/* ── Page Header ── */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-gray-100">
-              My Schedule
-            </h1>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-              {profile?.full_name || "—"} · {profile?.employee_id || ""}
-            </p>
-          </div>
-        </div>
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,360px)] xl:items-stretch">
           {/* ── Today's Duty (compact, two-line) ── */}
@@ -241,6 +249,7 @@ export default function EmployeeSchedule() {
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)] xl:items-start">
+          <div className="space-y-4">
           {/* ── Schedule Calendar ── */}
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-4 md:p-5">
             {/* Calendar Header */}
@@ -311,7 +320,14 @@ export default function EmployeeSchedule() {
                       "hover:bg-gray-50 dark:hover:bg-gray-800/50"
                     )}
                   >
-                    <div className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    <div
+                      className={cn(
+                        "text-xs sm:text-sm mb-1",
+                        redDates.has(dateKey)
+                          ? "font-bold text-red-600 dark:text-red-400"
+                          : "font-medium text-gray-700 dark:text-gray-300"
+                      )}
+                    >
                       {format(day, "d")}
                     </div>
                     {schedule ? (
@@ -325,6 +341,58 @@ export default function EmployeeSchedule() {
               })}
           </div>
             )}
+          </div>
+
+          {/* ── Holidays this month ── */}
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-4 md:p-5">
+            <div className="flex items-center gap-2 mb-2.5 sm:mb-3">
+              <PartyPopper className="text-rose-500 dark:text-rose-400" size={18} />
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 sm:text-lg">
+                {format(currentMonth, "MMMM")} Holidays
+              </h2>
+            </div>
+
+            {holidaysLoading ? (
+              <Skeleton className="h-16 w-full" />
+            ) : monthHolidays.length > 0 ? (
+              <div className="space-y-1.5">
+                {monthHolidays.map((h) => {
+                  const day = parseISO(h.holiday_date);
+                  const today = h.holiday_date === todayStr;
+                  const past = h.holiday_date < todayStr;
+                  return (
+                    <div
+                      key={h.id}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-md border px-2 py-1.5 sm:px-3 sm:py-2",
+                        today
+                          ? "border-blue-500 border-2 bg-blue-50/30 dark:bg-blue-950/20"
+                          : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900",
+                        past && "opacity-50"
+                      )}
+                    >
+                      <div className="flex w-12 shrink-0 items-baseline gap-1">
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
+                          {format(day, "d")}
+                        </span>
+                        <span className="text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400">
+                          {format(day, "EEE")}
+                        </span>
+                      </div>
+                      <p className="min-w-0 flex-1 truncate text-xs font-medium text-gray-900 dark:text-gray-100 sm:text-sm">
+                        {h.name}
+                      </p>
+                      <span className={`shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded sm:text-[10px] ${holidayColor(h.type)}`}>
+                        {h.type}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-3">No holidays this month</p>
+            )}
+          </div>
           </div>
 
           <div className="xl:hidden bg-gradient-to-br from-slate-50 to-purple-50/30 dark:from-gray-900 dark:to-purple-950/20 rounded-lg p-4 md:p-5 shadow-sm border border-slate-200/50 dark:border-slate-700/50">
