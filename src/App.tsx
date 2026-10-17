@@ -40,6 +40,7 @@ const EmployeePageNotices = lazy(() => import("./pages/admin/EmployeePageNotices
 const EmailLogs = lazy(() => import("./pages/admin/EmailLogs"));
 const CronJobs = lazy(() => import("./pages/admin/CronJobs"));
 const CacheMonitoring = lazy(() => import("./pages/admin/CacheMonitoring"));
+const FeedbackInbox = lazy(() => import("./pages/admin/FeedbackInbox"));
 
 // Supervisor
 const SupervisorDashboard = lazy(() => import("./pages/supervisor/SupervisorDashboard"));
@@ -328,6 +329,7 @@ function App() {
                     <Route path="/admin/email-logs" element={<ProtectedRoute allowedRoles={['admin']}><EmailLogs /></ProtectedRoute>} />
                     <Route path="/admin/cron-jobs" element={<ProtectedRoute allowedRoles={['admin']}><CronJobs /></ProtectedRoute>} />
                     <Route path="/admin/cache" element={<ProtectedRoute allowedRoles={['admin']}><CacheMonitoring /></ProtectedRoute>} />
+                    <Route path="/admin/feedback" element={<ProtectedRoute allowedRoles={['admin']}><FeedbackInbox /></ProtectedRoute>} />
 
                     {/* Supervisor Routes */}
                     <Route path="/supervisor" element={<ProtectedRoute allowedRoles={['supervisor']}><SupervisorDashboard /></ProtectedRoute>} />

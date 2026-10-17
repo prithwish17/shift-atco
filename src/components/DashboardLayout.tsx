@@ -10,6 +10,7 @@ import { AppSidebar } from "./AppSidebar";
 import { EmployeePageNoticeGate } from "./EmployeePageNoticeGate";
 import { NotificationDropdown } from "./NotificationDropdown";
 import { BottomNav } from "./shell/BottomNav";
+import { FeedbackFooterLink } from "./feedback/FeedbackFooterLink";
 import { getHomeRouteForRole } from "@/lib/roleRoutes";
 import { STICKY_HEADER_SHADOW } from "@/lib/stickyShadow";
 
@@ -163,6 +164,7 @@ export function DashboardLayout({ role, title, subtitle, headerActions, children
             last card of every page sits underneath it. */}
         <main className={`flex-1 overflow-auto p-4 md:p-6 ${showBottomNav ? "pb-28 md:pb-28 lg:pb-6" : ""}`}>
           {children}
+          <FeedbackFooterLink />
         </main>
       </div>
 

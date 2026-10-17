@@ -271,6 +271,7 @@ const adminNav: NavGroup[] = [
     defaultOpen: true,
     items: [
       { title: "System Settings", url: "/admin/settings", icon: Settings },
+      { title: "Feedback", url: "/admin/feedback", icon: Inbox, keywords: ["grievance", "suggestion", "error", "report"] },
       { title: "Employee Page Notices", url: "/admin/employee-page-notices", icon: AlertTriangle },
       { title: "Email Logs", url: "/admin/email-logs", icon: Mail },
       { title: "Cron Jobs", url: "/admin/cron-jobs", icon: Timer },
