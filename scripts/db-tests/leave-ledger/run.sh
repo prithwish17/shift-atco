@@ -73,14 +73,16 @@ apply "seed" "$SQL_DIR/seed.sql"
 
 for m in \
   20261005100000_leave_sheet_sources_and_safe_sync \
-  20261005110000_leave_register_on_approval; do
+  20261005110000_leave_register_on_approval \
+  20261017100000_leave_sync_commit_timeout; do
   apply "$m" "$MIGRATIONS/$m.sql"
 done
 
 # Migrations must be re-runnable: a second apply is a no-op, not an error.
 for m in \
   20261005100000_leave_sheet_sources_and_safe_sync \
-  20261005110000_leave_register_on_approval; do
+  20261005110000_leave_register_on_approval \
+  20261017100000_leave_sync_commit_timeout; do
   apply "$m (again)" "$MIGRATIONS/$m.sql"
 done
 

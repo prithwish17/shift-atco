@@ -139,8 +139,11 @@ tight.
 | *The feed produced no rows* | Blank tab, broken script or wrong tab name | Check the read feed URL in a browser |
 | *Source … is closed* | A run queued before the sheet was closed | Nothing to do |
 | *Staging failed … the register is unchanged* | A malformed value in the feed | Read the error; fix the sheet cell |
+| *Commit failed: canceling statement due to statement timeout* | The commit ran past the API's statement timeout | Check that `20261017100000` is applied (the commit analyzes `run_id` first). Then run `explain` on the retirement query in §3: a *Nested Loop Anti Join* means the planner is misjudging the run again |
 
-A rejected or failed run writes **nothing**.
+A rejected or failed run writes **nothing**. The edge function marks a run
+whose commit failed as `failed` and deletes its staged rows. Before
+`20261017100000` they stayed, and each failed run left ~9,700 rows behind.
 
 ---
 
@@ -220,7 +223,7 @@ select restore_archived_leave_record('<archive_id>', 'why');
 ## 9. Testing locally
 
 ```bash
-scripts/db-tests/leave-ledger/run.sh     # migrations + 15 scenario groups on a throwaway PostgreSQL
+scripts/db-tests/leave-ledger/run.sh     # migrations + 16 scenario groups on a throwaway PostgreSQL
 npx vitest run src/lib/__tests__/leaveSheetWriteback.test.ts src/lib/__tests__/leaveSheetPayload.test.ts
 ```
 

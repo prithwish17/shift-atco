@@ -135,7 +135,13 @@ function, a hand-written upsert or a future script all get the same rules
    | Retire | Rows of **this** source that the feed no longer carries. Rows linked to an app request are never retired; they are flagged `sheet_missing_since` instead. |
    | Circuit breakers | Retirement is applied only if it is at most `GREATEST(retire_max_rows, retire_max_pct % of the source's rows)` (default 50 / 2 %), **and** the feed has at least `min_employee_ratio` (default 90 %) of the employees in the last good run. Otherwise the run commits its upserts but **holds** the retirement (`retire_status = 'blocked'`) until an admin approves it. |
    | Archive | Retired rows are copied to `employee_leave_records_archive` by the delete trigger, with the run id. |
-   | Record | Counts, reason and feed year land on the run. Staging is kept for the last 12 runs per source, and forever for a closed source's final run. |
+   | Record | Counts, reason and feed year land on the run. Staging is kept for the newest 3 committed runs per source, and forever for a closed source's final run. A failed or rejected run's staging is dropped, and a run still staging after 15 minutes counts as abandoned. |
+
+   The commit first runs `ANALYZE leave_sheet_sync_staging (run_id)`. The run
+   was staged after the last ANALYZE, and without it the planner takes the run
+   for a single row and plans the retirement check as a nested loop over the
+   whole feed. That outran the API's statement timeout and failed every sync
+   from 2026-10-15 to 2026-10-17 (`20261017100000`).
 
 The edge function logs rejections as errors, so cron health shows them. A held
 retirement is logged with "ATTENTION" and shown in the admin panel.
@@ -356,7 +362,7 @@ These were found while mapping the flows.
 
 | Suite | Covers |
 | --- | --- |
-| `scripts/db-tests/leave-ledger/run.sh` | Real migrations on a throwaway PostgreSQL with Supabase's default privileges reproduced. 15 scenario groups: after-migration state, unchanged feed, catch-up (both feed shapes), conflicts, retirement, protected rows, approval/cancel run as `authenticated`, backfill cancel, role guards, function privileges for `anon` / `authenticated`, delete guard, legacy upsert, balance, truncated feed + approval, empty/wrong-year feeds, year end. Mutation-checked: disabling either guard trigger fails it. |
+| `scripts/db-tests/leave-ledger/run.sh` | Real migrations on a throwaway PostgreSQL with Supabase's default privileges reproduced. 16 scenario groups: after-migration state, unchanged feed, catch-up (both feed shapes), conflicts, retirement, protected rows, approval/cancel run as `authenticated`, backfill cancel, role guards, function privileges for `anon` / `authenticated`, delete guard, legacy upsert, balance, truncated feed + approval, empty/wrong-year feeds, year end, staging prune. Mutation-checked: disabling either guard trigger fails it, and so does the old prune rule. |
 | `src/lib/__tests__/leaveSheetWriteback.test.ts` | `Code.gs` in a VM against a fixture tab, including never-blank, conflicts, NA fill, spare slots, concurrent edit, write log, wrong-year refusal. The new cases fail against the old script. |
 | `src/lib/__tests__/leaveSheetPayload.test.ts` | Payload mapping: blanks omitted, half days, RH keying, last-year routing, unplaceable entries |
 | `src/utils/__tests__/leaveCalculations.test.ts` | ½-day CL counting |

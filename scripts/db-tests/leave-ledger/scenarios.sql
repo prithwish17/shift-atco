@@ -660,4 +660,70 @@ BEGIN
   PERFORM t.ok(v_denied, 'frozen rows cannot be deleted');
 END $$;
 
+
+-- ═══ S15 — staging keeps only what is still read (20261017100000) ══════════
+-- A run whose commit failed, one a crashed function abandoned, and one still
+-- in progress. Each sync below is its own transaction, so runs have distinct
+-- started_at values.
+CREATE TABLE t.s15 (failed UUID, abandoned UUID, live UUID);
+
+DO $$
+DECLARE
+  v_failed    UUID;
+  v_abandoned UUID;
+  v_live      UUID;
+BEGIN
+  PERFORM t.as_backend();
+  INSERT INTO public.leave_sheet_sync_runs (source_key, triggered_by, status, finished_at)
+  VALUES ('ATTENDANCE-2027', 'test', 'failed', now()) RETURNING id INTO v_failed;
+  INSERT INTO public.leave_sheet_sync_runs (source_key, triggered_by, started_at)
+  VALUES ('ATTENDANCE-2027', 'test', now() - INTERVAL '20 minutes') RETURNING id INTO v_abandoned;
+  INSERT INTO public.leave_sheet_sync_runs (source_key, triggered_by)
+  VALUES ('ATTENDANCE-2027', 'test') RETURNING id INTO v_live;
+
+  INSERT INTO public.leave_sheet_sync_staging (run_id, emp_id, leave_category, leave_date)
+  SELECT id, '10000001', 'CL', DATE '2027-03-01' FROM unnest(ARRAY[v_failed, v_abandoned, v_live]) id;
+  INSERT INTO t.s15 VALUES (v_failed, v_abandoned, v_live);
+END $$;
+
+DO $$ BEGIN PERFORM t.sync(); END $$;
+DO $$ BEGIN PERFORM t.sync(); END $$;
+DO $$ BEGIN PERFORM t.sync(); END $$;
+DO $$ BEGIN PERFORM t.sync(); END $$;
+
+DO $$
+DECLARE
+  s       t.s15;
+  v_final UUID;
+  v_kept  UUID[];
+  v_top3  UUID[];
+BEGIN
+  RAISE NOTICE '── S15 staging prune';
+  SELECT * INTO s FROM t.s15;
+
+  PERFORM t.ok(NOT EXISTS (SELECT 1 FROM public.leave_sheet_sync_staging WHERE run_id = s.failed),
+               'a failed run''s staged rows are pruned');
+  PERFORM t.ok((SELECT status FROM public.leave_sheet_sync_runs WHERE id = s.abandoned) = 'failed'
+               AND NOT EXISTS (SELECT 1 FROM public.leave_sheet_sync_staging WHERE run_id = s.abandoned),
+               'a run staging for over 15 minutes is marked failed and pruned');
+  PERFORM t.ok((SELECT status FROM public.leave_sheet_sync_runs WHERE id = s.live) = 'staging'
+               AND EXISTS (SELECT 1 FROM public.leave_sheet_sync_staging WHERE run_id = s.live),
+               'a sync still in progress keeps its staged rows');
+
+  SELECT array_agg(id ORDER BY id) INTO v_top3
+    FROM (SELECT id FROM public.leave_sheet_sync_runs
+           WHERE source_key = 'ATTENDANCE-2027' AND status = 'committed'
+           ORDER BY started_at DESC LIMIT 3) x;
+  SELECT array_agg(DISTINCT st.run_id ORDER BY st.run_id) INTO v_kept
+    FROM public.leave_sheet_sync_staging st
+    JOIN public.leave_sheet_sync_runs r ON r.id = st.run_id
+   WHERE r.source_key = 'ATTENDANCE-2027' AND r.status = 'committed';
+  PERFORM t.ok(v_kept = v_top3, 'only the newest 3 committed runs of the live source keep staging');
+
+  SELECT final_run_id INTO v_final FROM public.leave_sheet_sources WHERE source_key = 'ATTENDANCE-2026';
+  PERFORM t.ok(v_final IS NOT NULL
+               AND EXISTS (SELECT 1 FROM public.leave_sheet_sync_staging WHERE run_id = v_final),
+               'a closed source''s final snapshot is kept');
+END $$;
+
 DO $$ BEGIN RAISE NOTICE '── all scenarios passed'; END $$;

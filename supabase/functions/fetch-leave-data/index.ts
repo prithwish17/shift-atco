@@ -60,7 +60,30 @@ Deno.serve(async (req) => {
         }
     }
 
+    // A run whose commit did not go through must not leave its staged feed
+    // behind. Only a successful commit prunes staging, so every failed run used
+    // to add its ~9,700 rows for good (20261017100000).
+    async function failRun(runId: string, message: string) {
+        try {
+            const { data: failed } = await adminClient
+                .from("leave_sheet_sync_runs")
+                .update({ status: "failed", finished_at: new Date().toISOString(), error: message })
+                .eq("id", runId)
+                .eq("status", "staging")
+                .select("id");
+            // Only a run that was still staging. If the commit went through and
+            // just its response was lost, its staged rows back a retirement approval.
+            if (failed?.length) {
+                await adminClient.from("leave_sheet_sync_staging").delete().eq("run_id", runId);
+            }
+        } catch (e) {
+            console.error("Failed to clean up sync run:", e);
+        }
+    }
+
     const startTime = Date.now();
+    let triggeredBy = "unknown";
+    let runId: string | null = null;
 
     try {
         // Validate auth
@@ -75,7 +98,6 @@ Deno.serve(async (req) => {
 
         const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
         const token = authHeader.replace("Bearer ", "");
-        let triggeredBy = "service_role";
 
         if (token !== serviceRoleKey) {
             const userClient = createClient(supabaseUrl, supabaseAnonKey, {
@@ -754,6 +776,7 @@ Deno.serve(async (req) => {
         if (runError || !run) {
             throw new Error(`Could not open a sync run: ${runError?.message ?? "no row returned"}`);
         }
+        runId = run.id;
 
         const BATCH_SIZE = 500;
         for (let i = 0; i < dedupedRows.length; i += BATCH_SIZE) {
@@ -761,10 +784,6 @@ Deno.serve(async (req) => {
             const { error: stageError } = await adminClient.from("leave_sheet_sync_staging").insert(batch);
 
             if (stageError) {
-                await adminClient
-                    .from("leave_sheet_sync_runs")
-                    .update({ status: "failed", finished_at: new Date().toISOString(), error: `Staging failed: ${stageError.message}` })
-                    .eq("id", run.id);
                 throw new Error(
                     `Staging failed for batch ${Math.floor(i / BATCH_SIZE) + 1}: ${stageError.message} — the register is unchanged`,
                 );
@@ -819,10 +838,14 @@ Deno.serve(async (req) => {
         );
     } catch (error) {
         const durationMs = Date.now() - startTime;
+        const message = (error instanceof Error && error.message) || "Internal server error";
         console.error("Error:", error);
-        await logApiCall("error", error.message || "Internal server error", durationMs, "unknown");
+        if (runId) {
+            await failRun(runId, message);
+        }
+        await logApiCall("error", message, durationMs, triggeredBy);
         return new Response(
-            JSON.stringify({ error: error.message || "Internal server error" }),
+            JSON.stringify({ error: message }),
             {
                 status: 500,
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
