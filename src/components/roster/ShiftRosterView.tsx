@@ -20,6 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import RosterGrid from "@/components/roster/RosterGrid";
+import RosterComingSoon, { ROSTER_COMING_SOON_MESSAGE } from "@/components/roster/RosterComingSoon";
 import { useAuth } from "@/contexts/AuthContext";
 import { useShiftRoster } from "@/hooks/useShiftRoster";
 import { useUserProfile } from "@/hooks/useUsers";
@@ -211,9 +212,7 @@ function ShiftPanel({
             {viewMode === "grid" && gridModel ? (
               <RosterGrid model={gridModel} search={search} />
             ) : group.members.length === 0 && onDutyCount === 0 && group.onLeave.length === 0 ? (
-              <p className="px-2 py-8 text-center text-sm text-muted-foreground">
-                No entries for this shift
-              </p>
+              <RosterComingSoon />
             ) : (
               <ul className={MEMBER_GRID}>
                 {group.members.map((member) => (
@@ -648,7 +647,7 @@ export default function ShiftRosterView({ actions, description, hideHeaderTitle 
               Derived from duty schedules — no published roster for this date
             </span>
           )}
-          {day?.source === "empty" && !search && <span>No roster published for this date</span>}
+          {day?.source === "empty" && !search && <span>{ROSTER_COMING_SOON_MESSAGE}</span>}
         </div>
       </div>
     </div>

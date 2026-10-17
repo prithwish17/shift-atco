@@ -9,6 +9,7 @@ import {
 } from "@/lib/rosterGrid";
 import { STICKY_COLUMN_SHADOW, STICKY_CORNER_SHADOW, STICKY_HEADER_SHADOW } from "@/lib/stickyShadow";
 import { cn } from "@/lib/utils";
+import RosterComingSoon from "@/components/roster/RosterComingSoon";
 
 /**
  * RosterGrid — the published roster as the matrix it actually is.
@@ -392,11 +393,7 @@ export default function RosterGrid({ model, search }: Props) {
   };
 
   if (model.total === 0) {
-    return (
-      <p className="px-2 py-8 text-center text-sm text-muted-foreground">
-        No roster published for this shift
-      </p>
-    );
+    return <RosterComingSoon />;
   }
 
   return (

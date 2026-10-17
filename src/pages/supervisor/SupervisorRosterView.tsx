@@ -4,6 +4,7 @@ import { eachDayOfInterval, addMonths, endOfMonth, format, startOfMonth } from "
 import { Calendar, CalendarRange, ChevronLeft, ChevronRight, Search, Sparkles, Table2, X } from "lucide-react";
 
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { ROSTER_COMING_SOON_MESSAGE } from "@/components/roster/RosterComingSoon";
 import { MobileZoomFrame } from "@/components/MobileZoomFrame";
 import RosterViewTable from "@/components/RosterViewTable";
 import { Badge } from "@/components/ui/badge";
@@ -1038,8 +1039,8 @@ export default function SupervisorRosterView() {
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-slate-200/80 bg-white/80 text-slate-500 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                 <Table2 className="h-6 w-6" />
               </div>
-              <h2 className="mt-4 text-lg font-semibold text-slate-900 dark:text-white">No roster data available</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">Live roster entries are not available for the current view yet.</p>
+              <h2 className="mt-4 text-lg font-semibold text-slate-900 dark:text-white">Roster's not out yet</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">{ROSTER_COMING_SOON_MESSAGE}</p>
             </div>
           </div>
         ) : (
