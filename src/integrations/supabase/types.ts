@@ -2941,6 +2941,7 @@ export type Database = {
         }
         Returns: string
       }
+      cron_queue_has_due_work: { Args: never; Returns: boolean }
       current_user_emp_id: { Args: never; Returns: string }
       current_user_roles: { Args: never; Returns: string[] }
       custom_access_token_hook: { Args: { event: Json }; Returns: Json }
@@ -3152,6 +3153,7 @@ export type Database = {
         }
         Returns: Json
       }
+      notification_queue_has_due_work: { Args: never; Returns: boolean }
       ojt_today: { Args: never; Returns: string }
       process_exchange_approval: {
         Args: {

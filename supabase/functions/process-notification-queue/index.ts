@@ -194,10 +194,12 @@ Deno.serve(async (_req: Request) => {
       .eq('key', 'email_system_enabled')
       .single()
 
+    // Idle exits write nothing: a log row per idle call was most of what this
+    // function ever wrote, and the health view judges it on pg_cron's firings.
     if (emailToggle?.value === 'false') {
       message = 'Email system paused by admin — skipping queue processing'
       status = 'success'
-      await log.complete(status, message, 0)
+      console.log(`[process-notification-queue] ${message}`)
       return new Response(JSON.stringify({ status, message }), { headers: { 'Content-Type': 'application/json' } })
     }
 
@@ -218,7 +220,7 @@ Deno.serve(async (_req: Request) => {
     if (fetchError) throw fetchError
     if (!jobs?.length) {
       message = 'No pending jobs'
-      await log.complete(status, message, 0)
+      console.log(`[process-notification-queue] ${message}`)
       return new Response(JSON.stringify({ status, message }), { headers: { 'Content-Type': 'application/json' } })
     }
 
@@ -325,19 +327,25 @@ Deno.serve(async (_req: Request) => {
           processed_at: new Date().toISOString(),
         }).eq('id', job.id)
 
-        // Log failed attempt
+        // Log failed attempt — best effort. Query builders have no .catch(), so
+        // chaining one threw a TypeError that ended the whole batch as an error.
         const email = await getUserEmail(job.user_id)
         if (email) {
-          await supabase.from('email_logs').insert({
-            queue_id: job.id,
-            user_id: job.user_id,
-            email_to: email,
-            subject: job.payload?.title || job.event_type,
-            event_type: job.event_type,
-            provider: 'resend', // last attempted
-            status: 'failed',
-            error_message: errorMsg,
-          }).catch(() => {}) // best-effort logging
+          try {
+            const { error: logError } = await supabase.from('email_logs').insert({
+              queue_id: job.id,
+              user_id: job.user_id,
+              email_to: email,
+              subject: job.payload?.title || job.event_type,
+              event_type: job.event_type,
+              provider: 'resend', // last attempted
+              status: 'failed',
+              error_message: errorMsg,
+            })
+            if (logError) console.error(`[queue] email_logs insert failed for ${job.id}:`, logError)
+          } catch (e) {
+            console.error(`[queue] email_logs insert failed for ${job.id}:`, e)
+          }
         }
 
         failed++

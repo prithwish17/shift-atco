@@ -51,7 +51,9 @@ Deno.serve(async () => {
     const results: Array<{ job_name: string; status: string; elapsed_ms: number }> = [];
 
     // ── Step 1: Heartbeat + mark stale running jobs as failed ─────────────────
-    // The heartbeat is what the admin health view reads for this job.
+    // pg_cron only starts this function when cron_queue_has_due_work() is true,
+    // so the heartbeat records the last time it actually ran. The health view
+    // also counts pg_cron's firings, which check the queue every minute.
     await bestEffort("heartbeat", adminClient
         .from("sync_jobs")
         .update({ last_run_at: new Date().toISOString(), last_run_status: "success" })
