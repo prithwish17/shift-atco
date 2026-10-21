@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
+import { LIVE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 import { extractTraineeMilestone, getTraineeStatusBadgeClass, getTraineeStatusLabel, type TraineeStatus } from "@/lib/traineeMilestones";
 import { normalizeTeamKey } from "@/lib/teamDutyRotation";
 import { cn } from "@/lib/utils";
@@ -388,7 +388,7 @@ export default function ShiftDetails() {
 
   const shiftDetailsQuery = useQuery({
     queryKey: ["shift-details", selectedDate],
-    ...SCHEDULE_QUERY_OPTIONS,
+    ...LIVE_QUERY_OPTIONS,
     queryFn: async () => {
       const { data: scheduleData, error: scheduleError } = await supabase
         .from("employee_schedules" as any)

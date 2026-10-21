@@ -107,7 +107,9 @@ export async function notifyUsers(params: NotifyParams): Promise<{ sent: number;
     return { sent: 0, failed: 0, inApp: uniqueUserIds.length, emailQueued }
   }
 
-  const payload = JSON.stringify({ title, body, url: url || '/' })
+  // category lets an open app refresh what the notification is about
+  // (public/sw.js → useUnreadCount in src/hooks/useNotifications.ts).
+  const payload = JSON.stringify({ title, body, url: url || '/', category })
   let sent = 0
   let failed = 0
   const expiredIds: string[] = []

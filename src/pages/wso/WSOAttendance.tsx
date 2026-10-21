@@ -25,7 +25,7 @@ import { useUserProfile } from "@/hooks/useUsers";
 import { useAttendance } from "@/hooks/useAttendance";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
+import { LIVE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 import { useToast } from "@/hooks/use-toast";
 import { useDutyRoster, useRosterAssignments } from "@/hooks/useDutyGrid";
 import { useEmployeeDirectory } from "@/hooks/useEmployeeSchedules";
@@ -121,7 +121,7 @@ export default function WSOAttendance() {
 
   const { data: scheduleEntries = [], isLoading: scheduleLoading } = useQuery({
     queryKey: ["wso-attendance-schedule", dateStr],
-    ...SCHEDULE_QUERY_OPTIONS,
+    ...LIVE_QUERY_OPTIONS,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("employee_schedules" as any)
@@ -136,7 +136,7 @@ export default function WSOAttendance() {
 
   const { data: rawRosterEntries = EMPTY_ROSTER_ENTRIES, isLoading: rawRosterLoading } = useQuery({
     queryKey: ["wso-attendance-rosters", rosterDateStr, rosterShift, wsoTeamKey],
-    ...SCHEDULE_QUERY_OPTIONS,
+    ...LIVE_QUERY_OPTIONS,
     queryFn: async () => {
       if (!rosterShift) return [];
 

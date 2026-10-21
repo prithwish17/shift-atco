@@ -47,6 +47,7 @@ import { useApplyRuleRegistry } from "@/hooks/useApplyRuleRegistry";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { scheduleKeys } from "@/lib/scheduleQueryConfig";
 import { applyDutyPlan } from "@/data-access/schedule.repository";
 import { RATING_GROUPS, type GroupNum } from "@/lib/supervisorAvailability";
 import type { CoverOption } from "@/lib/compliance/ladder";
@@ -499,6 +500,7 @@ export default function AvailabilityFinder() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["supervisor-schedule-members"] }),
         queryClient.invalidateQueries({ queryKey: ["employee-history"] }),
+        queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
       ]);
       toast({ title: "Duty change applied", description: `${option.name} — ${summary}` });
     } catch (e) {

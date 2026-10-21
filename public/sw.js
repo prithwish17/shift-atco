@@ -118,7 +118,22 @@ self.addEventListener('push', (event) => {
     tag: data.tag || undefined,
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(title, options),
+      // Open windows refresh the notification bell, and anything the category
+      // says changed, now instead of at their next poll (useUnreadCount in
+      // src/hooks/useNotifications.ts).
+      self.clients
+        .matchAll({ type: 'window', includeUncontrolled: true })
+        .then((clients) =>
+          clients.forEach((client) =>
+            client.postMessage({ type: 'PUSH_RECEIVED', category: data.category || null })
+          )
+        )
+        .catch(() => {}),
+    ])
+  );
 });
 
 self.addEventListener('notificationclick', (event) => {

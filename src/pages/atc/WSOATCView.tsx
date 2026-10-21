@@ -26,7 +26,7 @@ import {
 import { useATCAssignments } from '@/hooks/useATCAssignments';
 import type { GridEmployee } from '@/hooks/useDutyGrid';
 import { supabase } from '@/integrations/supabase/client';
-import { SCHEDULE_QUERY_OPTIONS } from '@/lib/scheduleQueryConfig';
+import { LIVE_QUERY_OPTIONS } from '@/lib/scheduleQueryConfig';
 import { buildNameIndex, findUniqueNameMatch, namesMatch } from '@/lib/nameMatching';
 import { getDutyShiftMatches, normalizeTeamKey, type TeamDutyCode } from '@/lib/teamDutyRotation';
 import { getLeaveTypeLabel } from '@/lib/leaveConstants';
@@ -236,7 +236,7 @@ export default function WSOATCView() {
   const [positionLabels, setPositionLabels] = useState<Record<string, string>>({});
   const { data: wsoProfile } = useQuery({
     queryKey: ['wso-atc-team', user?.id],
-    ...SCHEDULE_QUERY_OPTIONS,
+    ...LIVE_QUERY_OPTIONS,
     queryFn: async () => {
       if (!user?.id) return null;
 
@@ -278,7 +278,7 @@ export default function WSOATCView() {
   const syncFromRoster = useSyncRosterToGrid();
   const { data: allScheduleMembers = [], isLoading: teamScheduleLoading } = useQuery({
     queryKey: ['wso-atc-schedule-members', dateStr],
-    ...SCHEDULE_QUERY_OPTIONS,
+    ...LIVE_QUERY_OPTIONS,
     queryFn: async () => {
       const { data: schedules, error: schedulesError } = await supabase
         .from('employee_schedules' as any)
@@ -341,7 +341,7 @@ export default function WSOATCView() {
   });
   const { data: approvedLeaveEntries = [] } = useQuery({
     queryKey: ['wso-atc-approved-leaves', dateStr, team],
-    ...SCHEDULE_QUERY_OPTIONS,
+    ...LIVE_QUERY_OPTIONS,
     queryFn: async () => {
       if (!team) return [];
 

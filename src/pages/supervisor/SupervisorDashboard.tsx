@@ -37,7 +37,7 @@ import { getLeaveTypeLabel } from "@/lib/leaveConstants";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useLeaveApiUrl, useLeaveRefresh } from "@/hooks/useLeaveData";
-import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
+import { scheduleKeys, SCHEDULE_QUERY_OPTIONS, LIVE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 import { getAttendanceShiftTokens } from "@/lib/teamDutyRotation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useDebounce } from "use-debounce";
@@ -241,7 +241,7 @@ export default function SupervisorDashboard() {
 
   const { data: latestRegistration } = useQuery({
     queryKey: ["profiles", "latest-registration"],
-    ...SCHEDULE_QUERY_OPTIONS,
+    ...LIVE_QUERY_OPTIONS,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")

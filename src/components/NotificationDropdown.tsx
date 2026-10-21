@@ -187,7 +187,7 @@ function EmptyState() {
 /* ─── Main dropdown component ─── */
 export function NotificationDropdown() {
   const navigate = useNavigate();
-  const { data: notifications = [] } = useNotifications();
+  const { data: notifications = [], refetch: refetchNotifications, isStale: notificationsStale } = useNotifications();
   const { data: unreadCount = 0 } = useUnreadCount();
   const markAsRead = useMarkAsRead();
   const markAllRead = useMarkAllRead();
@@ -220,7 +220,8 @@ export function NotificationDropdown() {
   }, [notifications]);
 
   return (
-    <Popover>
+    // The list does not poll, so opening the bell fetches it unless it is fresh.
+    <Popover onOpenChange={(open) => { if (open && notificationsStale) refetchNotifications(); }}>
       <PopoverTrigger asChild>
         <button
           className="relative p-2 rounded-lg transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"

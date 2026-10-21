@@ -330,6 +330,9 @@ export default function DutyManagement() {
 
             // Snapshot previous data for rollback
             const prev = queryClient.getQueryData<ScheduleEntry[]>(gridKey);
+            // A local patch is not a fresh read: keep the grid's own timestamp so
+            // other people's changes still arrive on the usual refresh.
+            const loadedAt = queryClient.getQueryState(gridKey)?.dataUpdatedAt;
 
             // Optimistically update the single cell in cache
             queryClient.setQueryData<ScheduleEntry[]>(gridKey, (old) => {
@@ -360,7 +363,7 @@ export default function DutyManagement() {
                     duty_code: dutyCode,
                     duty_description: DUTY_DESCRIPTIONS[dutyCode] || dutyCode,
                 } as ScheduleEntry];
-            });
+            }, { updatedAt: loadedAt });
 
             return { prev };
         },
@@ -372,6 +375,16 @@ export default function DutyManagement() {
             // Fix 4: Refetch only on error to restore true server state.
             // onSettled was removed — it triggered a full month re-fetch after every single cell save.
             queryClient.invalidateQueries({ queryKey: scheduleKeys.grid(startDate, endDate) });
+        },
+        onSuccess: () => {
+            // Every other schedule view (rosters, dashboards, people's own
+            // schedules) must see the edit. This grid already shows it, so its
+            // month is left alone rather than re-read after every cell.
+            const gridKey = scheduleKeys.grid(startDate, endDate);
+            queryClient.invalidateQueries({
+                queryKey: scheduleKeys.all,
+                predicate: (query) => gridKey.some((part, i) => query.queryKey[i] !== part),
+            });
         },
     });
 

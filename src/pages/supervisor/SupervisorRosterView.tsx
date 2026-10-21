@@ -38,6 +38,7 @@ import { parseRosterDate, type RosterEntry } from "@/hooks/useRosters";
 import { getDutyShiftMatches, normalizeTeamKey, type TeamDutyCode } from "@/lib/teamDutyRotation";
 import { useNavigate } from "react-router-dom";
 import { getSufficiencyColor, type SummaryScheduleMember } from "@/lib/supervisorAvailability";
+import { scheduleKeys } from "@/lib/scheduleQueryConfig";
 import { useSupervisorScheduleMembers } from "@/hooks/useSupervisorScheduleMembers";
 import { useToast } from "@/hooks/use-toast";
 import { logSupervisorEdit } from "@/lib/supervisorAuditLog";
@@ -784,6 +785,7 @@ export default function SupervisorRosterView() {
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["supervisor-schedule-members"] });
+      queryClient.invalidateQueries({ queryKey: scheduleKeys.all });
       toast({
         title: "Schedule Updated",
         description: "Duty code was synchronized successfully.",

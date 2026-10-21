@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { scheduleKeys } from "@/lib/scheduleQueryConfig";
 import { supabase } from "@/integrations/supabase/client";
 import { Tables, TablesUpdate } from "@/integrations/supabase/types";
 import { logCriticalEvent } from "@/lib/sentryHelpers";
@@ -277,6 +278,8 @@ export function useProcessExchangeApproval() {
       queryClient.invalidateQueries({ queryKey: ["duty_exchanges"] });
       queryClient.invalidateQueries({ queryKey: ["exchange_approvals"] });
       queryClient.invalidateQueries({ queryKey: ["shifts"] });
+      // The final approval swaps the two duties in employee_schedules.
+      queryClient.invalidateQueries({ queryKey: scheduleKeys.all });
     },
   });
 }

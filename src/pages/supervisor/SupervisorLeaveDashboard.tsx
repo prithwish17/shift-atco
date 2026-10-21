@@ -17,7 +17,7 @@ import { EmployeeLeaveSearch } from "@/components/leave/EmployeeLeaveSearch";
 import { supabase } from "@/integrations/supabase/client";
 import { getAttendanceShiftTokens } from "@/lib/teamDutyRotation";
 
-import { SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
+import { SCHEDULE_QUERY_OPTIONS, LIVE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 import { YEAR_LOOKBACK } from "@/lib/leaveConstants";
 import { STICKY_HEADER_SHADOW } from "@/lib/stickyShadow";
 
@@ -288,6 +288,9 @@ export default function SupervisorLeaveDashboard() {
     ...SCHEDULE_QUERY_OPTIONS,
     refetchOnWindowFocus: false,
     refetchInterval: false,
+    // Nothing else refreshes it, so a revisit re-reads once it is a minute old
+    // (LEAVE codes from the sheet sync, approvals made in another tab).
+    staleTime: LIVE_QUERY_OPTIONS.staleTime,
     queryFn: async () => {
       const { data: leaveSchedules, error: leaveSchedulesError } = await supabase
         .from("employee_schedules" as any)
@@ -364,6 +367,7 @@ export default function SupervisorLeaveDashboard() {
     ...SCHEDULE_QUERY_OPTIONS,
     refetchOnWindowFocus: false,
     refetchInterval: false,
+    staleTime: LIVE_QUERY_OPTIONS.staleTime,
     queryFn: async () => {
       // Single query: ALL schedules for the date
       const { data: allSchedules, error } = await supabase

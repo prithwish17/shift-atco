@@ -527,7 +527,7 @@ export default function CronJobs() {
             if (error) throw error;
             return (data || []) as SyncJob[];
         },
-        refetchInterval: 30_000,
+        refetchInterval: 60_000,
     });
 
     const { data: queue = [], isLoading: isQueueLoading } = useQuery({
@@ -542,7 +542,7 @@ export default function CronJobs() {
             if (error) throw error;
             return (data || []) as QueueEntry[];
         },
-        refetchInterval: 15_000,
+        refetchInterval: 60_000,
     });
 
     const { data: logs = [], isLoading: isLogsLoading } = useQuery({
@@ -556,7 +556,7 @@ export default function CronJobs() {
             if (error) throw error;
             return (data || []) as ApiCallLog[];
         },
-        refetchInterval: 30_000,
+        refetchInterval: 60_000,
     });
 
     const { data: healthRows = [], isLoading: isHealthLoading } = useQuery({
@@ -566,7 +566,9 @@ export default function CronJobs() {
             if (error) throw error;
             return (data || []) as CronHealth[];
         },
-        refetchInterval: 30_000,
+        // Sorts all of cron.job_run_details; the Refresh button and job actions
+        // refetch it immediately.
+        refetchInterval: 5 * 60_000,
     });
 
     const refresh = useCallback(() => {

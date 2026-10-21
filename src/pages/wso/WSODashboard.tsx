@@ -23,7 +23,7 @@ import { getLeaveTypeLabel } from "@/lib/leaveConstants";
 import { format } from "date-fns";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { SCHEDULE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
+import { LIVE_QUERY_OPTIONS } from "@/lib/scheduleQueryConfig";
 import {
   getTeamDutyForDateKey,
   getTeamDutyLabel,
@@ -69,7 +69,7 @@ export default function WSODashboard() {
   const { data: rosterStatusEntries = [] } = useRosterStatusEntries(todayDate, rosterShift || "__OFF__", wsoTeam || "");
   const { data: teamProfiles = [] } = useQuery({
     queryKey: ["wso-team-profiles", wsoTeam],
-    ...SCHEDULE_QUERY_OPTIONS,
+    ...LIVE_QUERY_OPTIONS,
     queryFn: async () => {
       if (!wsoTeam) return [];
 
@@ -87,7 +87,7 @@ export default function WSODashboard() {
   });
   const { data: onDutyCountData = 0, isLoading: onDutyLoading } = useQuery({
     queryKey: ["wso-on-duty-count", today, wsoTeam, teamDutyToday],
-    ...SCHEDULE_QUERY_OPTIONS,
+    ...LIVE_QUERY_OPTIONS,
     queryFn: async () => {
       if (!wsoTeam) return 0;
 

@@ -14,6 +14,7 @@
  */
 import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { scheduleKeys } from "@/lib/scheduleQueryConfig";
 
 import { applyDutyPlan } from "@/data-access/schedule.repository";
 import { useAuth } from "@/contexts/AuthContext";
@@ -147,6 +148,7 @@ export function useCoverBasket() {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ["supervisor-schedule-members"] }),
           queryClient.invalidateQueries({ queryKey: ["employee-history"] }),
+          queryClient.invalidateQueries({ queryKey: scheduleKeys.all }),
         ]);
       }
 

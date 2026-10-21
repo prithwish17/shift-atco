@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { eachDayOfInterval, format, isAfter, isBefore, parseISO, startOfMonth, subDays, subMonths } from 'date-fns';
 import { getFunctionsProxyBaseUrl } from '@/lib/appConfig';
 import { invokeEdgeFunction } from '@/lib/invokeEdgeFunction';
-import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from '@/lib/scheduleQueryConfig';
+import { scheduleKeys, SCHEDULE_QUERY_OPTIONS, EMPLOYEE_SCHEDULE_STALE_TIME } from '@/lib/scheduleQueryConfig';
 import { logSupervisorEdit } from '@/lib/supervisorAuditLog';
 
 // Duty code legend from Google Sheet
@@ -168,6 +168,9 @@ export function useEmployeeSchedules(
     return useQuery({
         queryKey: scheduleKeys.employee(employeeCode, startDate, endDate),
         ...SCHEDULE_QUERY_OPTIONS,
+        // One person's rows are cheap, and a supervisor's edit reaches nobody
+        // else's tab, so reopening the app should show it.
+        ...(employeeCode ? { staleTime: EMPLOYEE_SCHEDULE_STALE_TIME } : {}),
         queryFn: async () => {
             let query = supabase
                 .from('employee_schedules' as any)
