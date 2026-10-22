@@ -248,8 +248,8 @@ export default function EmployeeSchedule() {
           </div>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)] xl:items-start">
-          <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)] xl:items-start">
+          <div className="min-w-0 space-y-4">
           {/* ── Schedule Calendar ── */}
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-slate-200/50 dark:border-slate-700/50 p-4 md:p-5">
             {/* Calendar Header */}
@@ -379,7 +379,7 @@ export default function EmployeeSchedule() {
                           {format(day, "EEE")}
                         </span>
                       </div>
-                      <p className="min-w-0 flex-1 truncate text-xs font-medium text-gray-900 dark:text-gray-100 sm:text-sm">
+                      <p className="min-w-0 flex-1 break-words text-xs font-medium leading-snug text-gray-900 dark:text-gray-100 sm:text-sm">
                         {h.name}
                       </p>
                       <span className={`shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded sm:text-[10px] ${holidayColor(h.type)}`}>
