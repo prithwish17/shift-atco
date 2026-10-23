@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { eachDayOfInterval, format, isAfter, isBefore, parseISO, startOfMonth, subDays, subMonths } from 'date-fns';
@@ -5,6 +6,7 @@ import { getFunctionsProxyBaseUrl } from '@/lib/appConfig';
 import { invokeEdgeFunction } from '@/lib/invokeEdgeFunction';
 import { scheduleKeys, SCHEDULE_QUERY_OPTIONS } from '@/lib/scheduleQueryConfig';
 import { logSupervisorEdit } from '@/lib/supervisorAuditLog';
+import { useRosterVisibility } from '@/hooks/useRosterPublication';
 
 // Duty code legend from Google Sheet
 export const DUTY_CODES = [
@@ -164,10 +166,20 @@ export function useEmployeeSchedules(
     endDate?: string
 ) {
     const queryClient = useQueryClient();
+    const { canSeeAll, isDateVisible } = useRosterVisibility();
+
+    // Unpublished future months are dropped per observer, so the cache still
+    // holds the full rows and staff views sharing the key are unaffected.
+    const hideUnpublished = useCallback(
+        (rows: EmployeeSchedule[]) =>
+            canSeeAll ? rows : rows.filter((r) => isDateVisible(r.duty_date)),
+        [canSeeAll, isDateVisible]
+    );
 
     return useQuery({
         queryKey: scheduleKeys.employee(employeeCode, startDate, endDate),
         ...SCHEDULE_QUERY_OPTIONS,
+        select: hideUnpublished,
         queryFn: async () => {
             let query = supabase
                 .from('employee_schedules' as any)

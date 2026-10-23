@@ -2,11 +2,12 @@ import { useState, useMemo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { MobileZoomFrame } from "@/components/MobileZoomFrame";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar as CalendarIcon, Clock, ChevronLeft, ChevronRight, TrendingUp, PartyPopper } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, ChevronLeft, ChevronRight, TrendingUp, PartyPopper, Hourglass } from "lucide-react";
 import { format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, isToday, isBefore, addMonths, subMonths, parseISO } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserProfile } from "@/hooks/useUsers";
 import { useHolidays } from "@/hooks/useHolidays";
+import { useRosterVisibility } from "@/hooks/useRosterPublication";
 import {
   useMySchedule,
   DUTY_CODES,
@@ -124,7 +125,10 @@ export default function EmployeeSchedule() {
     monthEnd
   );
 
+  const { isDateVisible, isLoading: visibilityLoading } = useRosterVisibility();
   const isLoading = profileLoading || schedulesLoading;
+  // A future month stays hidden until a supervisor or admin publishes it.
+  const monthUnpublished = !visibilityLoading && !isDateVisible(currentMonth);
 
   const scheduleMap = useMemo(() => {
     const map = new Map<string, ScheduleType>();
@@ -243,7 +247,9 @@ export default function EmployeeSchedule() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-3">No data for this month</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-3">
+                {monthUnpublished ? "Roster not published yet" : "No data for this month"}
+              </p>
             )}
           </div>
         </div>
@@ -283,6 +289,16 @@ export default function EmployeeSchedule() {
                 </button>
               </div>
             </div>
+
+            {monthUnpublished && (
+              <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300 sm:text-sm">
+                <Hourglass size={16} className="mt-0.5 shrink-0" />
+                <span>
+                  The {format(currentMonth, "MMMM yyyy")} roster is not published yet. Your duties will appear here once
+                  a supervisor publishes it.
+                </span>
+              </div>
+            )}
 
             {/* Calendar Grid */}
             {isLoading ? (
@@ -428,7 +444,9 @@ export default function EmployeeSchedule() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-3">No data for this month</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-3">
+                {monthUnpublished ? "Roster not published yet" : "No data for this month"}
+              </p>
             )}
           </div>
 

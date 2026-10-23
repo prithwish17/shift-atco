@@ -11,6 +11,7 @@ import { Settings, Save, Loader2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { NIGHT_ALLOCATION_SETTING_KEY } from "@/hooks/useNightAllocationEnabled";
 import { LeaveSheetSourcePanel } from "@/components/leave/LeaveSheetSourcePanel";
+import RosterPublicationCard from "@/components/roster/RosterPublicationCard";
 
 const DEFAULT_TRAINING_DATA_URL = "https://script.google.com/macros/s/AKfycbzkGpqGjRkvOPAOOsDsjnjPz1FIU0ceRLAv2xsogsKkozKClZTL1WsPnRPvdduaIouS/exec";
 
@@ -355,6 +356,8 @@ export default function AdminSettings() {
                         </label>
                     </CardContent>
                 </Card>
+
+                <RosterPublicationCard />
 
                 <Card>
                     <CardHeader>

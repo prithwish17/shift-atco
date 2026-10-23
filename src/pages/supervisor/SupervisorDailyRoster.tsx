@@ -3,6 +3,7 @@ import { CloudDownload, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/DashboardLayout";
+import RosterPublicationCard from "@/components/roster/RosterPublicationCard";
 import ShiftRosterView from "@/components/roster/ShiftRosterView";
 import { Button } from "@/components/ui/button";
 import { useFetchRoster } from "@/hooks/useRosters";
@@ -30,32 +31,35 @@ export default function SupervisorDailyRoster() {
       title="Shift Roster"
       subtitle="Daily shift roster & duty rotation"
     >
-      <ShiftRosterView
-        hideHeaderTitle
-        description="Who is on each shift, with teams set automatically by the duty rotation."
-        actions={({ isoDate, shift }) => (
-          <div className="flex flex-col items-end gap-1">
-            <Button
-              onClick={() => handleFetchLatest(isoDate, shift)}
-              disabled={fetchRoster.isPending}
-              size="sm"
-              className="whitespace-nowrap"
-            >
-              {fetchRoster.isPending ? (
-                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <CloudDownload className="mr-2 h-4 w-4" />
+      <div className="space-y-4">
+        <RosterPublicationCard />
+        <ShiftRosterView
+          hideHeaderTitle
+          description="Who is on each shift, with teams set automatically by the duty rotation."
+          actions={({ isoDate, shift }) => (
+            <div className="flex flex-col items-end gap-1">
+              <Button
+                onClick={() => handleFetchLatest(isoDate, shift)}
+                disabled={fetchRoster.isPending}
+                size="sm"
+                className="whitespace-nowrap"
+              >
+                {fetchRoster.isPending ? (
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CloudDownload className="mr-2 h-4 w-4" />
+                )}
+                Fetch Latest
+              </Button>
+              {lastFetched && (
+                <p className="text-xs text-muted-foreground">
+                  Last synced: {lastFetched.toLocaleTimeString()}
+                </p>
               )}
-              Fetch Latest
-            </Button>
-            {lastFetched && (
-              <p className="text-xs text-muted-foreground">
-                Last synced: {lastFetched.toLocaleTimeString()}
-              </p>
-            )}
-          </div>
-        )}
-      />
+            </div>
+          )}
+        />
+      </div>
     </DashboardLayout>
   );
 }

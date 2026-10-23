@@ -3,6 +3,7 @@ import { addDays, format, isSameDay, isToday, parseISO } from "date-fns";
 import {
   CalendarDays,
   ChevronLeft,
+  Hourglass,
   ChevronRight,
   LayoutGrid,
   List,
@@ -22,6 +23,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import RosterGrid from "@/components/roster/RosterGrid";
 import RosterComingSoon, { ROSTER_COMING_SOON_MESSAGE } from "@/components/roster/RosterComingSoon";
 import { useAuth } from "@/contexts/AuthContext";
+import { useRosterVisibility } from "@/hooks/useRosterPublication";
 import { useShiftRoster } from "@/hooks/useShiftRoster";
 import { useUserProfile } from "@/hooks/useUsers";
 import { buildRosterGrid, countMatches, type RosterGridModel } from "@/lib/rosterGrid";
@@ -248,7 +250,12 @@ export default function ShiftRosterView({ actions, description, hideHeaderTitle 
   // The grid is the roster as it is actually published, so it is the default.
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
-  const { data, isLoading, isFetching } = useShiftRoster(selectedDate);
+  // An unpublished future month is never fetched for an employee; staff see
+  // every month.  The rotation header below is a fixed rule, so it still shows.
+  const { isDateVisible, isLoading: visibilityLoading } = useRosterVisibility();
+  const dateVisible = isDateVisible(selectedDate);
+  const rosterUnpublished = !visibilityLoading && !dateVisible;
+  const { data, isLoading, isFetching } = useShiftRoster(dateVisible ? selectedDate : "");
 
   // Used only to mark and jump to the signed-in employee's own cells.  Every
   // role gets it: a WSO looking for themselves has the same problem.
@@ -608,14 +615,26 @@ export default function ShiftRosterView({ actions, description, hideHeaderTitle 
       </div>
 
       {/* ── The selected shift roster panel ── */}
-      <ShiftPanel
-        slot={activeSlot}
-        teams={shiftTeams[activeSlot.code]}
-        group={activeGroup}
-        viewMode={viewMode}
-        gridModel={gridModel}
-        search={search}
-      />
+      {rosterUnpublished ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
+            <Hourglass className="h-6 w-6 text-amber-500" />
+            <p className="text-sm font-medium">
+              The {format(selectedDateObj, "MMMM yyyy")} roster is not published yet
+            </p>
+            <p className="text-xs text-muted-foreground">It will appear here once a supervisor publishes it.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <ShiftPanel
+          slot={activeSlot}
+          teams={shiftTeams[activeSlot.code]}
+          group={activeGroup}
+          viewMode={viewMode}
+          gridModel={gridModel}
+          search={search}
+        />
+      )}
 
       {/* ── Context line ── */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 px-1 text-xs text-muted-foreground">
