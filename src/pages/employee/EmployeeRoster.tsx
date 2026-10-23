@@ -10,6 +10,7 @@ export default function EmployeeRoster() {
         >
             <ShiftRosterView
                 hideHeaderTitle
+                hideUnpublished
                 description="Who is on each shift today. Teams are set automatically by the duty rotation."
             />
         </DashboardLayout>

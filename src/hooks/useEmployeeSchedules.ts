@@ -163,17 +163,17 @@ async function fetchScheduleOwner(client: ReturnType<typeof useQueryClient>, emp
 export function useEmployeeSchedules(
     employeeCode?: string,
     startDate?: string,
-    endDate?: string
+    endDate?: string,
+    { includeUnpublished = false }: { includeUnpublished?: boolean } = {}
 ) {
     const queryClient = useQueryClient();
-    const { canSeeAll, isDateVisible } = useRosterVisibility();
-
-    // Unpublished future months are dropped per observer, so the cache still
-    // holds the full rows and staff views sharing the key are unaffected.
+    // Employee-portal callers hide unpublished future months; supervisor pages
+    // pass includeUnpublished.  Dropped per observer, so the cache still holds
+    // the full rows and views sharing the key are unaffected.
+    const { isDateVisible } = useRosterVisibility({ showAll: includeUnpublished });
     const hideUnpublished = useCallback(
-        (rows: EmployeeSchedule[]) =>
-            canSeeAll ? rows : rows.filter((r) => isDateVisible(r.duty_date)),
-        [canSeeAll, isDateVisible]
+        (rows: EmployeeSchedule[]) => rows.filter((r) => isDateVisible(r.duty_date)),
+        [isDateVisible]
     );
 
     return useQuery({

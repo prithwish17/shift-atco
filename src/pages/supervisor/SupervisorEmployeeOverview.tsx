@@ -99,7 +99,7 @@ export default function SupervisorEmployeeOverview() {
 
   const { profile, isLoading: profileLoading } = useEmployeeProfileByCode(employeeCode);
   const { data: leaveBalancesRaw = [], isLoading: balancesLoading } = useLeaveBalances(profile?.id);
-  const { data: upcomingSchedule = [], isLoading: scheduleLoading } = useEmployeeSchedules(profile?.employee_id, today, scheduleEnd);
+  const { data: upcomingSchedule = [], isLoading: scheduleLoading } = useEmployeeSchedules(profile?.employee_id, today, scheduleEnd, { includeUnpublished: true });
 
   const { data: leaveRequests = [], isLoading: leaveRequestsLoading } = useQuery({
     queryKey: ["supervisor-employee-overview", "leave-requests", profile?.id],

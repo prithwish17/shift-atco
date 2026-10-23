@@ -72,8 +72,8 @@ export default function RosterPublicationCard() {
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Roster publication</CardTitle>
         <CardDescription>
-          Employees always see the current month. A future month stays hidden from them until it is
-          published here. WSO, supervisors and admins always see every month.
+          The employee portal always shows the current month. A future month stays hidden there, for
+          everyone, until it is published here. Supervisor and WSO roster pages always show every month.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">

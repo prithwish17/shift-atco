@@ -4,11 +4,15 @@
  * The roster sheet syncs a month ahead, before the roster is final, so a
  * supervisor or admin releases each future month explicitly
  * (`roster_month_publications`, one row per published month).  The current
- * month and every earlier month are always visible.  WSO, supervisors and
- * admins see every month regardless, since they build and check the roster.
+ * month and every earlier month are always visible.
  *
- * Fails closed: until the role and the publication list have loaded, an
- * employee sees nothing past the current month.
+ * The gate follows the portal, not the viewer's role: every employee-portal
+ * page hides unpublished months, including for a supervisor who has switched
+ * to it, so it shows exactly what employees see.  Supervisor and WSO pages
+ * pass `showAll`, since they build and check the roster.
+ *
+ * Fails closed: until the publication list has loaded, nothing past the
+ * current month is shown.
  */
 import { useCallback, useMemo } from "react";
 import { format, parseISO, startOfMonth } from "date-fns";
@@ -19,8 +23,6 @@ import { useAuth } from "@/contexts/AuthContext";
 
 const PUBLICATIONS_QUERY_KEY = ["roster-month-publications"] as const;
 
-/** Roles that see unpublished months; also the only ones who build the roster. */
-const ROSTER_STAFF_ROLES = new Set(["admin", "supervisor", "wso"]);
 /** Roles allowed to publish (mirrors the table's RLS). */
 const ROSTER_PUBLISHER_ROLES = new Set(["admin", "supervisor"]);
 
@@ -55,11 +57,10 @@ export function useRosterPublications() {
   });
 }
 
-export function useRosterVisibility() {
+export function useRosterVisibility({ showAll = false }: { showAll?: boolean } = {}) {
   const { userRole } = useAuth();
   const { data: publications, isLoading } = useRosterPublications();
 
-  const canSeeAll = !!userRole && ROSTER_STAFF_ROLES.has(userRole);
   const canPublish = !!userRole && ROSTER_PUBLISHER_ROLES.has(userRole);
 
   const publishedMonths = useMemo(
@@ -70,14 +71,14 @@ export function useRosterVisibility() {
   /** Whether the month holding this date (yyyy-MM-dd or Date) may be shown. */
   const isDateVisible = useCallback(
     (value: Date | string) => {
-      if (canSeeAll) return true;
+      if (showAll) return true;
       const month = typeof value === "string" ? value.slice(0, 7) : monthKey(value);
       return month <= monthKey(new Date()) || publishedMonths.has(month);
     },
-    [canSeeAll, publishedMonths],
+    [showAll, publishedMonths],
   );
 
-  return { canSeeAll, canPublish, isDateVisible, publishedMonths, isLoading };
+  return { canPublish, isDateVisible, publishedMonths, isLoading };
 }
 
 /** Publish a month (any date inside it). */

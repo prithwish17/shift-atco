@@ -65,6 +65,8 @@ interface Props {
   description?: string;
   /** When true, the top header is rendered in DashboardLayout rather than in-page. */
   hideHeaderTitle?: boolean;
+  /** Employee portal: hide months not yet published by a supervisor or admin. */
+  hideUnpublished?: boolean;
 }
 
 /**
@@ -239,7 +241,7 @@ function ShiftPanel({
   );
 }
 
-export default function ShiftRosterView({ actions, description, hideHeaderTitle }: Props) {
+export default function ShiftRosterView({ actions, description, hideHeaderTitle, hideUnpublished }: Props) {
   const today = useMemo(() => new Date(), []);
   const [selectedDate, setSelectedDate] = useState(() => format(today, "yyyy-MM-dd"));
   const [anchorDate, setAnchorDate] = useState(() => today);
@@ -250,9 +252,10 @@ export default function ShiftRosterView({ actions, description, hideHeaderTitle 
   // The grid is the roster as it is actually published, so it is the default.
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
 
-  // An unpublished future month is never fetched for an employee; staff see
-  // every month.  The rotation header below is a fixed rule, so it still shows.
-  const { isDateVisible, isLoading: visibilityLoading } = useRosterVisibility();
+  // On the employee portal an unpublished future month is never fetched; the
+  // supervisor and WSO pages see every month.  The rotation header below is a
+  // fixed rule, so it still shows.
+  const { isDateVisible, isLoading: visibilityLoading } = useRosterVisibility({ showAll: !hideUnpublished });
   const dateVisible = isDateVisible(selectedDate);
   const rosterUnpublished = !visibilityLoading && !dateVisible;
   const { data, isLoading, isFetching } = useShiftRoster(dateVisible ? selectedDate : "");
