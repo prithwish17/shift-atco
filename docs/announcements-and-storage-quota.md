@@ -36,11 +36,13 @@ Code:
 | Video, poster, link-preview image | `public/demo/` (static files, so the R2 quota does not apply) |
 | Public page | `https://atcora.in/demo` = `public/demo/index.html`, rewritten in `vercel.json` |
 | Card thumbnail, popup player, Share buttons | `src/components/announcements/DemoVideo.tsx` |
+| Built-in dashboard card | `src/components/announcements/DemoWelcomeCard.tsx` |
 | Permanent "Quick demo" link | sidebar footer, every role (`src/components/AppSidebar.tsx`) |
 | Share message and file paths | `demoShareText()` and `DEMO_VIDEO` in `src/lib/announcements.ts` |
 
 - **Where it shows**:
   - The announcement appears at the top of the employee dashboard. It shows a thumbnail rather than an inline player, so it doesn't push the BA test alert or Duty Overview down on a phone.
+  - **A built-in demo card** shows on the employee dashboard without anyone posting an announcement. It sits below the BA test and duty-exchange alerts and above Duty Overview. Each employee hides it with the ×, which is remembered per user in that browser. It stays out of the way while a live announcement already carries the video. Code: `src/components/announcements/DemoWelcomeCard.tsx`.
   - **Quick demo** in the sidebar footer opens the same popup any time, for every role. It works even after the announcement ends or an employee has hidden it.
   - The `/demo` page needs no login.
 - **Sharing.** The Share button opens the phone's share sheet. Desktop browsers get *Share on WhatsApp* and *Copy message* instead. The message gives a one-line summary of the demo. It says Atcora is a web app, only available in the browser and not on the Play Store, and it gives `https://atcora.in` to open. Then it links the `/demo` page. WhatsApp, Telegram and Slack read that page's `og:` tags and show a preview with the title, the same browser-only note and a still from the video. The `/demo` page shows the note too.

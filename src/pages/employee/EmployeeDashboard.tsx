@@ -16,6 +16,7 @@ import { buildEmployeeLicenseHealth, type LicenseWithExtras } from "@/hooks/useL
 import { extractTraineeMilestone, getScheduledTraineeMilestone } from "@/lib/traineeMilestones";
 import { OjtDashboardSummary } from "@/components/ojt/OjtDashboardSummary";
 import { AnnouncementBanner } from "@/components/announcements/AnnouncementBanner";
+import { DemoWelcomeCard } from "@/components/announcements/DemoWelcomeCard";
 import { format, addDays, isSameDay, parse, parseISO, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, isAfter, isBefore } from "date-fns";
 import { parseRosterDate } from "@/lib/rosterDate";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -566,6 +567,9 @@ export default function EmployeeDashboard() {
             </div>
           </Link>
         )}
+
+        {/* ─── Quick demo, until the employee hides it (below the alerts) ─── */}
+        <DemoWelcomeCard />
 
         {/* ─── Duty Overview Card ─── */}
         <div className="bg-white dark:bg-gray-900 rounded-xl p-4 md:p-6 shadow-sm border border-gray-200 dark:border-gray-700">
