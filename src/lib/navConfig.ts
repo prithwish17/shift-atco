@@ -23,6 +23,7 @@ import {
   LayoutDashboard,
   ListChecks,
   Mail,
+  Megaphone,
   Palmtree,
   Radio,
   Settings,
@@ -86,7 +87,10 @@ const supervisorNav: NavGroup[] = [
     id: "overview",
     label: null,
     icon: LayoutDashboard,
-    items: [{ title: "Dashboard", url: "/supervisor", icon: LayoutDashboard, end: true }],
+    items: [
+      { title: "Dashboard", url: "/supervisor", icon: LayoutDashboard, end: true },
+      { title: "Announcements", url: "/announcements", icon: Megaphone, keywords: ["notice", "broadcast", "message"] },
+    ],
   },
   {
     id: "approvals",
@@ -272,6 +276,7 @@ const adminNav: NavGroup[] = [
     items: [
       { title: "System Settings", url: "/admin/settings", icon: Settings },
       { title: "Feedback", url: "/admin/feedback", icon: Inbox, keywords: ["grievance", "suggestion", "error", "report"] },
+      { title: "Announcements", url: "/announcements", icon: Megaphone, keywords: ["notice", "broadcast", "message", "storage"] },
       { title: "Employee Page Notices", url: "/admin/employee-page-notices", icon: AlertTriangle },
       { title: "Email Logs", url: "/admin/email-logs", icon: Mail },
       { title: "Cron Jobs", url: "/admin/cron-jobs", icon: Timer },

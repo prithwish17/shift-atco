@@ -6,15 +6,16 @@ import {
     handleCorsPreflight,
     setCorsHeaders,
     supabaseUserFetch,
-} from "../../lib/apiAuth.js";
-import { parseMultipartRequest, checkContentLength } from "../../lib/multipart.js";
+} from "../apiAuth.js";
+import { parseMultipartRequest, checkContentLength } from "../multipart.js";
 import {
     deleteObject,
     profileKeyFromPublicUrl,
     publicUrlFor,
     putObject,
-} from "../../lib/r2.js";
-import { assertIsImage, optimizeProfileImage } from "../../lib/imageOptimizer.js";
+} from "../r2.js";
+import { assertIsImage, optimizeProfileImage } from "../imageOptimizer.js";
+import { StorageQuotaError, sendStorageLimit } from "../storageQuota.js";
 
 // Stage 1 (browser) targets <= 600 KB. We allow 2 MB on the wire to give
 // fallback paths breathing room. Vercel platform limit is 4.5 MB.
@@ -31,13 +32,9 @@ const ACCEPTED_MIMES = new Set([
     "image/gif",
 ]);
 
-export const config = {
-    api: {
-        bodyParser: false,
-    },
-};
+// bodyParser is switched off in api/storage/[...route].ts, which serves this.
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export async function handler(req: VercelRequest, res: VercelResponse) {
     if (handleCorsPreflight(req, res, "POST, DELETE, OPTIONS")) return;
     setCorsHeaders(req, res);
 
@@ -98,6 +95,7 @@ async function handlePost(req: VercelRequest, res: VercelResponse) {
 
     try {
         await putObject(key, optimized.buffer, "image/webp", {
+            quotaScope: "profile_picture",
             cacheControl: "public, max-age=31536000, immutable",
             metadata: {
                 "employee-id": employeeId,
@@ -105,6 +103,7 @@ async function handlePost(req: VercelRequest, res: VercelResponse) {
             },
         });
     } catch (err) {
+        if (err instanceof StorageQuotaError) return sendStorageLimit(res, err);
         console.error("[profile-picture] R2 put failed", err);
         return res.status(502).json({ error: "Failed to store image" });
     }

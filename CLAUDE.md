@@ -58,4 +58,5 @@ npx tsc --noEmit     # type-check (do this before every build/deploy)
 - `RUNBOOK.md`: procedures.
 
 Read `SHEET_INDEPENDENCE.md` before touching `employee_leave_records`, `fetch-leave-data`, the sheet push or `docs/leave-apps-script/Code.gs`. The DB scenarios run with `scripts/db-tests/leave-ledger/run.sh`.
+`docs/announcements-and-storage-quota.md` covers dashboard announcements and the R2 free-tier upload limit. Read it before touching `lib/r2.ts`, `api/storage/` or `announcements`.
 `docs/night-channel-allocation.md` covers the Night Channel Allocation module — the rule set, the solver, the API and how to add a channel. Read it before touching anything under `src/domain/night-allocation`.

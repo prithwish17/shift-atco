@@ -119,3 +119,19 @@ export const supabaseEnv = {
     url: SUPABASE_URL,
     anonKey: SUPABASE_ANON_KEY,
 };
+
+/**
+ * Ask Supabase whether the caller holds an approved role, through the same
+ * has_role() the RLS policies use.
+ */
+export async function userHasRole(
+    user: AuthenticatedUser,
+    role: "admin" | "supervisor" | "wso" | "employee",
+): Promise<boolean> {
+    const resp = await supabaseUserFetch(user, "/rest/v1/rpc/has_role", {
+        method: "POST",
+        body: JSON.stringify({ _user_id: user.id, _role: role }),
+    });
+    if (!resp.ok) return false;
+    return (await resp.json().catch(() => false)) === true;
+}

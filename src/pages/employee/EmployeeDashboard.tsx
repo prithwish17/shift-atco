@@ -15,6 +15,7 @@ import { useDutyExchanges } from "@/hooks/useDutyExchanges";
 import { buildEmployeeLicenseHealth, type LicenseWithExtras } from "@/hooks/useLicenseDashboard";
 import { extractTraineeMilestone, getScheduledTraineeMilestone } from "@/lib/traineeMilestones";
 import { OjtDashboardSummary } from "@/components/ojt/OjtDashboardSummary";
+import { AnnouncementBanner } from "@/components/announcements/AnnouncementBanner";
 import { format, addDays, isSameDay, parse, parseISO, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, isAfter, isBefore } from "date-fns";
 import { parseRosterDate } from "@/lib/rosterDate";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -476,6 +477,9 @@ export default function EmployeeDashboard() {
   return (
     <DashboardLayout role="employee">
       <div className="space-y-4 md:space-y-6">
+
+        {/* ─── Announcements from supervisors and admins ─── */}
+        <AnnouncementBanner />
 
         {/* ─── BA Test Alert Banner (time-aware, dismissible) ─── */}
         {baTestAlert && !isBaBannerDismissed && (() => {
