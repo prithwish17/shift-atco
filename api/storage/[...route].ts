@@ -5,6 +5,7 @@
  *   POST|DELETE /api/storage/profile-picture                profile photo upload / removal
  *   POST|DELETE /api/storage/announcement-attachment        admin-only announcement file
  *   GET         /api/storage/announcement-attachment-url    signed URL for that file
+ *   GET         /api/storage/announcement-attachment-file   the file's bytes, for sharing
  *   GET|POST    /api/storage/reconcile                      daily bucket recount (cron)
  *
  * Folded into one function for the Hobby-plan cap of twelve, as in
@@ -19,6 +20,7 @@ import { handler as profilePicture } from "../../lib/upload/profilePicture.js";
 import {
   handler as announcementAttachment,
   urlHandler as announcementAttachmentUrl,
+  fileHandler as announcementAttachmentFile,
 } from "../../lib/storage/announcementAttachment.js";
 import { handler as reconcile } from "../../lib/storage/reconcile.js";
 
@@ -34,6 +36,7 @@ const routes: Record<string, (req: VercelRequest, res: VercelResponse) => Promis
   "profile-picture": profilePicture,
   "announcement-attachment": announcementAttachment,
   "announcement-attachment-url": announcementAttachmentUrl,
+  "announcement-attachment-file": announcementAttachmentFile,
   reconcile,
 };
 

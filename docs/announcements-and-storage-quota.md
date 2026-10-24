@@ -19,6 +19,7 @@ Supervisors and admins post short notices that appear at the top of the employee
 - **End now** sets `ended_at`. The row stays in the Ended tab as history.
 - **Delete** removes the row. An admin's delete also removes the file straight away. A file left behind by any other delete is removed by the nightly reconcile once it is more than a day old.
 - **Expired announcements keep their files.** Delete the announcement to free the space.
+- **Share** sits next to the attachment. Where the browser can share files (most phones), it opens the system share sheet with the file, title and text, so it can go to WhatsApp, Telegram, Mail and so on. Elsewhere it opens WhatsApp with the text and downloads the file to attach. **Download** saves the file.
 
 Code:
 - Migration: `supabase/migrations/20261023120000_announcements.sql`
@@ -69,4 +70,5 @@ Everything that writes to R2 is served by one function, `api/storage/[...route].
 | `POST\|DELETE /api/storage/profile-picture` | self, supervisors, admins (was `/api/upload/profile-picture`, still rewritten) |
 | `POST\|DELETE /api/storage/announcement-attachment` | admins |
 | `GET /api/storage/announcement-attachment-url` | anyone who can see the announcement |
+| `GET /api/storage/announcement-attachment-file` | anyone who can see the announcement. Returns the bytes for the Share button. |
 | `GET\|POST /api/storage/reconcile` | Vercel cron, admins |
