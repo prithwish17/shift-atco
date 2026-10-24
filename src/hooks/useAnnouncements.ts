@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import type { Announcement, AnnouncementPriority } from "@/lib/announcements";
+import type { Announcement, AnnouncementAttachmentMeta, AnnouncementPriority } from "@/lib/announcements";
 
 // announcements is not in the generated types yet, so it goes through an
 // untyped view of the client. See supabase/migrations/20261023120000_announcements.sql.
@@ -255,4 +255,37 @@ export function useSetAnnouncementHidden(userId: string | undefined) {
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: key }),
   });
+}
+
+/** The attachment as a File, ready for the Web Share API or a download. */
+export async function fetchAnnouncementAttachmentFile(
+  id: string,
+  meta?: AnnouncementAttachmentMeta | null,
+): Promise<File> {
+  const resp = await fetch(
+    `/api/storage/announcement-attachment-file?announcement_id=${encodeURIComponent(id)}`,
+    { headers: { Authorization: `Bearer ${await accessToken()}` } },
+  );
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.error || `Failed to load the attachment (${resp.status})`);
+  }
+  const blob = await resp.blob();
+  const type = meta?.mime || blob.type || "application/octet-stream";
+  return new File([blob], attachmentFilename(meta, type), { type });
+}
+
+const EXTENSIONS: Record<string, string> = {
+  "application/pdf": "pdf",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+// Share targets such as WhatsApp pick the file kind from the extension.
+function attachmentFilename(meta: AnnouncementAttachmentMeta | null | undefined, type: string): string {
+  const name = meta?.original_name?.trim();
+  const ext = EXTENSIONS[type];
+  if (name) return !ext || /\.[a-z0-9]{2,5}$/i.test(name) ? name : `${name}.${ext}`;
+  return `attachment.${ext ?? "bin"}`;
 }

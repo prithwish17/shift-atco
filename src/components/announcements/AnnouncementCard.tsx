@@ -1,8 +1,14 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { AlertTriangle, Eye, Info, Loader2, Megaphone, Paperclip, X } from "lucide-react";
+import { AlertTriangle, Download, Eye, Info, Loader2, Megaphone, MessageCircle, Paperclip, Share2, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { openAnnouncementAttachment } from "@/hooks/useAnnouncements";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { fetchAnnouncementAttachmentFile, openAnnouncementAttachment } from "@/hooks/useAnnouncements";
 import {
   ANNOUNCEMENT_PRIORITY_LABELS,
   expiryLabel,
@@ -42,6 +48,34 @@ const TONES: Record<
     Icon: AlertTriangle,
   },
 };
+
+// Whether this browser can hand a file to the system share sheet (WhatsApp,
+// Telegram, Mail…). Mobile browsers mostly can; many desktop browsers cannot.
+const canShareFiles = (() => {
+  try {
+    return (
+      typeof navigator !== "undefined" &&
+      typeof navigator.canShare === "function" &&
+      navigator.canShare({ files: [new File([""], "probe.pdf", { type: "application/pdf" })] })
+    );
+  } catch {
+    return false;
+  }
+})();
+
+const isShareCancelled = (error: unknown) => error instanceof DOMException && error.name === "AbortError";
+
+function downloadFile(file: File) {
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = file.name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Revoking immediately can cancel the download in some browsers.
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
 
 export interface AnnouncementCardProps {
   /** Missing for an unsaved preview; the attachment link is then inert. */
@@ -83,6 +117,10 @@ export function AnnouncementCard({
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const [opening, setOpening] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  // Fetched when the share menu opens, so the file is usually in hand by the
+  // time an item is tapped: navigator.share() must run close to the tap.
+  const fileRef = useRef<{ promise: Promise<File>; file?: File } | null>(null);
 
   // Measure while clamped: the toggle only appears when text is actually cut off.
   useLayoutEffect(() => {
@@ -109,6 +147,62 @@ export function AnnouncementCard({
       setOpening(false);
     }
   };
+
+  const canShare = Boolean(id && attachmentName && !pendingAttachmentName);
+
+  const loadFile = () => {
+    if (!id) return Promise.reject(new Error("Save the announcement first"));
+    if (!fileRef.current) {
+      const entry: { promise: Promise<File>; file?: File } = {
+        promise: fetchAnnouncementAttachmentFile(id, attachmentMeta),
+      };
+      entry.promise.then(
+        (file) => (entry.file = file),
+        () => (fileRef.current = null),
+      );
+      fileRef.current = entry;
+    }
+    return fileRef.current.promise;
+  };
+
+  const shareText = `${title}\n\n${body}`;
+
+  const withFile = async (action: (file: File) => Promise<void> | void) => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const file = fileRef.current?.file ?? (await loadFile());
+      await action(file);
+    } catch (err) {
+      if (isShareCancelled(err)) return;
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        // The download outlasted the tap; the file is cached now.
+        toast.info("Attachment ready. Tap Share again.");
+        return;
+      }
+      toast.error((err as Error).message || "Could not share the attachment");
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const handleShare = () =>
+    withFile(async (file) => {
+      await navigator.share({ title, text: shareText, files: [file] });
+    });
+
+  // No file sharing in this browser: open WhatsApp with the text and hand
+  // over the file to attach there.
+  const handleWhatsApp = () =>
+    withFile((file) => {
+      window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank", "noopener,noreferrer");
+      downloadFile(file);
+      toast.success("Attachment downloaded", {
+        description: "WhatsApp opened with the announcement text. Attach the downloaded file there.",
+      });
+    });
+
+  const handleDownload = () => withFile(downloadFile);
 
   return (
     <div className={cn("relative rounded-xl border p-4 md:p-5", tone.wrap, onShowAgain && "opacity-70", className)}>
@@ -183,6 +277,42 @@ export function AnnouncementCard({
                 {opening ? <Loader2 className="size-3.5 animate-spin" /> : <Paperclip className="size-3.5 shrink-0" />}
                 <span className="truncate">{attachmentName}</span>
               </button>
+            )}
+
+            {canShare && (
+              <DropdownMenu onOpenChange={(open) => open && void loadFile().catch(() => undefined)}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={sharing}
+                    className={cn(
+                      "inline-flex items-center gap-1 text-xs font-medium underline-offset-2 enabled:hover:underline disabled:opacity-70",
+                      tone.title,
+                    )}
+                    aria-label={`Share ${attachmentName}`}
+                  >
+                    {sharing ? <Loader2 className="size-3.5 animate-spin" /> : <Share2 className="size-3.5" />}
+                    Share
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {canShareFiles ? (
+                    <DropdownMenuItem onSelect={handleShare}>
+                      <Share2 className="mr-2 size-4" />
+                      Share to WhatsApp & more
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem onSelect={handleWhatsApp}>
+                      <MessageCircle className="mr-2 size-4" />
+                      Send on WhatsApp
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onSelect={handleDownload}>
+                    <Download className="mr-2 size-4" />
+                    Download
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
         </div>
