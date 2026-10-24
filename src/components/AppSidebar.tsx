@@ -10,6 +10,7 @@ import {
   LogOut,
   Menu,
   MoreHorizontal,
+  PlayCircle,
   Repeat,
   Search,
   Settings,
@@ -20,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePWAOnboarding } from "@/contexts/PWAOnboardingContext";
 import { ShareAppDialog } from "@/components/ShareAppDialog";
+import { DemoVideoDialog } from "@/components/announcements/DemoVideo";
 import { NavCommandPalette } from "@/components/NavCommandPalette";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -86,6 +88,7 @@ export function AppSidebar({ role }: SidebarProps) {
   // absolutely positioned outside its box.
   const [flyout, setFlyout] = useState<{ groupId: string; top: number; left: number } | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [demoOpen, setDemoOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { isInstalled, canInstall, shouldShowIOSInstallHint, installApp } = usePWAOnboarding();
   const showInstallItem = !isInstalled && (canInstall || shouldShowIOSInstallHint);
@@ -490,6 +493,21 @@ export function AppSidebar({ role }: SidebarProps) {
 
         {/* Account */}
         <div className={`shrink-0 border-t border-[#2d3748] p-2 ${collapsed ? "space-y-1" : ""}`}>
+          <button
+            type="button"
+            onClick={() => {
+              closeMobile();
+              setDemoOpen(true);
+            }}
+            title={collapsed ? "Quick demo" : undefined}
+            className={`flex w-full items-center gap-2.5 rounded-lg py-[7px] text-[13px] text-[#94a3b8] transition-colors hover:bg-white/[0.06] hover:text-white ${
+              collapsed ? "justify-center" : "px-2.5"
+            }`}
+          >
+            <PlayCircle className="size-4 shrink-0" />
+            {!collapsed && <span>Quick demo</span>}
+          </button>
+
           <Link
             to={`/settings?portal=${role}`}
             onClick={closeMobile}
@@ -568,6 +586,7 @@ export function AppSidebar({ role }: SidebarProps) {
 
       {collapsed && renderFlyout()}
       <ShareAppDialog open={shareOpen} onOpenChange={setShareOpen} />
+      <DemoVideoDialog open={demoOpen} onOpenChange={setDemoOpen} />
       <NavCommandPalette role={role} open={paletteOpen} onOpenChange={setPaletteOpen} />
     </>
   );

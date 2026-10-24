@@ -15,7 +15,7 @@ Supervisors and admins post short notices that appear at the top of the employee
 | Who edits | admins: any announcement. Supervisors: only their own. | RLS |
 | Attachment | admins only. One PDF, JPG, PNG or WebP file up to 4 MB, stored privately in R2. | API role check + trigger |
 
-- **Demo video**: switching on *Show the quick demo video* (any author) plays a 47-second demo of the web app under the text, with a Share button. Details below.
+- **Demo video**: switching on *Show the quick demo video* (any author) adds a small thumbnail under the text, with a Share button. The thumbnail opens a 47-second demo of the web app in a popup. Details below.
 - **Expiry** needs no job. An announcement is shown while `starts_at <= now() < expires_at` and `ended_at` is null.
 - **End now** sets `ended_at`. The row stays in the Ended tab as history.
 - **Delete** removes the row. An admin's delete also removes the file straight away. A file left behind by any other delete is removed by the nightly reconcile once it is more than a day old.
@@ -35,10 +35,14 @@ Code:
 |---|---|
 | Video, poster, link-preview image | `public/demo/` (static files, so the R2 quota does not apply) |
 | Public page | `https://atcora.in/demo` = `public/demo/index.html`, rewritten in `vercel.json` |
-| Card player and Share button | `src/components/announcements/DemoVideo.tsx` |
+| Card thumbnail, popup player, Share buttons | `src/components/announcements/DemoVideo.tsx` |
+| Permanent "Quick demo" link | sidebar footer, every role (`src/components/AppSidebar.tsx`) |
 | Share message and file paths | `demoShareText()` and `DEMO_VIDEO` in `src/lib/announcements.ts` |
 
-- **Who sees it**: everyone who sees the announcement on the employee dashboard. The `/demo` page needs no login.
+- **Where it shows**:
+  - The announcement appears at the top of the employee dashboard. It shows a thumbnail rather than an inline player, so it doesn't push the BA test alert or Duty Overview down on a phone.
+  - **Quick demo** in the sidebar footer opens the same popup any time, for every role. It works even after the announcement ends or an employee has hidden it.
+  - The `/demo` page needs no login.
 - **Sharing.** The Share button opens the phone's share sheet. Desktop browsers get *Share on WhatsApp* and *Copy message* instead. The message gives a one-line summary of the demo. It says Atcora is a web app, only available in the browser and not on the Play Store, and it gives `https://atcora.in` to open. Then it links the `/demo` page. WhatsApp, Telegram and Slack read that page's `og:` tags and show a preview with the title, the same browser-only note and a still from the video. The `/demo` page shows the note too.
 - **Changing the wording.** It appears in three places: `demoShareText()`, the tags in `public/demo/index.html` and the script at the bottom of that page. Change all three together.
 - **The service worker** skips `/demo/` files, because caching a video breaks seeking.
