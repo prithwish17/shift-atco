@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import type { Announcement, AnnouncementPriority } from "@/lib/announcements";
+import type { Announcement, AnnouncementAttachmentMeta, AnnouncementPriority } from "@/lib/announcements";
 
 // announcements is not in the generated types yet, so it goes through an
 // untyped view of the client. See supabase/migrations/20261023120000_announcements.sql.
@@ -186,4 +186,107 @@ export async function openAnnouncementAttachment(id: string): Promise<void> {
     tab?.close();
     throw err;
   }
+}
+
+// ── Hiding announcements after reading (employee dashboard) ────────────────
+// See supabase/migrations/20261024100000_announcement_dismissals.sql.
+
+export type DismissalMap = Map<string, string>; // announcement id → dismissed_at
+
+const dismissalsKey = (userId: string | undefined) => ["announcement-dismissals", userId ?? "anonymous"];
+
+/** The signed-in user's hidden announcements. Empty if the lookup fails, so nothing is hidden by mistake. */
+export function useMyAnnouncementDismissals(userId: string | undefined) {
+  return useQuery({
+    queryKey: dismissalsKey(userId),
+    enabled: Boolean(userId),
+    queryFn: async (): Promise<DismissalMap> => {
+      const { data, error } = await db
+        .from("announcement_dismissals")
+        .select("announcement_id, dismissed_at")
+        .eq("user_id", userId);
+      if (error) throw error;
+      return new Map(
+        ((data ?? []) as Array<{ announcement_id: string; dismissed_at: string }>).map((r) => [
+          r.announcement_id,
+          r.dismissed_at,
+        ]),
+      );
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Hide (`hidden: true`) or show again (`hidden: false`) one announcement, updating the banner at once. */
+export function useSetAnnouncementHidden(userId: string | undefined) {
+  const queryClient = useQueryClient();
+  const key = dismissalsKey(userId);
+
+  return useMutation({
+    mutationFn: async ({ id, hidden }: { id: string; hidden: boolean }) => {
+      if (!userId) throw new Error("Not signed in");
+      if (hidden) {
+        const { error } = await db
+          .from("announcement_dismissals")
+          .upsert(
+            { announcement_id: id, user_id: userId, dismissed_at: new Date().toISOString() },
+            { onConflict: "announcement_id,user_id" },
+          );
+        if (error) throw error;
+      } else {
+        const { error } = await db
+          .from("announcement_dismissals")
+          .delete()
+          .eq("announcement_id", id)
+          .eq("user_id", userId);
+        if (error) throw error;
+      }
+    },
+    onMutate: async ({ id, hidden }) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<DismissalMap>(key);
+      const next = new Map(previous ?? []);
+      if (hidden) next.set(id, new Date().toISOString());
+      else next.delete(id);
+      queryClient.setQueryData(key, next);
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      queryClient.setQueryData(key, context?.previous ?? new Map());
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: key }),
+  });
+}
+
+/** The attachment as a File, ready for the Web Share API or a download. */
+export async function fetchAnnouncementAttachmentFile(
+  id: string,
+  meta?: AnnouncementAttachmentMeta | null,
+): Promise<File> {
+  const resp = await fetch(
+    `/api/storage/announcement-attachment-file?announcement_id=${encodeURIComponent(id)}`,
+    { headers: { Authorization: `Bearer ${await accessToken()}` } },
+  );
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.error || `Failed to load the attachment (${resp.status})`);
+  }
+  const blob = await resp.blob();
+  const type = meta?.mime || blob.type || "application/octet-stream";
+  return new File([blob], attachmentFilename(meta, type), { type });
+}
+
+const EXTENSIONS: Record<string, string> = {
+  "application/pdf": "pdf",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+// Share targets such as WhatsApp pick the file kind from the extension.
+function attachmentFilename(meta: AnnouncementAttachmentMeta | null | undefined, type: string): string {
+  const name = meta?.original_name?.trim();
+  const ext = EXTENSIONS[type];
+  if (name) return !ext || /\.[a-z0-9]{2,5}$/i.test(name) ? name : `${name}.${ext}`;
+  return `attachment.${ext ?? "bin"}`;
 }

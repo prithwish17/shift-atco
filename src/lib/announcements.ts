@@ -135,3 +135,15 @@ export function expiryLabel(expiresAt: string, now = new Date()): string {
   if (days === 1) return "Expires tomorrow";
   return `Expires in ${days} days`;
 }
+
+/**
+ * Whether the user has hidden this announcement. An announcement edited after
+ * it was hidden counts as not hidden, so the update is seen.
+ */
+export function isAnnouncementHidden(
+  a: Pick<Announcement, "updated_at">,
+  dismissedAt: string | undefined,
+): boolean {
+  if (!dismissedAt) return false;
+  return new Date(dismissedAt).getTime() >= new Date(a.updated_at).getTime();
+}

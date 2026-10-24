@@ -4,6 +4,7 @@
  *   POST   /api/storage/announcement-attachment   multipart: file + announcement_id
  *   DELETE /api/storage/announcement-attachment?announcement_id=…
  *   GET    /api/storage/announcement-attachment-url?announcement_id=…
+ *   GET    /api/storage/announcement-attachment-file?announcement_id=…
  *
  * Files are private, under announcements/<id>/, and viewed through a
  * five-minute signed URL. Uploads count against the "announcement" storage
@@ -23,7 +24,7 @@ import {
 } from "../apiAuth.js";
 import { optimizeDocumentImage } from "../imageOptimizer.js";
 import { checkContentLength, parseMultipartRequest } from "../multipart.js";
-import { deleteObject, getPresignedGetUrl, putObject } from "../r2.js";
+import { deleteObject, getObjectBytes, getPresignedGetUrl, putObject } from "../r2.js";
 import { StorageQuotaError, sendStorageLimit } from "../storageQuota.js";
 
 // Vercel Hobby's body limit is 4.5 MB; leave headroom.
@@ -212,6 +213,45 @@ export async function urlHandler(req: VercelRequest, res: VercelResponse) {
     } catch (err) {
         console.error("[announcement-attachment-url] presign failed", err);
         return res.status(502).json({ error: "Failed to create the download link" });
+    }
+}
+
+/**
+ * The file itself, for the share button: the Web Share API needs the bytes in
+ * the browser, and serving them from here avoids a CORS rule on the bucket.
+ * Uploads are capped at 4 MB, so the response stays under Vercel's 4.5 MB.
+ */
+export async function fileHandler(req: VercelRequest, res: VercelResponse) {
+    if (handleCorsPreflight(req, res, "GET, OPTIONS")) return;
+    setCorsHeaders(req, res);
+
+    if (req.method !== "GET") {
+        res.setHeader("Allow", "GET, OPTIONS");
+        return res.status(405).json({ error: "Method not allowed" });
+    }
+
+    const user = await authenticateRequest(req, res);
+    if (!user) return;
+
+    const announcementId = String(req.query.announcement_id ?? "").trim();
+    if (!UUID_RE.test(announcementId)) {
+        return res.status(400).json({ error: "Missing or invalid announcement_id" });
+    }
+
+    // Same visibility as the signed URL: RLS decides.
+    const row = await loadAttachmentRow(user, announcementId);
+    if (row === "error") return res.status(502).json({ error: "Could not look up the announcement" });
+    if (!row?.attachment_path) return res.status(404).json({ error: "No attachment" });
+
+    try {
+        const { body, contentType } = await getObjectBytes(row.attachment_path);
+        res.setHeader("Content-Type", contentType || "application/octet-stream");
+        res.setHeader("Content-Length", String(body.byteLength));
+        res.setHeader("Cache-Control", "private, no-store");
+        return res.status(200).send(body);
+    } catch (err) {
+        console.error("[announcement-attachment-file] read failed", err);
+        return res.status(502).json({ error: "Failed to read the attachment" });
     }
 }
 
