@@ -26,6 +26,8 @@ import { buildCompOffAllocationCandidates, allocateCompOffCandidates } from '@/l
 import { CompOffPicker } from '@/components/leave/CompOffPicker';
 import { useCompOffCandidates } from '@/hooks/useCompOffCandidates';
 import { LeaveDocumentUpload } from '@/components/upload/LeaveDocumentUpload';
+import { StorageLimitDialog } from '@/components/storage/StorageLimitDialog';
+import { STORAGE_LIMIT_STATUS, useInvalidateStorageStatus, useUploadsAllowed } from '@/hooks/useStorageStatus';
 
 function getBalanceBucket(leaveType: string): 'cl' | 'rh' | 'comp_off' | null {
   if (!leaveType) return null;
@@ -200,6 +202,9 @@ export default function LeaveApplication() {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [uploadTarget, setUploadTarget] = useState<{ id: string; employee_name: string } | null>(null);
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const uploadsAllowed = useUploadsAllowed('all');
+  const invalidateStorageStatus = useInvalidateStorageStatus();
+  const [storageLimitOpen, setStorageLimitOpen] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
 
   // Auto-calculate total days
@@ -586,7 +591,7 @@ export default function LeaveApplication() {
             const fd = new FormData();
             fd.append('file', attachmentFile);
             fd.append('leave_request_id', result.id);
-            const uploadResp = await fetch('/api/upload/leave-document', {
+            const uploadResp = await fetch('/api/storage/leave-document', {
               method: 'POST',
               headers: { 'Authorization': `Bearer ${session.access_token}` },
               body: fd,
@@ -599,6 +604,10 @@ export default function LeaveApplication() {
                 const errJson = await uploadResp.json();
                 errMsg = errJson.error || errJson.details || errMsg;
               } catch { /* ignore parse error */ }
+              if (uploadResp.status === STORAGE_LIMIT_STATUS) {
+                setStorageLimitOpen(true);
+                invalidateStorageStatus();
+              }
               console.error('[LeaveApplication] document upload failed', uploadResp.status, errMsg);
               toast.error(`Leave submitted but document upload failed: ${errMsg}`);
             }
@@ -1124,10 +1133,19 @@ export default function LeaveApplication() {
                       </Button>
                     </div>
                   ) : (
-                    <label className="mt-2 flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50/50 px-2.5 py-2 transition hover:border-sky-300 hover:bg-sky-50/50 dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-sky-800 dark:hover:bg-sky-950/20 sm:mt-3 sm:gap-2.5 sm:rounded-xl sm:px-3 sm:py-2.5">
+                    <label
+                      onClick={(e) => {
+                        if (!uploadsAllowed) {
+                          e.preventDefault();
+                          setStorageLimitOpen(true);
+                        }
+                      }}
+                      className="mt-2 flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50/50 px-2.5 py-2 transition hover:border-sky-300 hover:bg-sky-50/50 dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-sky-800 dark:hover:bg-sky-950/20 sm:mt-3 sm:gap-2.5 sm:rounded-xl sm:px-3 sm:py-2.5">
                       <Paperclip className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500 sm:h-5 sm:w-5" />
                       <div className="min-w-0">
-                        <span className="text-xs font-medium text-slate-700 dark:text-slate-200 sm:text-[13px]">Click to select a file</span>
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-200 sm:text-[13px]">
+                          {uploadsAllowed ? 'Click to select a file' : 'Uploads paused: storage is full'}
+                        </span>
                         <span className="ml-1.5 text-[10px] text-slate-400 dark:text-slate-500 sm:ml-2 sm:text-[12px]">PDF/JPG/PNG/WebP, max 4 MB</span>
                       </div>
                       <input
@@ -1385,6 +1403,7 @@ export default function LeaveApplication() {
           </DialogContent>
         </Dialog>
       </div>
+      <StorageLimitDialog open={storageLimitOpen} onOpenChange={setStorageLimitOpen} scope="all" />
     </DashboardLayout>
   );
 }

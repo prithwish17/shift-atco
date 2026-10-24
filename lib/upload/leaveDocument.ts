@@ -6,10 +6,11 @@ import {
     handleCorsPreflight,
     setCorsHeaders,
     supabaseUserFetch,
-} from "../../lib/apiAuth.js";
-import { parseMultipartRequest, checkContentLength } from "../../lib/multipart.js";
-import { putObject } from "../../lib/r2.js";
-import { optimizeDocumentImage } from "../../lib/imageOptimizer.js";
+} from "../apiAuth.js";
+import { parseMultipartRequest, checkContentLength } from "../multipart.js";
+import { putObject } from "../r2.js";
+import { StorageQuotaError, sendStorageLimit } from "../storageQuota.js";
+import { optimizeDocumentImage } from "../imageOptimizer.js";
 
 // Vercel Hobby's body limit is 4.5 MB; leave headroom.
 const MAX_LEAVE_BYTES = 4 * 1024 * 1024;
@@ -24,13 +25,9 @@ const ACCEPTED_MIMES = new Map<string, string>([
 
 const PDF_MAGIC = Buffer.from([0x25, 0x50, 0x44, 0x46]); // %PDF
 
-export const config = {
-    api: {
-        bodyParser: false,
-    },
-};
+// bodyParser is switched off in api/storage/[...route].ts, which serves this.
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export async function handler(req: VercelRequest, res: VercelResponse) {
     if (handleCorsPreflight(req, res, "POST, OPTIONS")) return;
     setCorsHeaders(req, res);
 
@@ -120,6 +117,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     try {
         await putObject(key, uploadBuffer, finalMime, {
+            quotaScope: "leave_document",
             cacheControl: "private, max-age=300",
             contentDisposition: file.originalName
                 ? `inline; filename="${sanitiseFilename(file.originalName)}"`
@@ -131,6 +129,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
         console.log("[leave-document] Step 2 OK: R2 upload succeeded");
     } catch (err) {
+        if (err instanceof StorageQuotaError) return sendStorageLimit(res, err);
         console.error("[leave-document] Step 2 FAILED: R2 put failed", err);
         return res.status(502).json({ error: "Failed to store document" });
     }

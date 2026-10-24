@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { useR2Upload } from "@/hooks/useR2Upload";
+import { STORAGE_LIMIT_STATUS, useInvalidateStorageStatus, useUploadsAllowed } from "@/hooks/useStorageStatus";
+import { StorageLimitDialog } from "@/components/storage/StorageLimitDialog";
 import { supabase } from "@/integrations/supabase/client";
 import { FileDropzone } from "./FileDropzone";
 
@@ -62,6 +64,9 @@ export function LeaveDocumentUpload({
 
     const [previewLoading, setPreviewLoading] = useState(false);
     const [localError, setLocalError] = useState<string | null>(null);
+    const uploadsAllowed = useUploadsAllowed("all");
+    const invalidateStorageStatus = useInvalidateStorageStatus();
+    const [limitOpen, setLimitOpen] = useState(false);
 
     useEffect(() => () => cancel(), [cancel]);
 
@@ -69,6 +74,10 @@ export function LeaveDocumentUpload({
         async (file: File) => {
             setLocalError(null);
 
+            if (!uploadsAllowed) {
+                setLimitOpen(true);
+                return;
+            }
             if (!ACCEPTED_MIMES.has(file.type.toLowerCase())) {
                 setLocalError("Only PDF, JPG, PNG or WebP files are accepted");
                 return;
@@ -78,10 +87,14 @@ export function LeaveDocumentUpload({
                 return;
             }
 
-            const result = await upload("/api/upload/leave-document", file, {
+            const result = await upload("/api/storage/leave-document", file, {
                 fields: { leave_request_id: leaveRequestId },
             });
 
+            if (result.status === STORAGE_LIMIT_STATUS) {
+                setLimitOpen(true);
+                invalidateStorageStatus();
+            }
             if (result.ok && result.data) {
                 const data = result.data;
                 setCurrent({
@@ -93,7 +106,7 @@ export function LeaveDocumentUpload({
                 onChange?.(data);
             }
         },
-        [leaveRequestId, onChange, upload],
+        [invalidateStorageStatus, leaveRequestId, onChange, upload, uploadsAllowed],
     );
 
     const handleView = useCallback(async () => {
@@ -134,7 +147,17 @@ export function LeaveDocumentUpload({
 
     return (
         <div className={cn("space-y-2", className)}>
-            {!current && !isUploading && (
+            {!current && !isUploading && !uploadsAllowed && (
+                <button
+                    type="button"
+                    onClick={() => setLimitOpen(true)}
+                    className="w-full rounded-xl border-2 border-dashed border-amber-300 bg-amber-50/60 p-4 text-left text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300"
+                >
+                    Uploads are paused: file storage is full.
+                </button>
+            )}
+
+            {!current && !isUploading && uploadsAllowed && (
                 <FileDropzone
                     accept={ACCEPTED}
                     onFile={handleFile}
@@ -200,6 +223,8 @@ export function LeaveDocumentUpload({
                     Document uploaded
                 </div>
             )}
+
+            <StorageLimitDialog open={limitOpen} onOpenChange={setLimitOpen} scope="all" />
         </div>
     );
 }

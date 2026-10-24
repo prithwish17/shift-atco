@@ -1,6 +1,8 @@
 import { useState, useRef, forwardRef, useImperativeHandle } from "react";
 import { compressForUpload } from "@/utils/imageCompressorBrowser";
 import { useR2Upload } from "@/hooks/useR2Upload";
+import { STORAGE_LIMIT_STATUS, useInvalidateStorageStatus, useUploadsAllowed } from "@/hooks/useStorageStatus";
+import { StorageLimitDialog } from "@/components/storage/StorageLimitDialog";
 import { cn } from "@/lib/utils";
 import { Camera, Loader2, AlertCircle, User } from "lucide-react";
 
@@ -33,10 +35,19 @@ const ProfilePictureUpload = forwardRef<ProfilePictureUploadHandle, ProfilePictu
         const inputRef = useRef<HTMLInputElement>(null);
 
         const { upload } = useR2Upload<UploadResponse>();
+        const uploadsAllowed = useUploadsAllowed("all");
+        const invalidateStorageStatus = useInvalidateStorageStatus();
+        const [limitOpen, setLimitOpen] = useState(false);
 
-        useImperativeHandle(ref, () => ({
-            openFilePicker: () => inputRef.current?.click(),
-        }));
+        const openFilePicker = () => {
+            if (!uploadsAllowed) {
+                setLimitOpen(true);
+                return;
+            }
+            inputRef.current?.click();
+        };
+
+        useImperativeHandle(ref, () => ({ openFilePicker }));
 
         const isLoading = status === "compressing" || status === "uploading";
 
@@ -61,10 +72,14 @@ const ProfilePictureUpload = forwardRef<ProfilePictureUploadHandle, ProfilePictu
                 setPreview(URL.createObjectURL(compressed.blob));
 
                 setStatus("uploading");
-                const result = await upload("/api/upload/profile-picture", compressed.blob, {
+                const result = await upload("/api/storage/profile-picture", compressed.blob, {
                     fields: { employeeId },
                 });
 
+                if (result.status === STORAGE_LIMIT_STATUS) {
+                    setLimitOpen(true);
+                    invalidateStorageStatus();
+                }
                 if (!result.ok || !result.data) {
                     throw new Error(result.error || "Upload failed");
                 }
@@ -87,7 +102,7 @@ const ProfilePictureUpload = forwardRef<ProfilePictureUploadHandle, ProfilePictu
                 <button
                     type="button"
                     disabled={isLoading}
-                    onClick={() => inputRef.current?.click()}
+                    onClick={openFilePicker}
                     className={cn(
                         "relative h-28 w-28 rounded-full overflow-hidden border-[3px] border-border shadow-md",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -140,6 +155,8 @@ const ProfilePictureUpload = forwardRef<ProfilePictureUploadHandle, ProfilePictu
                         {error}
                     </p>
                 )}
+
+                <StorageLimitDialog open={limitOpen} onOpenChange={setLimitOpen} scope="all" />
             </div>
         );
     },

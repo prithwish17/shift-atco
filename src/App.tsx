@@ -41,6 +41,7 @@ const EmailLogs = lazy(() => import("./pages/admin/EmailLogs"));
 const CronJobs = lazy(() => import("./pages/admin/CronJobs"));
 const CacheMonitoring = lazy(() => import("./pages/admin/CacheMonitoring"));
 const FeedbackInbox = lazy(() => import("./pages/admin/FeedbackInbox"));
+const Announcements = lazy(() => import("./pages/Announcements"));
 
 // Supervisor
 const SupervisorDashboard = lazy(() => import("./pages/supervisor/SupervisorDashboard"));
@@ -318,6 +319,7 @@ function App() {
                     {/* Night Channel Allocation — one route for everyone. The WSO and
                         anyone on that night's shift have identical rights here. */}
                     <Route path="/night-allocation" element={<ProtectedRoute allowedRoles={['employee', 'admin', 'supervisor', 'wso']}><NightChannelAllocation /></ProtectedRoute>} />
+                    <Route path="/announcements" element={<ProtectedRoute allowedRoles={['admin', 'supervisor']}><Announcements /></ProtectedRoute>} />
 
                     {/* Admin Routes */}
                     <Route path="/admin" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />

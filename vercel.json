@@ -1,9 +1,11 @@
 {
+  "crons": [
+    { "path": "/api/storage/reconcile", "schedule": "30 20 * * *" }
+  ],
   "functions": {
     "api/supabase/*.ts": { "maxDuration": 60 },
     "api/functions/*.ts": { "maxDuration": 60 },
-    "api/upload/profile-picture.ts": { "maxDuration": 30 },
-    "api/upload/leave-document.ts": { "maxDuration": 30 },
+    "api/storage/*.ts": { "maxDuration": 60 },
     "api/leave/*.ts": { "maxDuration": 30 },
     "api/working-hours.ts": { "maxDuration": 60 },
     "api/metrics.ts": { "maxDuration": 30 },
@@ -68,6 +70,14 @@
     {
       "source": "/api/leave-sheet-push",
       "destination": "/api/leave/[...route]?route=sheet-push"
+    },
+    {
+      "source": "/api/upload/leave-document",
+      "destination": "/api/storage/[...route]?route=leave-document"
+    },
+    {
+      "source": "/api/upload/profile-picture",
+      "destination": "/api/storage/[...route]?route=profile-picture"
     },
     {
       "source": "/api/night-allocation/(.*)",

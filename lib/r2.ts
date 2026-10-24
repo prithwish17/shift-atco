@@ -4,8 +4,11 @@ import {
     DeleteObjectCommand,
     GetObjectCommand,
     HeadObjectCommand,
+    ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+
+import { releaseUpload, reserveUpload, type QuotaScope } from "./storageQuota.js";
 
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID;
 const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
@@ -40,6 +43,11 @@ export const r2 = new S3Client({
 });
 
 export interface PutObjectOpts {
+    /**
+     * Which storage-limit level this upload counts against. Every write is
+     * checked against the free-tier quota first; see lib/storageQuota.ts.
+     */
+    quotaScope: QuotaScope;
     cacheControl?: string;
     contentDisposition?: string;
     metadata?: Record<string, string>;
@@ -47,32 +55,105 @@ export interface PutObjectOpts {
 
 const DEFAULT_CACHE_PUBLIC = "public, max-age=31536000, immutable";
 
+/**
+ * Write an object. Throws StorageQuotaError (lib/storageQuota.ts) before
+ * touching the bucket when the upload would cross the free-tier limit.
+ */
 export async function putObject(
     key: string,
     body: Buffer,
     contentType: string,
-    opts: PutObjectOpts = {},
+    opts: PutObjectOpts,
 ): Promise<void> {
-    await r2.send(
-        new PutObjectCommand({
-            Bucket: R2_BUCKET,
-            Key: key,
-            Body: body,
-            ContentType: contentType,
-            CacheControl: opts.cacheControl ?? DEFAULT_CACHE_PUBLIC,
-            ContentDisposition: opts.contentDisposition,
-            Metadata: opts.metadata,
-        }),
-    );
+    const reserved = await reserveUpload(body.byteLength, opts.quotaScope);
+
+    try {
+        await r2.send(
+            new PutObjectCommand({
+                Bucket: R2_BUCKET,
+                Key: key,
+                Body: body,
+                ContentType: contentType,
+                CacheControl: opts.cacheControl ?? DEFAULT_CACHE_PUBLIC,
+                ContentDisposition: opts.contentDisposition,
+                Metadata: opts.metadata,
+            }),
+        );
+    } catch (err) {
+        if (reserved) await releaseUpload(body.byteLength);
+        throw err;
+    }
 }
 
-export async function deleteObject(key: string): Promise<void> {
+/**
+ * Delete an object and give its bytes back to the storage quota. Pass
+ * `{ releaseQuota: false }` when the caller recounts the bucket itself.
+ */
+export async function deleteObject(
+    key: string,
+    opts: { releaseQuota?: boolean } = {},
+): Promise<void> {
+    const releaseQuota = opts.releaseQuota ?? true;
+    const size = releaseQuota ? await objectSize(key) : null;
+
     await r2.send(
         new DeleteObjectCommand({
             Bucket: R2_BUCKET,
             Key: key,
         }),
     );
+
+    if (size) await releaseUpload(size);
+}
+
+async function objectSize(key: string): Promise<number | null> {
+    try {
+        const head = await r2.send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+        return head.ContentLength ?? null;
+    } catch {
+        return null;
+    }
+}
+
+export interface ListedObject {
+    key: string;
+    size: number;
+    lastModified: Date | null;
+}
+
+/**
+ * List every object in the bucket. Each page of up to 1,000 keys is one
+ * Class A operation; `listCalls` reports how many were made.
+ */
+export async function listAllObjects(prefix?: string): Promise<{ objects: ListedObject[]; listCalls: number }> {
+    const objects: ListedObject[] = [];
+    let listCalls = 0;
+    let token: string | undefined;
+
+    do {
+        const page = await r2.send(
+            new ListObjectsV2Command({
+                Bucket: R2_BUCKET,
+                Prefix: prefix,
+                ContinuationToken: token,
+                MaxKeys: 1000,
+            }),
+        );
+        listCalls += 1;
+
+        for (const item of page.Contents ?? []) {
+            if (!item.Key) continue;
+            objects.push({
+                key: item.Key,
+                size: item.Size ?? 0,
+                lastModified: item.LastModified ?? null,
+            });
+        }
+
+        token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+
+    return { objects, listCalls };
 }
 
 export async function objectExists(key: string): Promise<boolean> {

@@ -154,8 +154,8 @@ export function useR2Upload<TResponse = unknown>() {
                         return { ok: true, status: httpStatus, data };
                     }
 
-                    // 4xx -> do not retry; surface to caller.
-                    if (httpStatus >= 400 && httpStatus < 500) {
+                    // 4xx, or 507 (storage limit reached) -> do not retry; surface to caller.
+                    if ((httpStatus >= 400 && httpStatus < 500) || httpStatus === 507) {
                         const msg = parseErrorBody(body) ?? `Upload failed (${httpStatus})`;
                         setStatus("error");
                         setError(msg);
