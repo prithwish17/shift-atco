@@ -152,6 +152,7 @@ export default function Announcements() {
                           expiresAt={a.expires_at}
                           hasAttachment={Boolean(a.attachment_path)}
                           attachmentMeta={a.attachment_meta}
+                          demoVideo={a.demo_video}
                         />
                         <div className="flex flex-wrap items-center justify-between gap-2 px-1">
                           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

@@ -9,6 +9,7 @@ import {
   type AnnouncementAttachmentMeta,
   type AnnouncementPriority,
 } from "@/lib/announcements";
+import { DemoVideo } from "./DemoVideo";
 
 const TONES: Record<
   AnnouncementPriority,
@@ -54,6 +55,8 @@ export interface AnnouncementCardProps {
   attachmentMeta?: AnnouncementAttachmentMeta | null;
   /** Shown in place of the attachment name, e.g. for a file not yet uploaded. */
   pendingAttachmentName?: string | null;
+  /** Show the quick demo video under the text. */
+  demoVideo?: boolean;
   className?: string;
 }
 
@@ -70,6 +73,7 @@ export function AnnouncementCard({
   hasAttachment,
   attachmentMeta,
   pendingAttachmentName,
+  demoVideo,
   className,
 }: AnnouncementCardProps) {
   const tone = TONES[priority];
@@ -129,6 +133,8 @@ export function AnnouncementCard({
           >
             {body}
           </p>
+
+          {demoVideo && <DemoVideo linkClassName={tone.title} />}
 
           <div className="mt-2 flex flex-wrap items-center gap-3">
             {(overflows || expanded) && (

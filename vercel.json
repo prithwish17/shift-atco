@@ -84,6 +84,10 @@
       "destination": "/api/night-allocation/[...route]?route=$1"
     },
     {
+      "source": "/demo",
+      "destination": "/demo/index.html"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

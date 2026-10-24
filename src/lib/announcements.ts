@@ -23,6 +23,8 @@ export interface Announcement {
   ended_at: string | null;
   attachment_path: string | null;
   attachment_meta: AnnouncementAttachmentMeta | null;
+  /** Plays the quick demo video of the web app. */
+  demo_video: boolean;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -35,6 +37,31 @@ export const ANNOUNCEMENT_BODY_MAX = 500;
 export const ANNOUNCEMENT_MAX_DAYS = 30;
 /** How many announcements the dashboard banner shows before "View all". */
 export const ANNOUNCEMENT_BANNER_LIMIT = 3;
+
+/**
+ * The quick demo video of the web app. The files are static (public/demo/),
+ * and the public page at /demo carries the link preview WhatsApp and others
+ * show. The same wording is in public/demo/index.html: change both together.
+ */
+export const DEMO_VIDEO = {
+  src: "/demo/atcora-employee-guide.mp4",
+  poster: "/demo/poster.jpg",
+  pagePath: "/demo",
+  shareTitle: "Atcora: quick demo",
+} as const;
+
+/**
+ * The message sent with a share. Atcora has no Play Store app, so it says to
+ * open the web app in a browser and gives the link.
+ */
+export function demoShareText(appUrl: string): string {
+  return [
+    "Atcora: quick demo (47 sec). Duty overview, shift roster, leave and comp-off balance, and license status.",
+    "",
+    "Note: Atcora is a web app. It is only available in the browser, not on the Play Store.",
+    `Open it in your browser: ${appUrl}`,
+  ].join("\n");
+}
 
 export const ANNOUNCEMENT_EXPIRY_PRESETS = [1, 3, 7, 14, 30] as const;
 

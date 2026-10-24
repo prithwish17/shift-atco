@@ -32,6 +32,7 @@ export function AnnouncementBanner() {
           expiresAt={a.expires_at}
           hasAttachment={Boolean(a.attachment_path)}
           attachmentMeta={a.attachment_meta}
+          demoVideo={a.demo_video}
         />
       ))}
 
@@ -61,6 +62,7 @@ export function AnnouncementBanner() {
                 expiresAt={a.expires_at}
                 hasAttachment={Boolean(a.attachment_path)}
                 attachmentMeta={a.attachment_meta}
+                demoVideo={a.demo_video}
               />
             ))}
           </div>

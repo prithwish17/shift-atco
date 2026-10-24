@@ -12,7 +12,7 @@ const LIVE_KEY = [...ANNOUNCEMENTS_KEY, "live"];
 const ALL_KEY = [...ANNOUNCEMENTS_KEY, "all"];
 
 const COLUMNS =
-  "id,title,body,priority,starts_at,expires_at,ended_at,attachment_path,attachment_meta,created_by,updated_by,created_at,updated_at";
+  "id,title,body,priority,starts_at,expires_at,ended_at,attachment_path,attachment_meta,demo_video,created_by,updated_by,created_at,updated_at";
 
 /** Live announcements for the employee dashboard. */
 export function useLiveAnnouncements() {
@@ -77,6 +77,7 @@ export interface AnnouncementInput {
   priority: AnnouncementPriority;
   starts_at: string;
   expires_at: string;
+  demo_video: boolean;
 }
 
 function useInvalidate() {

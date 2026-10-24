@@ -52,6 +52,9 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET, API calls, and Supabase traffic
   if (request.method !== 'GET') return;
   if (url.pathname.startsWith('/api/') || url.origin.includes('supabase')) return;
+  // The guide video is streamed with range requests; caching it would store
+  // megabytes and break seeking. Leave /demo/ files to the browser.
+  if (url.pathname.startsWith('/demo/')) return;
 
   // ── Navigation requests → ALWAYS network-first ──
   // This guarantees the browser gets the latest index.html (with fresh asset hashes)
