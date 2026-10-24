@@ -18,6 +18,7 @@ Supervisors and admins post short notices that appear at the top of the employee
 - **Expiry** needs no job. An announcement is shown while `starts_at <= now() < expires_at` and `ended_at` is null.
 - **End now** sets `ended_at`. The row stays in the Ended tab as history.
 - **Delete** removes the row. An admin's delete also removes the file straight away. A file left behind by any other delete is removed by the nightly reconcile once it is more than a day old.
+- **Hiding after reading:** each employee can press × on an announcement to hide it for themselves. This is stored per user in `announcement_dismissals`, so it applies on every device. "View all" still lists hidden announcements with "Show again". If the announcement is edited after someone hid it, it comes back for them so the change is read. Migration: `supabase/migrations/20261024100000_announcement_dismissals.sql`.
 - **Expired announcements keep their files.** Delete the announcement to free the space.
 - **Share** sits next to the attachment. Where the browser can share files (most phones), it opens the system share sheet with the file, title and text, so it can go to WhatsApp, Telegram, Mail and so on. Elsewhere it opens WhatsApp with the text and downloads the file to attach. **Download** saves the file.
 

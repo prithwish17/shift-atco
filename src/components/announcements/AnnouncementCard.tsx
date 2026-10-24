@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { AlertTriangle, Download, Info, Loader2, Megaphone, MessageCircle, Paperclip, Share2 } from "lucide-react";
+import { AlertTriangle, Download, Eye, Info, Loader2, Megaphone, MessageCircle, Paperclip, Share2, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -88,6 +88,10 @@ export interface AnnouncementCardProps {
   attachmentMeta?: AnnouncementAttachmentMeta | null;
   /** Shown in place of the attachment name, e.g. for a file not yet uploaded. */
   pendingAttachmentName?: string | null;
+  /** Shows a × that hides the announcement for this user. */
+  onHide?: () => void;
+  /** Marks the card as hidden and offers "Show again". */
+  onShowAgain?: () => void;
   className?: string;
 }
 
@@ -104,6 +108,8 @@ export function AnnouncementCard({
   hasAttachment,
   attachmentMeta,
   pendingAttachmentName,
+  onHide,
+  onShowAgain,
   className,
 }: AnnouncementCardProps) {
   const tone = TONES[priority];
@@ -199,8 +205,19 @@ export function AnnouncementCard({
   const handleDownload = () => withFile(downloadFile);
 
   return (
-    <div className={cn("rounded-xl border p-4 md:p-5", tone.wrap, className)}>
-      <div className="flex items-start gap-3">
+    <div className={cn("relative rounded-xl border p-4 md:p-5", tone.wrap, onShowAgain && "opacity-70", className)}>
+      {onHide && (
+        <button
+          type="button"
+          onClick={onHide}
+          className="absolute right-2.5 top-2.5 flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10"
+          aria-label={`Hide announcement: ${title}`}
+          title="Hide after reading"
+        >
+          <X className="size-4" />
+        </button>
+      )}
+      <div className={cn("flex items-start gap-3", onHide && "pr-7")}>
         <div className={cn("mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full", tone.bubble)}>
           <tone.Icon className={cn("size-4", tone.icon)} />
         </div>
@@ -233,6 +250,17 @@ export function AnnouncementCard({
                 aria-expanded={expanded}
               >
                 {expanded ? "Show less" : "Show more"}
+              </button>
+            )}
+
+            {onShowAgain && (
+              <button
+                type="button"
+                onClick={onShowAgain}
+                className={cn("inline-flex items-center gap-1 text-xs font-semibold underline-offset-2 hover:underline", tone.title)}
+              >
+                <Eye className="size-3.5" />
+                Hidden · Show again
               </button>
             )}
 

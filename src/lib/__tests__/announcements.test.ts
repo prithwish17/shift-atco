@@ -5,6 +5,7 @@ import {
   announcementState,
   computeExpiry,
   expiryLabel,
+  isAnnouncementHidden,
   sortAnnouncements,
   validateAnnouncementDraft,
 } from "../announcements";
@@ -82,5 +83,21 @@ describe("expiryLabel", () => {
     expect(expiryLabel(new Date(2026, 9, 24, 8, 0).toISOString(), now)).toBe("Expires tomorrow");
     expect(expiryLabel(new Date(2026, 9, 28, 8, 0).toISOString(), now)).toBe("Expires in 5 days");
     expect(expiryLabel(new Date(2026, 9, 22).toISOString(), now)).toBe("Expired");
+  });
+});
+
+describe("isAnnouncementHidden", () => {
+  const a = { updated_at: "2026-10-20T10:00:00Z" };
+
+  it("is visible when never hidden", () => {
+    expect(isAnnouncementHidden(a, undefined)).toBe(false);
+  });
+
+  it("stays hidden when hidden after the last edit", () => {
+    expect(isAnnouncementHidden(a, "2026-10-21T08:00:00Z")).toBe(true);
+  });
+
+  it("comes back when edited after it was hidden", () => {
+    expect(isAnnouncementHidden({ updated_at: "2026-10-22T09:00:00Z" }, "2026-10-21T08:00:00Z")).toBe(false);
   });
 });

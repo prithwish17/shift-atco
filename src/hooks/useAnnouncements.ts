@@ -187,6 +187,76 @@ export async function openAnnouncementAttachment(id: string): Promise<void> {
   }
 }
 
+// ── Hiding announcements after reading (employee dashboard) ────────────────
+// See supabase/migrations/20261024100000_announcement_dismissals.sql.
+
+export type DismissalMap = Map<string, string>; // announcement id → dismissed_at
+
+const dismissalsKey = (userId: string | undefined) => ["announcement-dismissals", userId ?? "anonymous"];
+
+/** The signed-in user's hidden announcements. Empty if the lookup fails, so nothing is hidden by mistake. */
+export function useMyAnnouncementDismissals(userId: string | undefined) {
+  return useQuery({
+    queryKey: dismissalsKey(userId),
+    enabled: Boolean(userId),
+    queryFn: async (): Promise<DismissalMap> => {
+      const { data, error } = await db
+        .from("announcement_dismissals")
+        .select("announcement_id, dismissed_at")
+        .eq("user_id", userId);
+      if (error) throw error;
+      return new Map(
+        ((data ?? []) as Array<{ announcement_id: string; dismissed_at: string }>).map((r) => [
+          r.announcement_id,
+          r.dismissed_at,
+        ]),
+      );
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Hide (`hidden: true`) or show again (`hidden: false`) one announcement, updating the banner at once. */
+export function useSetAnnouncementHidden(userId: string | undefined) {
+  const queryClient = useQueryClient();
+  const key = dismissalsKey(userId);
+
+  return useMutation({
+    mutationFn: async ({ id, hidden }: { id: string; hidden: boolean }) => {
+      if (!userId) throw new Error("Not signed in");
+      if (hidden) {
+        const { error } = await db
+          .from("announcement_dismissals")
+          .upsert(
+            { announcement_id: id, user_id: userId, dismissed_at: new Date().toISOString() },
+            { onConflict: "announcement_id,user_id" },
+          );
+        if (error) throw error;
+      } else {
+        const { error } = await db
+          .from("announcement_dismissals")
+          .delete()
+          .eq("announcement_id", id)
+          .eq("user_id", userId);
+        if (error) throw error;
+      }
+    },
+    onMutate: async ({ id, hidden }) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<DismissalMap>(key);
+      const next = new Map(previous ?? []);
+      if (hidden) next.set(id, new Date().toISOString());
+      else next.delete(id);
+      queryClient.setQueryData(key, next);
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      queryClient.setQueryData(key, context?.previous ?? new Map());
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: key }),
+  });
+}
+
 /** The attachment as a File, ready for the Web Share API or a download. */
 export async function fetchAnnouncementAttachmentFile(
   id: string,
