@@ -84,7 +84,8 @@ export interface AnnouncementCardProps {
   title: string;
   body: string;
   priority: AnnouncementPriority;
-  expiresAt: string;
+  /** Omitted for the built-in demo card, which never expires. */
+  expiresAt?: string;
   hasAttachment?: boolean;
   attachmentMeta?: AnnouncementAttachmentMeta | null;
   /** Shown in place of the attachment name, e.g. for a file not yet uploaded. */
@@ -231,7 +232,7 @@ export function AnnouncementCard({
             <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", tone.badge)}>
               {ANNOUNCEMENT_PRIORITY_LABELS[priority]}
             </span>
-            <span className="text-[11px] text-muted-foreground">{expiryLabel(expiresAt)}</span>
+            {expiresAt && <span className="text-[11px] text-muted-foreground">{expiryLabel(expiresAt)}</span>}
           </div>
 
           <p
