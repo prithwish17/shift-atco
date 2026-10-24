@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useR2Upload } from "@/hooks/useR2Upload";
@@ -71,6 +72,7 @@ export function AnnouncementForm({ userId, isAdmin, editing, onDone }: Announcem
   const [startLocal, setStartLocal] = useState(() => toLocalInput(new Date()));
   const [expiryChoice, setExpiryChoice] = useState<ExpiryChoice>("7");
   const [customDate, setCustomDate] = useState("");
+  const [demoVideo, setDemoVideo] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [removeExisting, setRemoveExisting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +93,7 @@ export function AnnouncementForm({ userId, isAdmin, editing, onDone }: Announcem
       setStartLocal(toLocalInput(new Date(editing.starts_at)));
       setExpiryChoice("custom");
       setCustomDate(format(new Date(editing.expires_at), "yyyy-MM-dd"));
+      setDemoVideo(editing.demo_video);
     } else {
       setTitle("");
       setBody("");
@@ -99,6 +102,7 @@ export function AnnouncementForm({ userId, isAdmin, editing, onDone }: Announcem
       setStartLocal(toLocalInput(new Date()));
       setExpiryChoice("7");
       setCustomDate("");
+      setDemoVideo(false);
     }
   }, [editing]);
 
@@ -159,6 +163,7 @@ export function AnnouncementForm({ userId, isAdmin, editing, onDone }: Announcem
       priority,
       starts_at: startsAt.toISOString(),
       expires_at: expiresAt.toISOString(),
+      demo_video: demoVideo,
     };
 
     try {
@@ -319,6 +324,17 @@ export function AnnouncementForm({ userId, isAdmin, editing, onDone }: Announcem
           </p>
         </div>
 
+        <div className="flex items-start gap-3 rounded-lg border p-3">
+          <Switch id="announcement-demo-video" checked={demoVideo} onCheckedChange={setDemoVideo} />
+          <div className="space-y-0.5">
+            <Label htmlFor="announcement-demo-video">Show the quick demo video</Label>
+            <p className="text-[11px] text-muted-foreground">
+              Plays the 47-second demo of the web app with a Share button. The shared message says Atcora works in the
+              browser only, not from the Play Store, and gives the link.
+            </p>
+          </div>
+        </div>
+
         {isAdmin && (
           <div className="space-y-1.5">
             <Label>Attachment (optional, admins only)</Label>
@@ -395,6 +411,7 @@ export function AnnouncementForm({ userId, isAdmin, editing, onDone }: Announcem
           priority={priority}
           expiresAt={Number.isNaN(expiresAt.getTime()) ? new Date(Date.now() + 86_400_000).toISOString() : expiresAt.toISOString()}
           pendingAttachmentName={previewAttachmentName}
+          demoVideo={demoVideo}
         />
       </div>
 

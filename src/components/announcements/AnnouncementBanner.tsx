@@ -65,6 +65,7 @@ export function AnnouncementBanner() {
           expiresAt={a.expires_at}
           hasAttachment={Boolean(a.attachment_path)}
           attachmentMeta={a.attachment_meta}
+          demoVideo={a.demo_video}
           onHide={user ? () => hide(a.id, a.title) : undefined}
         />
       ))}
@@ -99,6 +100,7 @@ export function AnnouncementBanner() {
                   expiresAt={a.expires_at}
                   hasAttachment={Boolean(a.attachment_path)}
                   attachmentMeta={a.attachment_meta}
+                  demoVideo={a.demo_video}
                   onHide={user && !hidden ? () => hide(a.id, a.title) : undefined}
                   onShowAgain={hidden ? () => showAgain(a.id) : undefined}
                 />
