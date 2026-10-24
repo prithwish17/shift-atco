@@ -185,6 +185,17 @@ export async function getPresignedGetUrl(key: string, ttlSeconds = 300): Promise
 }
 
 /**
+ * Read a private object into memory. Only for small files: the caller sends
+ * the bytes back in one response, which Vercel caps at 4.5 MB.
+ */
+export async function getObjectBytes(key: string): Promise<{ body: Buffer; contentType?: string }> {
+    const out = await r2.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+    if (!out.Body) throw new Error(`Empty body for ${key}`);
+    const bytes = await out.Body.transformToByteArray();
+    return { body: Buffer.from(bytes), contentType: out.ContentType };
+}
+
+/**
  * Build the public URL for a public object (e.g. profile picture).
  * Returns the key prefixed with the public base; do NOT use this for private docs.
  */
