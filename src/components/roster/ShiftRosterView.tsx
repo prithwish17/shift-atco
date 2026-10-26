@@ -22,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import RosterGrid from "@/components/roster/RosterGrid";
 import RosterComingSoon, { ROSTER_COMING_SOON_MESSAGE } from "@/components/roster/RosterComingSoon";
+import RosterProvisionalNotice from "@/components/roster/RosterProvisionalNotice";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRosterVisibility } from "@/hooks/useRosterPublication";
 import { useShiftRoster } from "@/hooks/useShiftRoster";
@@ -337,6 +338,8 @@ export default function ShiftRosterView({ actions, description, hideHeaderTitle,
     // `crisp-borders` is not a layout hook — it lifts the dark theme's border
     // tokens for this page so the grid's 1px rules stay visible (see index.css).
     <div className="crisp-borders space-y-3">
+      <RosterProvisionalNotice />
+
       {/* ── Title (Only when not rendered in DashboardLayout header) ── */}
       {!hideHeaderTitle && (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
