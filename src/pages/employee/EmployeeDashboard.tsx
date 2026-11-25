@@ -19,6 +19,7 @@ import { AnnouncementBanner } from "@/components/announcements/AnnouncementBanne
 import { DemoWelcomeCard } from "@/components/announcements/DemoWelcomeCard";
 import { format, addDays, isSameDay, parse, parseISO, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, isAfter, isBefore } from "date-fns";
 import { parseRosterDate } from "@/lib/rosterDate";
+import { dropOffTeamRosterRows } from "@/lib/shiftRoster";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -324,14 +325,16 @@ export default function EmployeeDashboard() {
   const tomorrow = addDays(now, 1);
   const tomorrowStr = format(tomorrow, "yyyy-MM-dd");
 
-  const todayRosters = sortRosterEntriesByShift((myRoster || []).filter(r => {
+  // A sync can leave another team's rows stamped with today's date; the
+  // rotation says which team owns each shift, so those rows are dropped.
+  const todayRosters = sortRosterEntriesByShift(dropOffTeamRosterRows((myRoster || []).filter(r => {
     const d = parseRosterDate(r.date);
     return d && isSameDay(d, now);
-  }));
-  const tomorrowRosters = sortRosterEntriesByShift((myRoster || []).filter(r => {
+  }), today));
+  const tomorrowRosters = sortRosterEntriesByShift(dropOffTeamRosterRows((myRoster || []).filter(r => {
     const d = parseRosterDate(r.date);
     return d && isSameDay(d, tomorrow);
-  }));
+  }), tomorrowStr));
   const todaySchedule = mySchedule.find(s => s.duty_date === today);
   const tomorrowSchedule = mySchedule.find(s => s.duty_date === tomorrowStr);
 
