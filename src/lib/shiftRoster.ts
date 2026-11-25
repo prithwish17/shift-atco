@@ -232,6 +232,40 @@ export function buildShiftRosterFromRosters(entries: RosterEntry[], isoDate: str
   return finalizeDay(groups, isoDate, "rosters");
 }
 
+/**
+ * Drops roster rows that belong to a different team than the one the rotation
+ * puts on that shift.  A sheet sync can leave a previous night's team stamped
+ * with the next day's date (Team A's night of the 24th landing on the 25th),
+ * which would otherwise show two teams under one shift.  The rotation is the
+ * source of truth, so such rows are stale.
+ *
+ * Kept on purpose: General ("G" / blank team), and Extra Duty / Duty Change
+ * rows, which are legitimately staffed from outside the rostered team.
+ * Rows for another date, or whose shift cannot be read, pass through untouched
+ * so the builder's own rules still apply to them.
+ */
+export function dropOffTeamRosterRows(entries: RosterEntry[], isoDate: string): RosterEntry[] {
+  const shiftTeams = getShiftTeamsForDate(isoDate);
+
+  return entries.filter((entry) => {
+    const parsed = parseRosterDate(entry.date);
+    if (!parsed || format(parsed, "yyyy-MM-dd") !== isoDate) return true;
+
+    const shiftCode = toShiftCode(entry.shift);
+    if (!shiftCode) return true;
+
+    const owners = shiftTeams[shiftCode];
+    if (owners.length === 0) return true;
+
+    const team = normalizeTeamKey(entry.team);
+    if (team === "G" || owners.includes(team)) return true;
+
+    // Off-team: only an explicit extra duty / duty change is a real visitor.
+    const bucket = classifyRosterRow(String(entry.unit || ""), String(entry.position || ""));
+    return bucket === "extra" || bucket === "change";
+  });
+}
+
 export interface ScheduleRosterRow {
   employee_code: string | null;
   employee_name: string | null;

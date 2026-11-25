@@ -6,6 +6,7 @@ import { getRosterDateQueryValues } from "@/lib/rosterDate";
 import {
   buildShiftRosterFromRosters,
   buildShiftRosterFromSchedules,
+  dropOffTeamRosterRows,
   type ScheduleRosterRow,
   type ShiftRosterDay,
 } from "@/lib/shiftRoster";
@@ -119,7 +120,7 @@ export function useShiftRoster(isoDate: string) {
     // newly-picked date is worse than a brief skeleton, and the view already
     // renders the shift/team header instantly from the rotation rule.
     queryFn: async () => {
-      const rosterRows = await fetchRosterRowsForDate(isoDate);
+      const rosterRows = dropOffTeamRosterRows(await fetchRosterRowsForDate(isoDate), isoDate);
       const fromRosters = buildShiftRosterFromRosters(rosterRows, isoDate);
       if (fromRosters.totalMembers > 0) return { ...fromRosters, rows: rosterRows };
 

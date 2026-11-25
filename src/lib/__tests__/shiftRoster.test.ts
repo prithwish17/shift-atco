@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { DUTY_ROTATION_ANCHOR_DATE_IST, getTeamDutyForDateKey } from "@/lib/teamDutyRotation";
 import {
   buildShiftRosterFromRosters,
+  dropOffTeamRosterRows,
   buildShiftRosterFromSchedules,
   filterShiftRosterDay,
   getCurrentShiftCode,
@@ -286,5 +287,20 @@ describe("filterShiftRosterDay", () => {
 
   it("returns the day untouched for an empty search", () => {
     expect(filterShiftRosterDay(day, "  ")).toBe(day);
+  });
+});
+
+describe("dropOffTeamRosterRows", () => {
+  it("removes a stale row from the wrong team but keeps the owner, G and extra duty", () => {
+    const rows = [
+      rosterRow({ id: "own", team: "C", employee_name: "Own Team" }),
+      rosterRow({ id: "stale", team: "E", employee_name: "Stale" }),
+      rosterRow({ id: "gen", team: "", employee_name: "General" }),
+      rosterRow({ id: "extra", team: "E", employee_name: "Extra", position: "EXTRA DUTY" }),
+    ];
+
+    const names = dropOffTeamRosterRows(rows, ANCHOR).map((row) => row.employee_name);
+
+    expect(names).toEqual(["Own Team", "General", "Extra"]);
   });
 });
